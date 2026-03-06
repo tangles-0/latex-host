@@ -34,7 +34,6 @@ export default async function GalleryPage({
     getAppSettings(),
   ]);
 
-  console.log("isAdmin", isAdmin);  
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialTab = resolvedSearchParams?.tab === "albums" ? "albums" : "files";
   const pageTitle = initialTab === "albums" ? "ur albums" : "ur gallery";

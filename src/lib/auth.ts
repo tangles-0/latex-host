@@ -48,6 +48,10 @@ async function userExists(userId: string): Promise<boolean> {
   return Boolean(row);
 }
 
+function shouldValidateSessionUserOnEachRequest(): boolean {
+  return process.env.AUTH_VALIDATE_USER_ON_EACH_REQUEST === "true";
+}
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: {
@@ -104,6 +108,10 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
+       if (!shouldValidateSessionUserOnEachRequest()) {
+        return token;
+      }
+
       try {
         const exists = await userExists(token.sub);
         if (!exists) {
@@ -146,11 +154,7 @@ export async function getSessionUserId(): Promise<string | null> {
   try {
     const session = await getServerSession(authOptions);
     const userId = (session?.user as { id?: string } | undefined)?.id;
-    if (!userId) {
-      return null;
-    }
-    const exists = await userExists(userId);
-    return exists ? userId : null;
+    return userId ?? null;
   } catch (error) {
     if (isDatabaseUnavailableError(error)) {
       return null;
