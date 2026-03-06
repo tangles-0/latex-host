@@ -1,0 +1,60 @@
+
+networks:
+  proxy:
+    external: true
+
+services:
+  app:
+    container_name: latex-app
+    build:
+      context: .
+      args:
+        DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+      - RUN_DB_MIGRATIONS_ON_STARTUP=${RUN_DB_MIGRATIONS_ON_STARTUP:-true}
+      - RATE_LIMIT_BACKEND=${RATE_LIMIT_BACKEND:-memory}
+      - RATE_LIMIT_TABLE=${RATE_LIMIT_TABLE:-}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-300000}
+      - RATE_LIMIT_MAX_ATTEMPTS=${RATE_LIMIT_MAX_ATTEMPTS:-20}
+      - BILLING_ROLE_ARN=${BILLING_ROLE_ARN}
+      - BILLING_CE_REGION=${BILLING_CE_REGION:-us-east-1}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - PASSWORD_RESET_TOKEN_TTL_MINUTES=${PASSWORD_RESET_TOKEN_TTL_MINUTES}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - latex_data:/app/data
+    networks:
+      - proxy
+      - default
+  db:
+    container_name: latex-db
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=latex
+      - POSTGRES_USER=latex
+      - POSTGRES_PASSWORD=latex
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U latex -d latex"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - latex_db:/var/lib/postgresql/data
+    networks:
+      - default
+
+volumes:
+  latex_db:
+  latex_data:

@@ -1,0 +1,36 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d": {
+      "displayName": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a/Code",
+      "source": {
+        "path": "asset.2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "307946653879-ap-southeast-2-16afea97": {
+          "bucketName": "cdk-hnb659fds-assets-307946653879-ap-southeast-2",
+          "objectKey": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip",
+          "region": "ap-southeast-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::307946653879:role/cdk-hnb659fds-file-publishing-role-307946653879-ap-southeast-2"
+        }
+      }
+    },
+    "a3b36c421e806b39e4296f52e33aa395c218042ec710464ed1eb07d999b001d9": {
+      "displayName": "latex-prod-data Template",
+      "source": {
+        "path": "latex-prod-data.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "307946653879-ap-southeast-2-4ad0df71": {
+          "bucketName": "cdk-hnb659fds-assets-307946653879-ap-southeast-2",
+          "objectKey": "a3b36c421e806b39e4296f52e33aa395c218042ec710464ed1eb07d999b001d9.json",
+          "region": "ap-southeast-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::307946653879:role/cdk-hnb659fds-file-publishing-role-307946653879-ap-southeast-2"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
