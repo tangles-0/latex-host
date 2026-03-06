@@ -3,6 +3,7 @@ import { getSessionUserId } from "@/lib/auth";
 import { getAppSettings, isAdminUser, updateAppSettings } from "@/lib/metadata-store";
 
 export const runtime = "nodejs";
+const MAX_VERCEL_SAFE_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 
 export async function GET(): Promise<NextResponse> {
   const userId = await getSessionUserId();
@@ -59,10 +60,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   if (
     typeof payload.resumableThresholdBytes === "number" &&
-    (!Number.isFinite(payload.resumableThresholdBytes) || payload.resumableThresholdBytes < 1024 * 1024)
+    (!Number.isFinite(payload.resumableThresholdBytes) ||
+      payload.resumableThresholdBytes < 1024 * 1024 ||
+      payload.resumableThresholdBytes > MAX_VERCEL_SAFE_UPLOAD_THRESHOLD_BYTES)
   ) {
     return NextResponse.json(
-      { error: "Resumable threshold must be at least 1MB." },
+      { error: "Resumable threshold must be between 1MB and 4MB on Vercel." },
       { status: 400 },
     );
   }

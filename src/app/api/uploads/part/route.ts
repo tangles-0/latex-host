@@ -46,17 +46,30 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   let hintedSessionId = request.headers.get("x-upload-session-id")?.trim() ?? "";
   try {
-    const formData = await request.formData();
-    const sessionId = String(formData.get("sessionId") ?? hintedSessionId).trim();
-    hintedSessionId = sessionId || hintedSessionId;
-    const partNumber = Number(formData.get("partNumber") ?? 0);
-    const filePart = formData.get("chunk");
+    const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+    let sessionId = hintedSessionId;
+    let partNumber = Number(request.headers.get("x-upload-part-number") ?? 0);
+    let data: Buffer | null = null;
 
+    if (contentType.startsWith("application/octet-stream")) {
+      data = Buffer.from(await request.arrayBuffer());
+    } else {
+      const formData = await request.formData();
+      sessionId = String(formData.get("sessionId") ?? hintedSessionId).trim();
+      partNumber = Number(formData.get("partNumber") ?? 0);
+      const filePart = formData.get("chunk");
+      if (!(filePart instanceof File)) {
+        return NextResponse.json({ error: "chunk file is required." }, { status: 400 });
+      }
+      data = Buffer.from(await filePart.arrayBuffer());
+    }
+
+    hintedSessionId = sessionId || hintedSessionId;
     if (!sessionId || !Number.isFinite(partNumber) || partNumber <= 0) {
       return NextResponse.json({ error: "sessionId and partNumber are required." }, { status: 400 });
     }
-    if (!(filePart instanceof File)) {
-      return NextResponse.json({ error: "chunk file is required." }, { status: 400 });
+    if (!data) {
+      return NextResponse.json({ error: "chunk payload is required." }, { status: 400 });
     }
 
     const session = await getUploadSessionForUser(sessionId, userId);
@@ -79,7 +92,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    const data = Buffer.from(await filePart.arrayBuffer());
     const expectedSize = expectedPartSizeBytes(session, partNumber);
     if (data.length !== expectedSize) {
       return NextResponse.json(

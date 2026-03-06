@@ -17,8 +17,10 @@ export type UploadResult = {
   };
 };
 
-const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
-export const DEFAULT_RESUMABLE_THRESHOLD = 64 * 1024 * 1024;
+const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
+// Keep regular uploads below common serverless payload caps.
+export const DEFAULT_RESUMABLE_THRESHOLD = 4 * 1024 * 1024;
+const MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES = 4 * 1024 * 1024;
 export const KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY = "latex-keep-original-file-name";
 const PART_RETRY_LIMIT = 4;
 
@@ -120,14 +122,14 @@ async function uploadResumable(
     const chunk = file.slice(start, end);
     let success = false;
     for (let attempt = 0; attempt < PART_RETRY_LIMIT; attempt += 1) {
-      const formData = new FormData();
-      formData.append("sessionId", initPayload.sessionId);
-      formData.append("partNumber", String(partNumber));
-      formData.append("chunk", chunk, `${file.name}.part-${partNumber}`);
       const partResponse = await fetch("/api/uploads/part", {
         method: "POST",
-        headers: { "x-upload-session-id": initPayload.sessionId },
-        body: formData,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "x-upload-session-id": initPayload.sessionId,
+          "x-upload-part-number": String(partNumber),
+        },
+        body: chunk,
       });
       if (partResponse.ok) {
         success = true;
@@ -181,7 +183,8 @@ export async function uploadSingleMedia(
     1024 * 1024,
     Number(options?.resumableThresholdBytes ?? DEFAULT_RESUMABLE_THRESHOLD),
   );
-  if (file.size >= resumableThresholdBytes) {
+  const effectiveResumableThresholdBytes = Math.min(resumableThresholdBytes, MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES);
+  if (file.size >= effectiveResumableThresholdBytes) {
     const resumable = await uploadResumable(file, kind, {
       resumeFromSessionId: options?.resumeFromSessionId,
       checksum: options?.checksum,

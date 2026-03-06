@@ -23,8 +23,8 @@ const STORAGE_BACKEND =
     (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
 const MAX_SESSION_AGE_MS = 1000 * 60 * 60 * 24;
 const STALE_UPLOAD_STATE_MS = 1000 * 60 * 15;
-const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
-const MIN_CHUNK_SIZE = 1024 * 1024;
+const MAX_CHUNK_SIZE = 4 * 1024 * 1024;
+const MIN_CHUNK_SIZE = 4 * 1024 * 1024;
 const BLOB_ACCESS = "private";
 
 export type UploadSessionState = "initiated" | "uploading" | "finalizing" | "complete" | "failed";
@@ -70,7 +70,7 @@ function normalizeChunkSize(rawChunkSize: number): number {
   return Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, Math.floor(rawChunkSize)));
 }
 
-const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
+const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
 
 export function expectedPartSizeBytes(session: Pick<UploadSessionEntry, "fileSize" | "chunkSize" | "totalParts">, partNumber: number): number {
   const normalizedChunkSize = Math.max(1, Math.floor(session.chunkSize));

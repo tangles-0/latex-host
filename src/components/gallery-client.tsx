@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  DEFAULT_RESUMABLE_THRESHOLD,
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
   uploadSingleMedia,
 } from "@/lib/upload-client";
@@ -30,6 +29,7 @@ import { getFileIconForExtension } from "@/lib/FileIconHelper";
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
+const GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES = 64 * 1024 * 1024;
 
 type GalleryImage = {
   id: string;
@@ -77,7 +77,6 @@ export default function GalleryClient({
   uploadAlbumId,
   hideImagesInAlbums = false,
   kindFilter = "all",
-  resumableThresholdBytes = DEFAULT_RESUMABLE_THRESHOLD,
   isAdmin = false,
 }: {
   media: GalleryImage[];
@@ -86,7 +85,6 @@ export default function GalleryClient({
   uploadAlbumId?: string;
   hideImagesInAlbums?: boolean;
   kindFilter?: "all" | "image" | "video" | "document" | "other";
-  resumableThresholdBytes?: number;
   isAdmin?: boolean;
 }) {
   const [items, setItems] = useState<GalleryImage[]>(media);
@@ -347,11 +345,11 @@ export default function GalleryClient({
     }
 
     for (const file of itemsToUpload) {
-      if (file.size >= resumableThresholdBytes) {
+      if (file.size >= GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES) {
         window.alert(
-          `${file.name} is too large for quick gallery upload. Use the Upload page for large/resumable uploads.`,
+          `${file.name} is too large for quick gallery upload (>64MB). Use the Upload page for progress + resume uploads.`,
         );
-        pushMessage(`${file.name}: use Upload page for large files.`, "error");
+        pushMessage(`${file.name}: use Upload page for files over 64MB.`, "error");
         continue;
       }
       const result = await uploadSingleMedia(file, uploadAlbumId, {

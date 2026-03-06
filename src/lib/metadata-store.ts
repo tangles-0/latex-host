@@ -1442,6 +1442,18 @@ export type AppSettings = {
   resumableThresholdBytes: number;
   updatedAt: string;
 };
+const MAX_VERCEL_SAFE_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
+const MIN_RESUMABLE_THRESHOLD_BYTES = 1024 * 1024;
+
+function normalizeResumableThreshold(input: number): number {
+  if (!Number.isFinite(input)) {
+    return MAX_VERCEL_SAFE_UPLOAD_THRESHOLD_BYTES;
+  }
+  return Math.max(
+    MIN_RESUMABLE_THRESHOLD_BYTES,
+    Math.min(MAX_VERCEL_SAFE_UPLOAD_THRESHOLD_BYTES, Math.floor(input)),
+  );
+}
 
 const DEFAULT_SETTINGS: AppSettings = {
   motd: "Welcome to latex!.",
@@ -1452,7 +1464,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   signupsEnabled: true,
   uploadsEnabled: true,
   shareHtmlNavigationEnabled: true,
-  resumableThresholdBytes: 64 * 1024 * 1024,
+  resumableThresholdBytes: MAX_VERCEL_SAFE_UPLOAD_THRESHOLD_BYTES,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -1484,7 +1496,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     signupsEnabled: row.signupsEnabled,
     uploadsEnabled: row.uploadsEnabled,
     shareHtmlNavigationEnabled: row.shareHtmlNavigationEnabled,
-    resumableThresholdBytes: row.resumableThresholdBytes,
+    resumableThresholdBytes: normalizeResumableThreshold(row.resumableThresholdBytes),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -1533,7 +1545,7 @@ export async function updateAppSettings(input: {
           : existing.shareHtmlNavigationEnabled,
       resumableThresholdBytes:
         typeof input.resumableThresholdBytes === "number"
-          ? input.resumableThresholdBytes
+          ? normalizeResumableThreshold(input.resumableThresholdBytes)
           : existing.resumableThresholdBytes,
       updatedAt,
     })

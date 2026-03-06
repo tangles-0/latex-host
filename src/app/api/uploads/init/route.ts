@@ -7,9 +7,10 @@ import { initUploadSession } from "@/lib/upload-sessions";
 
 export const runtime = "nodejs";
 
-const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
-const MIN_CHUNK_SIZE = 1024 * 1024;
-const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
+// Vercel Functions request/response body limit is 4.5 MB.
+const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
+const MIN_CHUNK_SIZE = 4 * 1024 * 1024;
+const MAX_CHUNK_SIZE = 4 * 1024 * 1024;
 
 function isAllowedType(allowed: string[], mime: string): boolean {
   if (allowed.length === 0) {

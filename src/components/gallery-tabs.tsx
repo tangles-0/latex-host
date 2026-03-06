@@ -33,13 +33,11 @@ export default function GalleryTabs({
   albums,
   media,
   initialTab = "files",
-  resumableThresholdBytes,
   isAdmin,
 }: {
   albums: AlbumInfo[];
   media: GalleryImage[];
   initialTab?: "albums" | "files";
-  resumableThresholdBytes?: number;
   isAdmin?: boolean;
 }) {
   const router = useRouter();
@@ -403,7 +401,6 @@ export default function GalleryTabs({
           showAlbumImageToggle={false}
           hideImagesInAlbums={hideAlbumImages}
           kindFilter={fileTypeFilter}
-          resumableThresholdBytes={resumableThresholdBytes}
           isAdmin={isAdmin}
         />
       )}
