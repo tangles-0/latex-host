@@ -5,6 +5,10 @@ import { getImageBuffer } from "@/lib/storage";
 import { getImageForUser } from "@/lib/metadata-store";
 
 export const runtime = "nodejs";
+const PRIVATE_MEDIA_CACHE_SECONDS = Math.max(
+  60,
+  Number.parseInt(process.env.PRIVATE_MEDIA_CACHE_SECONDS ?? "300", 10) || 300,
+);
 
 function contentTypeForExt(ext: string): string {
   switch (ext) {
@@ -34,8 +38,41 @@ function parseFileName(fileName: string): {
   return { baseName: match[1], size, ext: match[3].toLowerCase() };
 }
 
+function sizeBytesForVariant(
+  image: { sizeOriginal: number; sizeSm: number; sizeLg: number },
+  size: "original" | "sm" | "lg" | "x640",
+): number {
+  if (size === "original") {
+    return image.sizeOriginal;
+  }
+  if (size === "sm") {
+    return image.sizeSm;
+  }
+  return image.sizeLg;
+}
+
+function buildVariantEtag(input: {
+  imageId: string;
+  uploadedAt: string;
+  size: "original" | "sm" | "lg" | "x640";
+  sizeBytes: number;
+}): string {
+  return `W/"i:${input.imageId}:${input.size}:${input.uploadedAt}:${input.sizeBytes}"`;
+}
+
+function requestHasEtag(request: NextRequest, etag: string): boolean {
+  const header = request.headers.get("if-none-match");
+  if (!header) {
+    return false;
+  }
+  return header
+    .split(",")
+    .map((value) => value.trim())
+    .some((value) => value === "*" || value === etag);
+}
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ imageId: string; fileName: string }> },
 ): Promise<Response> {
   const { imageId, fileName } = await params;
@@ -59,6 +96,26 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
+  const sizeBytes = sizeBytesForVariant(image, parsed.size);
+  const etag = buildVariantEtag({
+    imageId: image.id,
+    uploadedAt: image.uploadedAt,
+    size: parsed.size,
+    sizeBytes,
+  });
+  const cacheHeaders = {
+    "Cache-Control": `private, max-age=${PRIVATE_MEDIA_CACHE_SECONDS}, stale-while-revalidate=60`,
+    ETag: etag,
+    "Last-Modified": new Date(image.uploadedAt).toUTCString(),
+    Vary: "Cookie, Authorization, Accept-Encoding",
+  };
+  if (requestHasEtag(request, etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: cacheHeaders,
+    });
+  }
+
   try {
     const data = await getImageBuffer(
       image.baseName,
@@ -69,10 +126,7 @@ export async function GET(
     return new Response(new Uint8Array(data), {
       headers: {
         "Content-Type": contentTypeForExt(image.ext),
-        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-        Pragma: "no-cache",
-        Expires: "0",
-        Vary: "Cookie, Authorization",
+        ...cacheHeaders,
       },
     });
   } catch {

@@ -12,6 +12,52 @@ import {
 } from "@/lib/media-storage";
 
 export const runtime = "nodejs";
+const PRIVATE_MEDIA_CACHE_SECONDS = Math.max(
+  60,
+  Number.parseInt(process.env.PRIVATE_MEDIA_CACHE_SECONDS ?? "300", 10) || 300,
+);
+
+function sizeBytesForVariant(
+  media: { sizeOriginal: number; sizeSm: number; sizeLg: number },
+  size: "original" | "sm" | "lg",
+): number {
+  if (size === "original") {
+    return media.sizeOriginal;
+  }
+  if (size === "sm") {
+    return media.sizeSm;
+  }
+  return media.sizeLg;
+}
+
+function buildVariantEtag(input: {
+  mediaId: string;
+  uploadedAt: string;
+  size: "original" | "sm" | "lg";
+  sizeBytes: number;
+}): string {
+  return `W/"m:${input.mediaId}:${input.size}:${input.uploadedAt}:${input.sizeBytes}"`;
+}
+
+function requestHasEtag(request: NextRequest, etag: string): boolean {
+  const header = request.headers.get("if-none-match");
+  if (!header) {
+    return false;
+  }
+  return header
+    .split(",")
+    .map((value) => value.trim())
+    .some((value) => value === "*" || value === etag);
+}
+
+function privateCacheHeaders(etag: string, lastModified: string): HeadersInit {
+  return {
+    "Cache-Control": `private, max-age=${PRIVATE_MEDIA_CACHE_SECONDS}, stale-while-revalidate=60`,
+    ETag: etag,
+    "Last-Modified": lastModified,
+    Vary: "Cookie, Authorization, Accept-Encoding",
+  };
+}
 
 function parseKind(kind: string): MediaKind | null {
   if (kind === "image" || kind === "video" || kind === "document" || kind === "other") {
@@ -87,6 +133,24 @@ export async function GET(
       parsedKind === "image" && media.ext.toLowerCase() === "svg" && parsed.size !== "original"
         ? "original"
         : parsed.size;
+    const responseExt =
+      requestedSize === "original" ? media.ext : parsedKind === "image" ? media.ext : "png";
+    const sizeBytes = sizeBytesForVariant(media, requestedSize);
+    const etag = buildVariantEtag({
+      mediaId: media.id,
+      uploadedAt: media.uploadedAt,
+      size: requestedSize,
+      sizeBytes,
+    });
+    const uploadedAt = new Date(media.uploadedAt);
+    const lastModified = uploadedAt.toUTCString();
+    const baseCacheHeaders = privateCacheHeaders(etag, lastModified);
+    if (requestHasEtag(request, etag)) {
+      return new Response(null, {
+        status: 304,
+        headers: baseCacheHeaders,
+      });
+    }
     if (parsedKind === "video" && parsed.size !== "original" && media.previewStatus !== "ready") {
       return new Response("Not found", { status: 404 });
     }
@@ -108,7 +172,6 @@ export async function GET(
       return Response.redirect(signedUrl, 307);
     }
     if (isRangeStreamableOriginal) {
-      const uploadedAt = new Date(media.uploadedAt);
       const total = await getMediaBufferSize({
         kind: parsedKind,
         baseName: media.baseName,
@@ -144,10 +207,7 @@ export async function GET(
             "Content-Range": `bytes ${byteRange.start}-${byteRange.end}/${total}`,
             "Content-Length": String(byteRange.end - byteRange.start + 1),
             "Accept-Ranges": "bytes",
-            "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-            Vary: "Cookie, Authorization",
+            ...baseCacheHeaders,
           },
         });
       }
@@ -159,16 +219,11 @@ export async function GET(
       size: requestedSize,
       uploadedAt: new Date(media.uploadedAt),
     });
-    const responseExt =
-      requestedSize === "original" ? media.ext : parsedKind === "image" ? media.ext : "png";
     return new Response(stream, {
       headers: {
         "Content-Type": contentTypeForExt(responseExt),
         ...(isRangeStreamableOriginal ? { "Accept-Ranges": "bytes" } : {}),
-        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-        Pragma: "no-cache",
-        Expires: "0",
-        Vary: "Cookie, Authorization",
+        ...baseCacheHeaders,
       },
     });
   } catch {
