@@ -1,14 +1,12 @@
 import path from "path";
 import { promises as fs } from "fs";
 import { createHash, randomUUID } from "crypto";
+import { Readable } from "stream";
 import { and, eq } from "drizzle-orm";
 import {
-  completeMultipartUpload,
-  createMultipartUpload,
   del as blobDelete,
   get as blobGet,
-  head as blobHead,
-  uploadPart,
+  put as blobPut,
 } from "@vercel/blob";
 import { db } from "@/db";
 import { uploadSessions } from "@/db/schema";
@@ -144,6 +142,10 @@ function buildSessionStorageKey(id: string, ext: string, uploadedAt: Date): stri
   return path.posix.join("uploads", year, month, day, "original", `${id}.${ext}`);
 }
 
+function sessionPartStorageKey(sessionStorageKey: string, partNumber: number): string {
+  return `${sessionStorageKey}.parts/${String(partNumber).padStart(6, "0")}.part`;
+}
+
 function sessionPartsDir(id: string): string {
   return path.join(SESSION_DIR, id, "parts");
 }
@@ -187,13 +189,8 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
   if (STORAGE_BACKEND === "local") {
     await ensureSessionDirs(sessionId);
   } else if (STORAGE_BACKEND === "blob") {
-    const created = await createMultipartUpload(storageKey, {
-      access: BLOB_ACCESS,
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: input.mimeType || contentTypeForExt(input.ext),
-    });
-    s3UploadId = created.uploadId;
+    // Blob parts are stored as temporary objects and composed on complete.
+    s3UploadId = null;
   }
 
   await db.insert(uploadSessions).values({
@@ -252,6 +249,14 @@ export async function clearUploadSessionsForUser(
     if (mapped.backend === "local") {
       await fs.rm(path.join(SESSION_DIR, mapped.id), { recursive: true, force: true });
     } else if (mapped.backend === "blob" && mapped.storageKey) {
+      for (let partNumber = 1; partNumber <= mapped.totalParts; partNumber += 1) {
+        const partKey = sessionPartStorageKey(mapped.storageKey, partNumber);
+        try {
+          await blobDelete(partKey);
+        } catch {
+          // Ignore stale/missing temp parts during cleanup.
+        }
+      }
       try {
         await blobDelete(mapped.storageKey);
       } catch {
@@ -359,16 +364,14 @@ export async function uploadSessionPart(
   }
 
   if (session.backend === "blob") {
-    if (!session.storageKey || !session.s3UploadId) {
-      throw new Error("Blob multipart upload session is not configured.");
+    if (!session.storageKey) {
+      throw new Error("Blob upload session is not configured.");
     }
-    const uploaded = await uploadPart(session.storageKey, data, {
+    const partKey = sessionPartStorageKey(session.storageKey, partNumber);
+    const uploaded = await blobPut(partKey, data, {
       access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
-      uploadId: session.s3UploadId,
-      key: session.storageKey,
-      partNumber,
       contentType: session.mimeType || contentTypeForExt(session.ext),
     });
     const etag = uploaded.etag ?? "";
@@ -414,31 +417,56 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
     await fs.writeFile(outPath, Buffer.concat(buffers));
     await fs.rm(path.join(SESSION_DIR, refreshed.id), { recursive: true, force: true });
   } else if (refreshed.backend === "blob") {
-    if (!refreshed.storageKey || !refreshed.s3UploadId) {
+    if (!refreshed.storageKey) {
       throw new Error("Blob upload session is not configured.");
     }
-    const parts = Object.entries(refreshed.uploadedParts)
-      .map(([partNumber, etag]) => ({
-        etag,
-        partNumber: Number(partNumber),
-      }))
-      .filter((item) => Number.isFinite(item.partNumber))
-      .sort((a, b) => a.partNumber - b.partNumber);
-    await completeMultipartUpload(refreshed.storageKey, parts, {
+    const storageKey = refreshed.storageKey;
+    const stream = Readable.from(
+      (async function* () {
+        for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
+          const partKey = sessionPartStorageKey(storageKey, partNumber);
+          const partResponse = await blobGet(partKey, { access: BLOB_ACCESS, useCache: false });
+          if (!partResponse || partResponse.statusCode !== 200 || !partResponse.stream) {
+            throw new Error(`Missing uploaded part ${partNumber}.`);
+          }
+          const reader = partResponse.stream.getReader();
+          while (true) {
+            const result = await reader.read();
+            if (result.done) {
+              break;
+            }
+            if (result.value) {
+              const chunk = Buffer.from(result.value);
+              computedSize += chunk.length;
+              yield chunk;
+            }
+          }
+        }
+      })(),
+    );
+
+    await blobPut(storageKey, stream, {
       access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
-      uploadId: refreshed.s3UploadId,
-      key: refreshed.storageKey,
+      multipart: true,
       contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
     });
-    const metadata = await blobHead(refreshed.storageKey);
-    const blobResponse = await blobGet(refreshed.storageKey, { access: BLOB_ACCESS, useCache: false });
+
+    const blobResponse = await blobGet(storageKey, { access: BLOB_ACCESS, useCache: false });
     if (!blobResponse || blobResponse.statusCode !== 200 || !blobResponse.stream) {
       throw new Error("Unable to verify uploaded blob object.");
     }
-    computedSize = metadata.size;
     computedChecksum = await streamToHash(blobResponse.stream);
+
+    for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
+      const partKey = sessionPartStorageKey(storageKey, partNumber);
+      try {
+        await blobDelete(partKey);
+      } catch {
+        // Ignore stale/missing temp parts during cleanup.
+      }
+    }
   } else {
     throw new Error("Unsupported upload backend.");
   }
@@ -466,6 +494,14 @@ export async function abortUploadSession(session: UploadSessionEntry): Promise<v
     await fs.rm(path.join(SESSION_DIR, session.id), { recursive: true, force: true });
   } else if (session.backend === "blob") {
     if (session.storageKey) {
+      for (let partNumber = 1; partNumber <= session.totalParts; partNumber += 1) {
+        const partKey = sessionPartStorageKey(session.storageKey, partNumber);
+        try {
+          await blobDelete(partKey);
+        } catch {
+          // No-op for missing temp parts.
+        }
+      }
       try {
         await blobDelete(session.storageKey);
       } catch {
