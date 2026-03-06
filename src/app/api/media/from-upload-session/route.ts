@@ -4,6 +4,7 @@ import { getAlbumForUser } from "@/lib/metadata-store";
 import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
 import { mediaKindFromType } from "@/lib/media-types";
 import {
+  deleteCompletedUploadObject,
   readCompletedUploadBuffer,
   storeGenericMediaFromStoredUpload,
   storeImageMediaFromBuffer,
@@ -54,6 +55,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       mimeType: session.mimeType,
       uploadedAt,
     });
+    try {
+      await deleteCompletedUploadObject(session.storageKey);
+    } catch {
+      // Keep registration successful even if staged upload cleanup fails.
+    }
   } else {
     stored = await storeGenericMediaFromStoredUpload({
       kind: kind === "video" ? "video" : kind === "document" ? "document" : "other",

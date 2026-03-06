@@ -921,3 +921,7 @@ export async function storeGeneratedPreviewForMedia(input: {
 export async function readCompletedUploadBuffer(storageKey: string): Promise<Buffer> {
   return readKey(storageKey);
 }
+
+export async function deleteCompletedUploadObject(storageKey: string): Promise<void> {
+  await deleteKey(storageKey);
+}
