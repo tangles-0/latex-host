@@ -5,6 +5,7 @@ import { getUserTheme } from "@/lib/metadata-store";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import FloatingThemeSelector from "@/components/theme/floating-theme-selector";
 import { FloatingLogo } from "@/components/theme/floating-logo";
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 export const metadata = {
   title: "latex",
@@ -44,7 +45,7 @@ export default async function RootLayout({
             {children}
             <FloatingLogo />
           </ThemeProvider>
-          
+          <SpeedInsights />
       </body>
     </html>
   );
