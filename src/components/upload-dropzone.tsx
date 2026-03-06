@@ -106,16 +106,10 @@ export default function UploadDropzone({
   }
 
   async function hashFileForResume(file: File): Promise<string> {
-    const firstSlice = await file.slice(0, Math.min(file.size, 1024 * 1024)).arrayBuffer();
-    const lastSliceStart = Math.max(0, file.size - 1024 * 1024);
-    const lastSlice = await file.slice(lastSliceStart, file.size).arrayBuffer();
-    const encoder = new TextEncoder();
-    const meta = encoder.encode(`${file.name}|${file.size}|${file.lastModified}|${file.type}`);
-    const combined = new Uint8Array(meta.length + firstSlice.byteLength + lastSlice.byteLength);
-    combined.set(meta, 0);
-    combined.set(new Uint8Array(firstSlice), meta.length);
-    combined.set(new Uint8Array(lastSlice), meta.length + firstSlice.byteLength);
-    const digest = await crypto.subtle.digest("SHA-256", combined.buffer);
+    // Use full-file SHA-256 so resume matching and server-side integrity validation
+    // use the same checksum value.
+    const buffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
     return Array.from(new Uint8Array(digest))
       .map((item) => item.toString(16).padStart(2, "0"))
       .join("");
