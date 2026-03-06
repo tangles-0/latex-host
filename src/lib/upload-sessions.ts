@@ -1,7 +1,6 @@
 import path from "path";
 import { promises as fs } from "fs";
 import { createHash, randomUUID } from "crypto";
-import { Readable } from "stream";
 import { and, eq } from "drizzle-orm";
 import {
   del as blobDelete,
@@ -16,9 +15,14 @@ type StorageBackend = "local" | "blob";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SESSION_DIR = path.join(DATA_DIR, "upload-sessions");
-const STORAGE_BACKEND =
-  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
-    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
+function resolveStorageBackend(): StorageBackend {
+  const raw = process.env.STORAGE_BACKEND;
+  if (raw === "blob" || raw === "local") {
+    return raw;
+  }
+  return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local";
+}
+const STORAGE_BACKEND = resolveStorageBackend();
 const MAX_SESSION_AGE_MS = 1000 * 60 * 60 * 24;
 const STALE_UPLOAD_STATE_MS = 1000 * 60 * 15;
 const MAX_CHUNK_SIZE = 4 * 1024 * 1024;
@@ -78,23 +82,6 @@ export function expectedPartSizeBytes(session: Pick<UploadSessionEntry, "fileSiz
   const bytesBefore = (partNumber - 1) * normalizedChunkSize;
   const remaining = Math.max(0, session.fileSize - bytesBefore);
   return Math.min(normalizedChunkSize, remaining);
-}
-
-function streamToHash(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const hash = createHash("sha256");
-  const reader = stream.getReader();
-  return (async () => {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) {
-        break;
-      }
-      if (result.value) {
-        hash.update(Buffer.from(result.value));
-      }
-    }
-    return hash.digest("hex");
-  })();
 }
 
 type InitInput = {
@@ -421,43 +408,39 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
       throw new Error("Blob upload session is not configured.");
     }
     const storageKey = refreshed.storageKey;
-    const stream = Readable.from(
-      (async function* () {
-        for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
-          const partKey = sessionPartStorageKey(storageKey, partNumber);
-          const partResponse = await blobGet(partKey, { access: BLOB_ACCESS, useCache: false });
-          if (!partResponse || partResponse.statusCode !== 200 || !partResponse.stream) {
-            throw new Error(`Missing uploaded part ${partNumber}.`);
-          }
-          const reader = partResponse.stream.getReader();
-          while (true) {
-            const result = await reader.read();
-            if (result.done) {
-              break;
-            }
-            if (result.value) {
-              const chunk = Buffer.from(result.value);
-              computedSize += chunk.length;
-              yield chunk;
-            }
-          }
+    const hash = createHash("sha256");
+    const orderedParts: Buffer[] = [];
+    for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
+      const partKey = sessionPartStorageKey(storageKey, partNumber);
+      const partResponse = await blobGet(partKey, { access: BLOB_ACCESS, useCache: false });
+      if (!partResponse || partResponse.statusCode !== 200 || !partResponse.stream) {
+        throw new Error(`Missing uploaded part ${partNumber}.`);
+      }
+      const reader = partResponse.stream.getReader();
+      const partChunks: Buffer[] = [];
+      while (true) {
+        const result = await reader.read();
+        if (result.done) {
+          break;
         }
-      })(),
-    );
+        if (result.value) {
+          const chunk = Buffer.from(result.value);
+          partChunks.push(chunk);
+          hash.update(chunk);
+          computedSize += chunk.length;
+        }
+      }
+      orderedParts.push(Buffer.concat(partChunks));
+    }
 
-    await blobPut(storageKey, stream, {
+    const combined = Buffer.concat(orderedParts);
+    await blobPut(storageKey, combined, {
       access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
-      multipart: true,
       contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
     });
-
-    const blobResponse = await blobGet(storageKey, { access: BLOB_ACCESS, useCache: false });
-    if (!blobResponse || blobResponse.statusCode !== 200 || !blobResponse.stream) {
-      throw new Error("Unable to verify uploaded blob object.");
-    }
-    computedChecksum = await streamToHash(blobResponse.stream);
+    computedChecksum = hash.digest("hex");
 
     for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
       const partKey = sessionPartStorageKey(storageKey, partNumber);
