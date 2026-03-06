@@ -6,15 +6,6 @@ import { Readable } from "stream";
 import { promisify } from "util";
 import sharp from "sharp";
 import mammoth from "mammoth";
-import {
-  CopyObjectCommand,
-  DeleteObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { copy as blobCopy, del as blobDelete, get as blobGet, head as blobHead, put as blobPut } from "@vercel/blob";
 import {
   CODE_EXTENSIONS,
@@ -25,7 +16,7 @@ import {
   contentTypeForExt,
 } from "@/lib/media-types";
 
-type StorageBackend = "local" | "s3" | "blob";
+type StorageBackend = "local" | "blob";
 export type MediaSize = "original" | "sm" | "lg";
 export type StoredMediaResult = {
   baseName: string;
@@ -40,21 +31,16 @@ export type StoredMediaResult = {
 };
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const STORAGE_BACKEND =
-  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
-    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
-const S3_BUCKET = process.env.S3_BUCKET;
-const S3_REGION = process.env.S3_REGION;
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
-const s3Client =
-  STORAGE_BACKEND === "s3" && S3_BUCKET && S3_REGION
-    ? new S3Client({
-        region: S3_REGION,
-        endpoint: S3_ENDPOINT,
-        forcePathStyle: Boolean(S3_ENDPOINT),
-      })
-    : null;
+function resolveStorageBackend(): StorageBackend {
+  const raw = process.env.STORAGE_BACKEND;
+  if (raw === "blob" || raw === "local") {
+    return raw;
+  }
+  return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local";
+}
+const STORAGE_BACKEND = resolveStorageBackend();
 const execFileAsync = promisify(execFile);
+const BLOB_ACCESS = "private";
 function formatProcessError(error: unknown): string {
   if (!error || typeof error !== "object") {
     return "Unknown process error.";
@@ -105,10 +91,6 @@ async function writableStatusForDir(dirPath: string): Promise<string> {
   }
 }
 
-const MEDIA_DIRECT_URL_TTL_SECONDS = Number.parseInt(
-  process.env.MEDIA_DIRECT_URL_TTL_SECONDS ?? "120",
-  10,
-);
 const TMP_CANDIDATES = [
   path.join(DATA_DIR, "tmp"),
   process.env.LATEX_TMP_DIR,
@@ -116,40 +98,6 @@ const TMP_CANDIDATES = [
   os.tmpdir(),
   "/dev/shm",
 ].filter((value): value is string => Boolean(value && value.trim().length > 0));
-
-function toWebReadableStream(body: unknown): ReadableStream<Uint8Array> {
-  if (!body) {
-    throw new Error("Storage response body is empty.");
-  }
-  if (typeof (body as { transformToWebStream?: unknown }).transformToWebStream === "function") {
-    return (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream();
-  }
-  if (body instanceof Readable) {
-    return Readable.toWeb(body) as ReadableStream<Uint8Array>;
-  }
-  if (typeof (body as { getReader?: unknown }).getReader === "function") {
-    return body as ReadableStream<Uint8Array>;
-  }
-  if (typeof (body as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function") {
-    const iterator = (body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]();
-    return new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        const next = await iterator.next();
-        if (next.done) {
-          controller.close();
-          return;
-        }
-        controller.enqueue(next.value);
-      },
-      async cancel() {
-        if (typeof iterator.return === "function") {
-          await iterator.return();
-        }
-      },
-    });
-  }
-  throw new Error("Unsupported storage response stream type.");
-}
 
 async function readWebStreamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
   const reader = stream.getReader();
@@ -202,13 +150,6 @@ async function createWorkingDir(prefix: string, candidates: string[] = TMP_CANDI
   throw lastError ?? new Error("Unable to create temp directory.");
 }
 
-function mediaDirectUrlTtlSeconds(): number {
-  if (!Number.isFinite(MEDIA_DIRECT_URL_TTL_SECONDS) || MEDIA_DIRECT_URL_TTL_SECONDS <= 0) {
-    return 120;
-  }
-  return Math.max(30, Math.min(900, MEDIA_DIRECT_URL_TTL_SECONDS));
-}
-
 function mediaStorageKey(input: {
   kind: "image" | "video" | "document" | "other";
   baseName: string;
@@ -221,10 +162,7 @@ function mediaStorageKey(input: {
 }
 
 export function usesS3StorageBackend(): boolean {
-  if (STORAGE_BACKEND === "s3") {
-    return Boolean(s3Client && S3_BUCKET);
-  }
-  return STORAGE_BACKEND === "blob";
+  return false;
 }
 
 function absolutePathForKey(key: string): string {
@@ -238,23 +176,9 @@ export function buildMediaBaseName(uploadedAt: Date): string {
 }
 
 async function writeKey(key: string, ext: string, data: Buffer): Promise<void> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-        Body: data,
-        ContentType: contentTypeForExt(ext),
-      }),
-    );
-    return;
-  }
   if (STORAGE_BACKEND === "blob") {
     await blobPut(key, data, {
-      access: "public",
+      access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: contentTypeForExt(ext),
@@ -266,31 +190,13 @@ async function writeKey(key: string, ext: string, data: Buffer): Promise<void> {
   await fs.writeFile(filePath, data);
 }
 
-function toCopySourceKey(key: string): string {
-  return encodeURIComponent(key).replace(/%2F/g, "/");
-}
-
 async function copyKey(sourceKey: string, targetKey: string, ext: string): Promise<void> {
   if (sourceKey === targetKey) {
     return;
   }
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    await s3Client.send(
-      new CopyObjectCommand({
-        Bucket: S3_BUCKET,
-        CopySource: `${S3_BUCKET}/${toCopySourceKey(sourceKey)}`,
-        Key: targetKey,
-        ContentType: contentTypeForExt(ext),
-      }),
-    );
-    return;
-  }
   if (STORAGE_BACKEND === "blob") {
     await blobCopy(sourceKey, targetKey, {
-      access: "public",
+      access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: contentTypeForExt(ext),
@@ -304,18 +210,6 @@ async function copyKey(sourceKey: string, targetKey: string, ext: string): Promi
 }
 
 async function deleteKey(key: string): Promise<void> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    await s3Client.send(
-      new DeleteObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-      }),
-    );
-    return;
-  }
   if (STORAGE_BACKEND === "blob") {
     await blobDelete(key);
     return;
@@ -324,20 +218,8 @@ async function deleteKey(key: string): Promise<void> {
 }
 
 async function readKey(key: string): Promise<Buffer> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    const response = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-      }),
-    );
-    return readWebStreamToBuffer(toWebReadableStream(response.Body));
-  }
   if (STORAGE_BACKEND === "blob") {
-    const response = await blobGet(key, { access: "public", useCache: false });
+    const response = await blobGet(key, { access: BLOB_ACCESS, useCache: false });
     if (!response || response.statusCode !== 200 || !response.stream) {
       throw new Error("Blob object was not found.");
     }
@@ -347,18 +229,6 @@ async function readKey(key: string): Promise<Buffer> {
 }
 
 async function getKeySize(key: string): Promise<number> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    const head = await s3Client.send(
-      new HeadObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-      }),
-    );
-    return Number(head.ContentLength ?? 0);
-  }
   if (STORAGE_BACKEND === "blob") {
     const head = await blobHead(key);
     return Number(head.size ?? 0);
@@ -368,34 +238,18 @@ async function getKeySize(key: string): Promise<number> {
 }
 
 async function readKeyRange(key: string, start: number, end: number): Promise<Buffer> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    const response = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-        Range: `bytes=${start}-${end}`,
-      }),
-    );
-    return readWebStreamToBuffer(toWebReadableStream(response.Body));
-  }
   if (STORAGE_BACKEND === "blob") {
-    const head = await blobHead(key);
-    const response = await fetch(head.url, {
+    const response = await blobGet(key, {
+      access: BLOB_ACCESS,
+      useCache: false,
       headers: {
         Range: `bytes=${start}-${end}`,
       },
-      cache: "no-store",
     });
-    if (!response.ok && response.status !== 206) {
-      throw new Error(`Blob range read failed with status ${response.status}.`);
-    }
-    if (!response.body) {
+    if (!response || response.statusCode === 304 || !response.stream) {
       throw new Error("Blob range read returned an empty body.");
     }
-    return readWebStreamToBuffer(response.body);
+    return readWebStreamToBuffer(response.stream);
   }
   const length = end - start + 1;
   const handle = await fs.open(absolutePathForKey(key), "r");
@@ -409,20 +263,8 @@ async function readKeyRange(key: string, start: number, end: number): Promise<Bu
 }
 
 async function readKeyStream(key: string): Promise<ReadableStream<Uint8Array>> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    const response = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-      }),
-    );
-    return toWebReadableStream(response.Body);
-  }
   if (STORAGE_BACKEND === "blob") {
-    const response = await blobGet(key, { access: "public", useCache: true });
+    const response = await blobGet(key, { access: BLOB_ACCESS, useCache: true });
     if (!response || response.statusCode !== 200 || !response.stream) {
       throw new Error("Blob object was not found.");
     }
@@ -436,34 +278,18 @@ async function readKeyRangeStream(
   start: number,
   end: number,
 ): Promise<ReadableStream<Uint8Array>> {
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    const response = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-        Range: `bytes=${start}-${end}`,
-      }),
-    );
-    return toWebReadableStream(response.Body);
-  }
   if (STORAGE_BACKEND === "blob") {
-    const head = await blobHead(key);
-    const response = await fetch(head.url, {
+    const response = await blobGet(key, {
+      access: BLOB_ACCESS,
+      useCache: false,
       headers: {
         Range: `bytes=${start}-${end}`,
       },
-      cache: "no-store",
     });
-    if (!response.ok && response.status !== 206) {
-      throw new Error(`Blob range stream failed with status ${response.status}.`);
-    }
-    if (!response.body) {
+    if (!response || response.statusCode === 304 || !response.stream) {
       throw new Error("Blob range stream returned an empty body.");
     }
-    return response.body;
+    return response.stream;
   }
   return Readable.toWeb(createReadStream(absolutePathForKey(key), { start, end })) as ReadableStream<Uint8Array>;
 }
@@ -1014,26 +840,13 @@ export async function getMediaSignedUrl(input: {
 }): Promise<string> {
   const key = mediaStorageKey(input);
   if (STORAGE_BACKEND === "blob") {
-    const metadata = await blobHead(key);
-    return metadata.url;
+    const blob = await blobGet(key, { access: BLOB_ACCESS, useCache: true });
+    if (!blob) {
+      throw new Error("Blob object was not found.");
+    }
+    return blob.blob.url;
   }
-  if (!s3Client || !S3_BUCKET) {
-    throw new Error("S3 is not configured.");
-  }
-  const presign = getSignedUrl as unknown as (
-    client: unknown,
-    command: unknown,
-    options: { expiresIn: number },
-  ) => Promise<string>;
-  return presign(
-    s3Client,
-    new GetObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: key,
-      ...(input.responseContentType ? { ResponseContentType: input.responseContentType } : {}),
-    }),
-    { expiresIn: mediaDirectUrlTtlSeconds() },
-  );
+  throw new Error("Direct media URLs are not available for local storage backend.");
 }
 
 export async function generateVideoPreviewFromStoredMedia(input: {
@@ -1042,18 +855,20 @@ export async function generateVideoPreviewFromStoredMedia(input: {
   uploadedAt: Date;
 }): Promise<{ sizeSm: number; sizeLg: number; width?: number; height?: number }> {
   const originalKey = buildStorageKey("video", input.baseName, input.ext, "original", input.uploadedAt);
-  const source =
-    STORAGE_BACKEND === "s3" || STORAGE_BACKEND === "blob"
-      ? await getMediaSignedUrl({
-          kind: "video",
-          baseName: input.baseName,
-          ext: input.ext,
-          size: "original",
-          uploadedAt: input.uploadedAt,
-          responseContentType: contentTypeForExt(input.ext),
-        })
-      : absolutePathForKey(originalKey);
-  const videoFrame = await tryGenerateVideoPreviewFromSource(source);
+  let videoFrame: Buffer | null = null;
+  if (STORAGE_BACKEND === "blob") {
+    const buffer = await readKey(originalKey);
+    const tmpDir = await createWorkingDir("latex-video-source-");
+    const tmpPath = path.join(tmpDir, `source.${input.ext}`);
+    try {
+      await fs.writeFile(tmpPath, buffer);
+      videoFrame = await tryGenerateVideoPreviewFromSource(tmpPath);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  } else {
+    videoFrame = await tryGenerateVideoPreviewFromSource(absolutePathForKey(originalKey));
+  }
   if (!videoFrame) {
     throw new Error("Unable to extract a preview frame from this video.");
   }

@@ -1,7 +1,6 @@
 import path from "path";
 import { promises as fs } from "fs";
 import sharp from "sharp";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { del as blobDelete, get as blobGet, put as blobPut } from "@vercel/blob";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -19,23 +18,17 @@ const MAX_640_SIZE = {
 export type ImageSize = "original" | "sm" | "lg" | "x640";
 export type RotationDirection = "left" | "right";
 
-type StorageBackend = "local" | "s3" | "blob";
+type StorageBackend = "local" | "blob";
+function resolveStorageBackend(): StorageBackend {
+  const raw = process.env.STORAGE_BACKEND;
+  if (raw === "blob" || raw === "local") {
+    return raw;
+  }
+  return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local";
+}
 
-const STORAGE_BACKEND =
-  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
-    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
-const S3_BUCKET = process.env.S3_BUCKET;
-const S3_REGION = process.env.S3_REGION;
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
-
-const s3Client =
-  STORAGE_BACKEND === "s3" && S3_BUCKET && S3_REGION
-    ? new S3Client({
-        region: S3_REGION,
-        endpoint: S3_ENDPOINT,
-        forcePathStyle: Boolean(S3_ENDPOINT),
-      })
-    : null;
+const STORAGE_BACKEND = resolveStorageBackend();
+const BLOB_ACCESS = "private";
 
 export type StoredImage = {
   baseName: string;
@@ -117,11 +110,7 @@ export async function storeImageAndThumbnails(
     82,
   );
 
-  if (STORAGE_BACKEND === "s3") {
-    await writeToS3(originalPath, outputFormat.ext, originalBuffer);
-    await writeToS3(smPath, outputFormat.ext, smBuffer);
-    await writeToS3(lgPath, outputFormat.ext, lgBuffer);
-  } else if (STORAGE_BACKEND === "blob") {
+  if (STORAGE_BACKEND === "blob") {
     await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "original", uploadedAt), outputFormat.ext, originalBuffer);
     await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "sm", uploadedAt), outputFormat.ext, smBuffer);
     await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "lg", uploadedAt), outputFormat.ext, lgBuffer);
@@ -151,14 +140,7 @@ export async function deleteImageFiles(
   uploadedAt: Date,
 ): Promise<void> {
   const sizes: ImageSize[] = ["original", "sm", "lg", "x640"];
-  if (STORAGE_BACKEND === "s3") {
-    await Promise.all(
-      sizes.map(async (size) => {
-        const key = buildStorageKey(baseName, ext, size, uploadedAt);
-        await deleteFromS3(key);
-      }),
-    );
-  } else if (STORAGE_BACKEND === "blob") {
+  if (STORAGE_BACKEND === "blob") {
     await Promise.all(
       sizes.map(async (size) => {
         const key = buildStorageKey(baseName, ext, size, uploadedAt);
@@ -317,40 +299,13 @@ async function encodeOutput(
   return image.jpeg({ quality }).toBuffer();
 }
 
-async function writeToS3(filePath: string, ext: string, body: Buffer): Promise<void> {
-  if (!s3Client || !S3_BUCKET) {
-    throw new Error("S3 is not configured.");
-  }
-  const key = filePath.replace(`${DATA_DIR}/`, "");
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: key,
-      Body: body,
-      ContentType: contentTypeForExt(ext),
-    }),
-  );
-}
-
 async function writeToBlob(key: string, ext: string, body: Buffer): Promise<void> {
   await blobPut(key, body, {
-    access: "public",
+    access: BLOB_ACCESS,
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType: contentTypeForExt(ext),
   });
-}
-
-async function deleteFromS3(key: string): Promise<void> {
-  if (!s3Client || !S3_BUCKET) {
-    throw new Error("S3 is not configured.");
-  }
-  await s3Client.send(
-    new DeleteObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: key,
-    }),
-  );
 }
 
 async function deleteFromBlob(key: string): Promise<void> {
@@ -385,25 +340,8 @@ async function readStoredBuffer(
   uploadedAt: Date,
 ): Promise<Buffer> {
   const key = buildStorageKey(baseName, ext, size, uploadedAt);
-  if (STORAGE_BACKEND === "s3") {
-    if (!s3Client || !S3_BUCKET) {
-      throw new Error("S3 is not configured.");
-    }
-    const response = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-      }),
-    );
-    const chunks: Buffer[] = [];
-    const stream = response.Body as AsyncIterable<Uint8Array>;
-    for await (const chunk of stream) {
-      chunks.push(Buffer.from(chunk));
-    }
-    return Buffer.concat(chunks);
-  }
   if (STORAGE_BACKEND === "blob") {
-    const response = await blobGet(key, { access: "public", useCache: false });
+    const response = await blobGet(key, { access: BLOB_ACCESS, useCache: false });
     if (!response || response.statusCode !== 200 || !response.stream) {
       throw new Error("Blob object was not found.");
     }
@@ -431,10 +369,6 @@ async function writeStoredBuffer(
   data: Buffer,
 ): Promise<void> {
   const filePath = getImagePath(baseName, ext, size, uploadedAt);
-  if (STORAGE_BACKEND === "s3") {
-    await writeToS3(filePath, ext, data);
-    return;
-  }
   if (STORAGE_BACKEND === "blob") {
     await writeToBlob(buildStorageKey(baseName, ext, size, uploadedAt), ext, data);
     return;

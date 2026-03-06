@@ -3,15 +3,6 @@ import { promises as fs } from "fs";
 import { createHash, randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import {
-  AbortMultipartUploadCommand,
-  CompleteMultipartUploadCommand,
-  CreateMultipartUploadCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  S3Client,
-  UploadPartCommand,
-} from "@aws-sdk/client-s3";
-import {
   completeMultipartUpload,
   createMultipartUpload,
   del as blobDelete,
@@ -23,29 +14,18 @@ import { db } from "@/db";
 import { uploadSessions } from "@/db/schema";
 import { contentTypeForExt } from "@/lib/media-types";
 
-type StorageBackend = "local" | "s3" | "blob";
+type StorageBackend = "local" | "blob";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SESSION_DIR = path.join(DATA_DIR, "upload-sessions");
 const STORAGE_BACKEND =
   ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
     (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
-const S3_BUCKET = process.env.S3_BUCKET;
-const S3_REGION = process.env.S3_REGION;
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
 const MAX_SESSION_AGE_MS = 1000 * 60 * 60 * 24;
 const STALE_UPLOAD_STATE_MS = 1000 * 60 * 15;
 const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
 const MIN_CHUNK_SIZE = 1024 * 1024;
-
-const s3Client =
-  STORAGE_BACKEND === "s3" && S3_BUCKET && S3_REGION
-    ? new S3Client({
-        region: S3_REGION,
-        endpoint: S3_ENDPOINT,
-        forcePathStyle: Boolean(S3_ENDPOINT),
-      })
-    : null;
+const BLOB_ACCESS = "private";
 
 export type UploadSessionState = "initiated" | "uploading" | "finalizing" | "complete" | "failed";
 
@@ -206,18 +186,9 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
 
   if (STORAGE_BACKEND === "local") {
     await ensureSessionDirs(sessionId);
-  } else if (s3Client && S3_BUCKET) {
-    const created = await s3Client.send(
-      new CreateMultipartUploadCommand({
-        Bucket: S3_BUCKET,
-        Key: storageKey,
-        ContentType: input.mimeType || contentTypeForExt(input.ext),
-      }),
-    );
-    s3UploadId = created.UploadId ?? null;
   } else if (STORAGE_BACKEND === "blob") {
     const created = await createMultipartUpload(storageKey, {
-      access: "public",
+      access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: input.mimeType || contentTypeForExt(input.ext),
@@ -285,18 +256,6 @@ export async function clearUploadSessionsForUser(
         await blobDelete(mapped.storageKey);
       } catch {
         // Ignore if object was never finalized.
-      }
-    } else if (s3Client && S3_BUCKET && mapped.storageKey && mapped.s3UploadId) {
-      try {
-        await s3Client.send(
-          new AbortMultipartUploadCommand({
-            Bucket: S3_BUCKET,
-            Key: mapped.storageKey,
-            UploadId: mapped.s3UploadId,
-          }),
-        );
-      } catch {
-        // Ignore stale/unknown multipart sessions during cleanup.
       }
     }
     await db.delete(uploadSessions).where(eq(uploadSessions.id, mapped.id));
@@ -404,7 +363,7 @@ export async function uploadSessionPart(
       throw new Error("Blob multipart upload session is not configured.");
     }
     const uploaded = await uploadPart(session.storageKey, data, {
-      access: "public",
+      access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
       uploadId: session.s3UploadId,
@@ -416,23 +375,7 @@ export async function uploadSessionPart(
     await patchUploadedParts(session, partNumber, etag);
     return { etag };
   }
-
-  if (!s3Client || !S3_BUCKET || !session.storageKey || !session.s3UploadId) {
-    throw new Error("S3 upload session is not configured.");
-  }
-
-  const uploaded = await s3Client.send(
-    new UploadPartCommand({
-      Bucket: S3_BUCKET,
-      Key: session.storageKey,
-      UploadId: session.s3UploadId,
-      PartNumber: partNumber,
-      Body: data,
-    }),
-  );
-  const etag = uploaded.ETag ?? "";
-  await patchUploadedParts(session, partNumber, etag);
-  return { etag };
+  throw new Error("Unsupported upload backend.");
 }
 
 export async function completeUploadSession(session: UploadSessionEntry): Promise<UploadSessionEntry> {
@@ -482,7 +425,7 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
       .filter((item) => Number.isFinite(item.partNumber))
       .sort((a, b) => a.partNumber - b.partNumber);
     await completeMultipartUpload(refreshed.storageKey, parts, {
-      access: "public",
+      access: BLOB_ACCESS,
       addRandomSuffix: false,
       allowOverwrite: true,
       uploadId: refreshed.s3UploadId,
@@ -490,50 +433,14 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
       contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
     });
     const metadata = await blobHead(refreshed.storageKey);
-    const blobResponse = await blobGet(refreshed.storageKey, { access: "public", useCache: false });
+    const blobResponse = await blobGet(refreshed.storageKey, { access: BLOB_ACCESS, useCache: false });
     if (!blobResponse || blobResponse.statusCode !== 200 || !blobResponse.stream) {
       throw new Error("Unable to verify uploaded blob object.");
     }
     computedSize = metadata.size;
     computedChecksum = await streamToHash(blobResponse.stream);
   } else {
-    if (!s3Client || !S3_BUCKET || !refreshed.storageKey || !refreshed.s3UploadId) {
-      throw new Error("S3 upload session is not configured.");
-    }
-    const parts = Object.entries(refreshed.uploadedParts)
-      .map(([partNumber, etag]) => ({
-        ETag: etag,
-        PartNumber: Number(partNumber),
-      }))
-      .filter((item) => Number.isFinite(item.PartNumber))
-      .sort((a, b) => a.PartNumber - b.PartNumber);
-    await s3Client.send(
-      new CompleteMultipartUploadCommand({
-        Bucket: S3_BUCKET,
-        Key: refreshed.storageKey,
-        UploadId: refreshed.s3UploadId,
-        MultipartUpload: { Parts: parts },
-      }),
-    );
-    const head = await s3Client.send(
-      new HeadObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: refreshed.storageKey,
-      }),
-    );
-    const response = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: refreshed.storageKey,
-      }),
-    );
-    computedSize = Number(head.ContentLength ?? 0);
-    const hash = createHash("sha256");
-    const body = response.Body as AsyncIterable<Uint8Array>;
-    for await (const chunk of body) {
-      hash.update(Buffer.from(chunk));
-    }
-    computedChecksum = hash.digest("hex");
+    throw new Error("Unsupported upload backend.");
   }
 
   if (computedSize !== refreshed.fileSize) {
@@ -565,14 +472,6 @@ export async function abortUploadSession(session: UploadSessionEntry): Promise<v
         // No-op for unfinished multipart sessions.
       }
     }
-  } else if (s3Client && S3_BUCKET && session.storageKey && session.s3UploadId) {
-    await s3Client.send(
-      new AbortMultipartUploadCommand({
-        Bucket: S3_BUCKET,
-        Key: session.storageKey,
-        UploadId: session.s3UploadId,
-      }),
-    );
   }
   await db
     .update(uploadSessions)
