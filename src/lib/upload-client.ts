@@ -13,7 +13,7 @@ export type UploadResult = {
     height?: number;
     uploadedAt: string;
     shared?: boolean;
-    previewStatus?: "pending" | "ready" | "failed";
+    previewStatus?: "pending" | "processing" | "ready" | "failed";
   };
 };
 
@@ -52,6 +52,14 @@ async function sleep(ms: number): Promise<void> {
   });
 }
 
+async function computeSha256Hex(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function sumUploadedBytes(uploadedParts: Record<string, string>, chunkSize: number, totalBytes: number): number {
   const partCount = Object.keys(uploadedParts).length;
   return Math.min(totalBytes, partCount * chunkSize);
@@ -62,6 +70,7 @@ async function uploadResumable(
   targetType: "image" | "video" | "document" | "other",
   options?: Pick<UploadOptions, "resumeFromSessionId" | "checksum" | "onProgress">,
 ): Promise<{ ok: boolean; sessionId?: string; storageKey?: string; error?: string }> {
+  const checksum = options?.checksum ?? (await computeSha256Hex(file));
   let initPayload: InitUploadResponse;
   if (options?.resumeFromSessionId) {
     const statusResponse = await fetch(
@@ -88,7 +97,7 @@ async function uploadResumable(
         fileSize: file.size,
         mimeType: file.type,
         chunkSize: DEFAULT_CHUNK_SIZE,
-        checksum: options?.checksum,
+        checksum,
         targetType,
       }),
     });
@@ -142,7 +151,7 @@ async function uploadResumable(
   const completeResponse = await fetch("/api/uploads/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: initPayload.sessionId }),
+    body: JSON.stringify({ sessionId: initPayload.sessionId, expectedTotalParts: totalParts, checksum }),
   });
   if (!completeResponse.ok) {
     const payload = (await completeResponse.json()) as { error?: string };

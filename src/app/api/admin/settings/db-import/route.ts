@@ -1,27 +1,15 @@
 import { NextResponse } from "next/server";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { extname } from "node:path";
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import postgres from "postgres";
+import { get as blobGet } from "@vercel/blob";
 import { getSessionUserId } from "@/lib/auth";
 import { isAdminUser } from "@/lib/metadata-store";
 
 export const runtime = "nodejs";
 
 const IS_ENABLED = true;
+const MAX_SQL_BYTES = 100 * 1024 * 1024;
 
-const MAX_DUMP_BYTES = 1024 * 1024 * 1024;
-const s3Region = process.env.S3_REGION;
-const s3Endpoint = process.env.S3_ENDPOINT;
-const s3Bucket = process.env.S3_BUCKET;
-const s3Client =
-  s3Region && s3Bucket
-    ? new S3Client({
-        region: s3Region,
-        endpoint: s3Endpoint,
-        forcePathStyle: Boolean(s3Endpoint),
-      })
-    : null;
+type ImportPayload = { blobPath?: string };
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!IS_ENABLED) {
@@ -43,72 +31,25 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Database is not configured." }, { status: 500 });
   }
 
-  let sourceKind: "sql" | "dump" = "sql";
-  let sourceStream: AsyncIterable<Uint8Array> | null = null;
-  const contentType = request.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    const payload = (await request.json()) as { s3Key?: string };
-    const s3Key = payload.s3Key?.trim();
-    if (!s3Key) {
-      return NextResponse.json({ error: "Provide an S3 object key." }, { status: 400 });
-    }
-    sourceKind = extname(s3Key).toLowerCase() === ".dump" ? "dump" : "sql";
-    sourceStream = await getS3ObjectStream(s3Key);
-  } else {
-    const formData = await request.formData();
-    const file = formData.get("dump");
-    const s3Key = formData.get("s3Key");
-
-    if (file instanceof File) {
-      if (file.size <= 0) {
-        return NextResponse.json({ error: "Dump file is empty." }, { status: 400 });
-      }
-      if (file.size > MAX_DUMP_BYTES) {
-        return NextResponse.json(
-          { error: "Dump file is too large (max 1 GB)." },
-          { status: 400 },
-        );
-      }
-      sourceKind = extname(file.name || "upload.sql").toLowerCase() === ".dump" ? "dump" : "sql";
-      sourceStream = streamFileChunks(file);
-    } else if (typeof s3Key === "string" && s3Key.trim()) {
-      const trimmedKey = s3Key.trim();
-      sourceKind = extname(trimmedKey).toLowerCase() === ".dump" ? "dump" : "sql";
-      sourceStream = await getS3ObjectStream(trimmedKey);
-    } else {
-      return NextResponse.json(
-        { error: "Upload a .sql/.dump file or provide an S3 object key." },
-        { status: 400 },
-      );
-    }
-  }
-
   try {
-    if (!sourceStream) {
-      return NextResponse.json({ error: "No import source found." }, { status: 400 });
-    }
-    if (sourceKind === "dump") {
-      await runCommandWithInput("pg_restore", [
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-privileges",
-        "--dbname",
-        connectionString,
-      ], sourceStream);
-    } else {
-      await runCommandWithInput("psql", [
-        "--set",
-        "ON_ERROR_STOP=1",
-        "--dbname",
-        connectionString,
-      ], sourceStream);
+    const sqlText = await readSqlPayload(request);
+    if (!sqlText.trim()) {
+      return NextResponse.json({ error: "SQL payload is empty." }, { status: 400 });
     }
 
-    return NextResponse.json({ message: "Dump import completed." });
+    const useSsl = process.env.PGSSLMODE === "require";
+    const dbClient = postgres(connectionString, {
+      max: 1,
+      ssl: useSsl ? "require" : undefined,
+    });
+    try {
+      await dbClient.unsafe(sqlText);
+    } finally {
+      await dbClient.end({ timeout: 5 });
+    }
+    return NextResponse.json({ message: "SQL import completed." });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Dump import failed.";
+    const message = error instanceof Error ? error.message : "SQL import failed.";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
@@ -125,91 +66,66 @@ function resolveConnectionString(): string | undefined {
     return `postgres://${user}:${encodedPassword}@${host}:${port}/${database}`;
   }
 
-  return process.env.DATABASE_URL;
-}
-
-async function getS3ObjectStream(key: string): Promise<AsyncIterable<Uint8Array>> {
-  if (!s3Client || !s3Bucket) {
-    throw new Error("S3 is not configured.");
-  }
-  const response = await s3Client.send(
-    new GetObjectCommand({
-      Bucket: s3Bucket,
-      Key: key,
-    }),
+  return (
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.DATABASE_URL
   );
-  if (!response.Body) {
-    throw new Error("S3 object is empty.");
+}
+
+async function readSqlPayload(request: Request): Promise<string> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const payload = (await request.json()) as ImportPayload;
+    const blobPath = payload.blobPath?.trim();
+    if (!blobPath) {
+      throw new Error("Provide a Blob path.");
+    }
+    return readBlobAsText(blobPath);
   }
-  return response.Body as AsyncIterable<Uint8Array>;
+
+  const formData = await request.formData();
+  const file = formData.get("dump");
+  if (!(file instanceof File)) {
+    throw new Error("Upload a .sql file.");
+  }
+  if (!file.name.toLowerCase().endsWith(".sql")) {
+    throw new Error("Only .sql imports are supported.");
+  }
+  if (file.size <= 0) {
+    throw new Error("SQL file is empty.");
+  }
+  if (file.size > MAX_SQL_BYTES) {
+    throw new Error("SQL file is too large (max 100 MB).");
+  }
+  return file.text();
 }
 
-function runCommandWithInput(
-  command: string,
-  args: string[],
-  input: AsyncIterable<Uint8Array>,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") {
-        reject(new Error(`${command} is not installed in this runtime.`));
-        return;
-      }
-      reject(error);
-    });
-
-    const feedInput = async () => {
-      if (!child.stdin) {
-        throw new Error(`${command} stdin is not available.`);
-      }
-      for await (const chunk of input) {
-        if (!child.stdin.write(chunk)) {
-          await once(child.stdin, "drain");
-        }
-      }
-      child.stdin.end();
-    };
-
-    void feedInput().catch((error) => {
-      if (!child.killed) {
-        child.kill("SIGTERM");
-      }
-      reject(error);
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      const details = stderr.trim();
-      reject(new Error(details || `${command} failed with exit code ${code ?? "unknown"}.`));
-    });
-  });
-}
-
-async function* streamFileChunks(file: File): AsyncIterable<Uint8Array> {
-  const reader = file.stream().getReader();
+async function readBlobAsText(pathname: string): Promise<string> {
+  const blobResult = await blobGet(pathname, { access: "private", useCache: false });
+  if (!blobResult || blobResult.statusCode !== 200 || !blobResult.stream) {
+    throw new Error("Blob SQL file was not found.");
+  }
+  const reader = blobResult.stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
+      const next = await reader.read();
+      if (next.done) {
         break;
       }
-      if (value) {
-        yield value;
+      if (next.value) {
+        total += next.value.length;
+        if (total > MAX_SQL_BYTES) {
+          throw new Error("Blob SQL file is too large (max 100 MB).");
+        }
+        chunks.push(next.value);
       }
     }
   } finally {
     reader.releaseLock();
   }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
 }

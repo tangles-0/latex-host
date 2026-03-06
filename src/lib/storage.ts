@@ -2,6 +2,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import sharp from "sharp";
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { del as blobDelete, get as blobGet, put as blobPut } from "@vercel/blob";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
@@ -18,9 +19,11 @@ const MAX_640_SIZE = {
 export type ImageSize = "original" | "sm" | "lg" | "x640";
 export type RotationDirection = "left" | "right";
 
-type StorageBackend = "local" | "s3";
+type StorageBackend = "local" | "s3" | "blob";
 
-const STORAGE_BACKEND = (process.env.STORAGE_BACKEND as StorageBackend) || "local";
+const STORAGE_BACKEND =
+  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
+    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
 const S3_BUCKET = process.env.S3_BUCKET;
 const S3_REGION = process.env.S3_REGION;
 const S3_ENDPOINT = process.env.S3_ENDPOINT;
@@ -118,6 +121,10 @@ export async function storeImageAndThumbnails(
     await writeToS3(originalPath, outputFormat.ext, originalBuffer);
     await writeToS3(smPath, outputFormat.ext, smBuffer);
     await writeToS3(lgPath, outputFormat.ext, lgBuffer);
+  } else if (STORAGE_BACKEND === "blob") {
+    await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "original", uploadedAt), outputFormat.ext, originalBuffer);
+    await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "sm", uploadedAt), outputFormat.ext, smBuffer);
+    await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "lg", uploadedAt), outputFormat.ext, lgBuffer);
   } else {
     await fs.mkdir(path.dirname(originalPath), { recursive: true });
     await fs.mkdir(path.dirname(smPath), { recursive: true });
@@ -149,6 +156,13 @@ export async function deleteImageFiles(
       sizes.map(async (size) => {
         const key = buildStorageKey(baseName, ext, size, uploadedAt);
         await deleteFromS3(key);
+      }),
+    );
+  } else if (STORAGE_BACKEND === "blob") {
+    await Promise.all(
+      sizes.map(async (size) => {
+        const key = buildStorageKey(baseName, ext, size, uploadedAt);
+        await deleteFromBlob(key);
       }),
     );
   } else {
@@ -318,6 +332,15 @@ async function writeToS3(filePath: string, ext: string, body: Buffer): Promise<v
   );
 }
 
+async function writeToBlob(key: string, ext: string, body: Buffer): Promise<void> {
+  await blobPut(key, body, {
+    access: "public",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: contentTypeForExt(ext),
+  });
+}
+
 async function deleteFromS3(key: string): Promise<void> {
   if (!s3Client || !S3_BUCKET) {
     throw new Error("S3 is not configured.");
@@ -328,6 +351,10 @@ async function deleteFromS3(key: string): Promise<void> {
       Key: key,
     }),
   );
+}
+
+async function deleteFromBlob(key: string): Promise<void> {
+  await blobDelete(key);
 }
 
 export async function getImageBuffer(
@@ -375,6 +402,24 @@ async function readStoredBuffer(
     }
     return Buffer.concat(chunks);
   }
+  if (STORAGE_BACKEND === "blob") {
+    const response = await blobGet(key, { access: "public", useCache: false });
+    if (!response || response.statusCode !== 200 || !response.stream) {
+      throw new Error("Blob object was not found.");
+    }
+    const chunks: Buffer[] = [];
+    const reader = response.stream.getReader();
+    while (true) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+      if (result.value) {
+        chunks.push(Buffer.from(result.value));
+      }
+    }
+    return Buffer.concat(chunks);
+  }
   return fs.readFile(getImagePath(baseName, ext, size, uploadedAt));
 }
 
@@ -388,6 +433,10 @@ async function writeStoredBuffer(
   const filePath = getImagePath(baseName, ext, size, uploadedAt);
   if (STORAGE_BACKEND === "s3") {
     await writeToS3(filePath, ext, data);
+    return;
+  }
+  if (STORAGE_BACKEND === "blob") {
+    await writeToBlob(buildStorageKey(baseName, ext, size, uploadedAt), ext, data);
     return;
   }
   await fs.mkdir(path.dirname(filePath), { recursive: true });

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import {
+  expectedPartSizeBytes,
   getUploadSessionForUser,
   markUploadSessionFailedForUser,
   uploadSessionPart,
 } from "@/lib/upload-sessions";
+import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 
 export const runtime = "nodejs";
 
@@ -30,6 +32,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  const partRate = await consumeRequestRateLimit({
+    namespace: "upload-part-user",
+    key: userId,
+    limit: Number(process.env.UPLOAD_PART_RATE_LIMIT_PER_MINUTE ?? 360),
+    windowSeconds: 60,
+  });
+  if (!partRate.allowed) {
+    return NextResponse.json(
+      { error: "Upload rate limit exceeded." },
+      { status: 429, headers: { "Retry-After": String(partRate.retryAfterSeconds) } },
+    );
+  }
   let hintedSessionId = request.headers.get("x-upload-session-id")?.trim() ?? "";
   try {
     const formData = await request.formData();
@@ -52,8 +66,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (session.state === "complete" || session.state === "finalizing") {
       return NextResponse.json({ error: "Upload session is not writable." }, { status: 409 });
     }
+    const sessionRate = await consumeRequestRateLimit({
+      namespace: "upload-part-session",
+      key: session.id,
+      limit: Number(process.env.UPLOAD_PART_PER_SESSION_RATE_LIMIT_PER_MINUTE ?? 480),
+      windowSeconds: 60,
+    });
+    if (!sessionRate.allowed) {
+      return NextResponse.json(
+        { error: "This upload session is receiving too many chunk requests." },
+        { status: 429, headers: { "Retry-After": String(sessionRate.retryAfterSeconds) } },
+      );
+    }
 
     const data = Buffer.from(await filePart.arrayBuffer());
+    const expectedSize = expectedPartSizeBytes(session, partNumber);
+    if (data.length !== expectedSize) {
+      return NextResponse.json(
+        { error: `Invalid chunk size for part ${partNumber}. Expected ${expectedSize} bytes.` },
+        { status: 400 },
+      );
+    }
     const uploaded = await uploadSessionPart(session, partNumber, data);
     return NextResponse.json({ etag: uploaded.etag, partNumber });
   } catch (error) {

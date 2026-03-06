@@ -16,7 +16,7 @@ export function FileViewerContent({
   isRegeneratingThumbnail,
 }: {
   kind: "video" | "document" | "other";
-  previewStatus?: "pending" | "ready" | "failed";
+  previewStatus?: "pending" | "processing" | "ready" | "failed";
   fullUrl: string;
   previewUrl: string;
   ext?: string;

@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
-import { getMediaPreviewStatusForUser, type MediaKind } from "@/lib/media-store";
+import { getMediaPreviewStatusForUser } from "@/lib/media-store";
+import { parsePreviewStatusKind } from "@/app/api/media/preview-status/utils";
 
 export const runtime = "nodejs";
-
-function parseKind(kind: string | null): MediaKind | null {
-  if (kind === "image" || kind === "video" || kind === "document" || kind === "other") {
-    return kind;
-  }
-  return null;
-}
 
 export async function GET(request: Request): Promise<NextResponse> {
   const userId = await getSessionUserId();
@@ -17,7 +11,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const url = new URL(request.url);
-  const kind = parseKind(url.searchParams.get("kind"));
+  const kind = parsePreviewStatusKind(url.searchParams.get("kind"));
   const mediaId = url.searchParams.get("mediaId")?.trim() ?? "";
   if (!kind || !mediaId) {
     return NextResponse.json({ error: "kind and mediaId are required." }, { status: 400 });

@@ -15,6 +15,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { copy as blobCopy, del as blobDelete, get as blobGet, head as blobHead, put as blobPut } from "@vercel/blob";
 import {
   CODE_EXTENSIONS,
   CSV_EXTENSIONS,
@@ -24,7 +25,7 @@ import {
   contentTypeForExt,
 } from "@/lib/media-types";
 
-type StorageBackend = "local" | "s3";
+type StorageBackend = "local" | "s3" | "blob";
 export type MediaSize = "original" | "sm" | "lg";
 export type StoredMediaResult = {
   baseName: string;
@@ -35,11 +36,13 @@ export type StoredMediaResult = {
   sizeOriginal: number;
   sizeSm: number;
   sizeLg: number;
-  previewStatus: "pending" | "ready" | "failed";
+  previewStatus: "pending" | "processing" | "ready" | "failed";
 };
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const STORAGE_BACKEND = (process.env.STORAGE_BACKEND as StorageBackend) || "local";
+const STORAGE_BACKEND =
+  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
+    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
 const S3_BUCKET = process.env.S3_BUCKET;
 const S3_REGION = process.env.S3_REGION;
 const S3_ENDPOINT = process.env.S3_ENDPOINT;
@@ -218,7 +221,10 @@ function mediaStorageKey(input: {
 }
 
 export function usesS3StorageBackend(): boolean {
-  return STORAGE_BACKEND === "s3" && Boolean(s3Client && S3_BUCKET);
+  if (STORAGE_BACKEND === "s3") {
+    return Boolean(s3Client && S3_BUCKET);
+  }
+  return STORAGE_BACKEND === "blob";
 }
 
 function absolutePathForKey(key: string): string {
@@ -244,6 +250,15 @@ async function writeKey(key: string, ext: string, data: Buffer): Promise<void> {
         ContentType: contentTypeForExt(ext),
       }),
     );
+    return;
+  }
+  if (STORAGE_BACKEND === "blob") {
+    await blobPut(key, data, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: contentTypeForExt(ext),
+    });
     return;
   }
   const filePath = absolutePathForKey(key);
@@ -273,6 +288,15 @@ async function copyKey(sourceKey: string, targetKey: string, ext: string): Promi
     );
     return;
   }
+  if (STORAGE_BACKEND === "blob") {
+    await blobCopy(sourceKey, targetKey, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: contentTypeForExt(ext),
+    });
+    return;
+  }
   const sourcePath = absolutePathForKey(sourceKey);
   const targetPath = absolutePathForKey(targetKey);
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
@@ -292,6 +316,10 @@ async function deleteKey(key: string): Promise<void> {
     );
     return;
   }
+  if (STORAGE_BACKEND === "blob") {
+    await blobDelete(key);
+    return;
+  }
   await fs.rm(absolutePathForKey(key), { force: true });
 }
 
@@ -308,6 +336,13 @@ async function readKey(key: string): Promise<Buffer> {
     );
     return readWebStreamToBuffer(toWebReadableStream(response.Body));
   }
+  if (STORAGE_BACKEND === "blob") {
+    const response = await blobGet(key, { access: "public", useCache: false });
+    if (!response || response.statusCode !== 200 || !response.stream) {
+      throw new Error("Blob object was not found.");
+    }
+    return readWebStreamToBuffer(response.stream);
+  }
   return fs.readFile(absolutePathForKey(key));
 }
 
@@ -323,6 +358,10 @@ async function getKeySize(key: string): Promise<number> {
       }),
     );
     return Number(head.ContentLength ?? 0);
+  }
+  if (STORAGE_BACKEND === "blob") {
+    const head = await blobHead(key);
+    return Number(head.size ?? 0);
   }
   const stats = await fs.stat(absolutePathForKey(key));
   return Number(stats.size ?? 0);
@@ -341,6 +380,22 @@ async function readKeyRange(key: string, start: number, end: number): Promise<Bu
       }),
     );
     return readWebStreamToBuffer(toWebReadableStream(response.Body));
+  }
+  if (STORAGE_BACKEND === "blob") {
+    const head = await blobHead(key);
+    const response = await fetch(head.url, {
+      headers: {
+        Range: `bytes=${start}-${end}`,
+      },
+      cache: "no-store",
+    });
+    if (!response.ok && response.status !== 206) {
+      throw new Error(`Blob range read failed with status ${response.status}.`);
+    }
+    if (!response.body) {
+      throw new Error("Blob range read returned an empty body.");
+    }
+    return readWebStreamToBuffer(response.body);
   }
   const length = end - start + 1;
   const handle = await fs.open(absolutePathForKey(key), "r");
@@ -366,6 +421,13 @@ async function readKeyStream(key: string): Promise<ReadableStream<Uint8Array>> {
     );
     return toWebReadableStream(response.Body);
   }
+  if (STORAGE_BACKEND === "blob") {
+    const response = await blobGet(key, { access: "public", useCache: true });
+    if (!response || response.statusCode !== 200 || !response.stream) {
+      throw new Error("Blob object was not found.");
+    }
+    return response.stream;
+  }
   return Readable.toWeb(createReadStream(absolutePathForKey(key))) as ReadableStream<Uint8Array>;
 }
 
@@ -386,6 +448,22 @@ async function readKeyRangeStream(
       }),
     );
     return toWebReadableStream(response.Body);
+  }
+  if (STORAGE_BACKEND === "blob") {
+    const head = await blobHead(key);
+    const response = await fetch(head.url, {
+      headers: {
+        Range: `bytes=${start}-${end}`,
+      },
+      cache: "no-store",
+    });
+    if (!response.ok && response.status !== 206) {
+      throw new Error(`Blob range stream failed with status ${response.status}.`);
+    }
+    if (!response.body) {
+      throw new Error("Blob range stream returned an empty body.");
+    }
+    return response.body;
   }
   return Readable.toWeb(createReadStream(absolutePathForKey(key), { start, end })) as ReadableStream<Uint8Array>;
 }
@@ -649,7 +727,7 @@ export async function storeGenericMediaFromBuffer(input: {
   await writeKey(originalKey, input.ext, input.buffer);
   const sizeOriginal = input.buffer.length;
 
-  if (input.kind === "video" && input.deferPreview) {
+  if (input.deferPreview) {
     return {
       baseName,
       ext: input.ext,
@@ -715,7 +793,7 @@ export async function storeGenericMediaFromStoredUpload(input: {
     await deleteKey(input.sourceKey);
   }
 
-  if (input.kind === "video" && input.deferPreview) {
+  if (input.deferPreview) {
     return {
       baseName,
       ext: input.ext,
@@ -934,10 +1012,14 @@ export async function getMediaSignedUrl(input: {
   uploadedAt: Date;
   responseContentType?: string;
 }): Promise<string> {
+  const key = mediaStorageKey(input);
+  if (STORAGE_BACKEND === "blob") {
+    const metadata = await blobHead(key);
+    return metadata.url;
+  }
   if (!s3Client || !S3_BUCKET) {
     throw new Error("S3 is not configured.");
   }
-  const key = mediaStorageKey(input);
   const presign = getSignedUrl as unknown as (
     client: unknown,
     command: unknown,
@@ -961,7 +1043,7 @@ export async function generateVideoPreviewFromStoredMedia(input: {
 }): Promise<{ sizeSm: number; sizeLg: number; width?: number; height?: number }> {
   const originalKey = buildStorageKey("video", input.baseName, input.ext, "original", input.uploadedAt);
   const source =
-    STORAGE_BACKEND === "s3"
+    STORAGE_BACKEND === "s3" || STORAGE_BACKEND === "blob"
       ? await getMediaSignedUrl({
           kind: "video",
           baseName: input.baseName,
@@ -984,6 +1066,32 @@ export async function generateVideoPreviewFromStoredMedia(input: {
 
   const smKey = buildStorageKey("video", input.baseName, "png", "sm", input.uploadedAt);
   const lgKey = buildStorageKey("video", input.baseName, "png", "lg", input.uploadedAt);
+  await writeKey(smKey, "png", smBuffer);
+  await writeKey(lgKey, "png", lgBuffer);
+
+  return {
+    sizeSm: smBuffer.length,
+    sizeLg: lgBuffer.length,
+    width: metadata.width ?? undefined,
+    height: metadata.height ?? undefined,
+  };
+}
+
+export async function storeGeneratedPreviewForMedia(input: {
+  kind: "video" | "document" | "other";
+  baseName: string;
+  uploadedAt: Date;
+  previewImageBuffer: Buffer;
+}): Promise<{ sizeSm: number; sizeLg: number; width?: number; height?: number }> {
+  const lgBuffer = await sharp(input.previewImageBuffer)
+    .resize({ width: 1024, withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  const smBuffer = await sharp(lgBuffer).resize({ width: 320, withoutEnlargement: true }).png().toBuffer();
+  const metadata = await sharp(lgBuffer).metadata();
+
+  const smKey = buildStorageKey(input.kind, input.baseName, "png", "sm", input.uploadedAt);
+  const lgKey = buildStorageKey(input.kind, input.baseName, "png", "lg", input.uploadedAt);
   await writeKey(smKey, "png", smBuffer);
   await writeKey(lgKey, "png", lgBuffer);
 

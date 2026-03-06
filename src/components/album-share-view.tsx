@@ -11,7 +11,7 @@ type AlbumMedia = {
   mimeType: string;
   width?: number;
   height?: number;
-  previewStatus?: "pending" | "ready" | "failed";
+  previewStatus?: "pending" | "processing" | "ready" | "failed";
   albumCaption?: string;
   uploadedAt: string;
 };

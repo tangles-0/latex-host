@@ -33,6 +33,14 @@ export const db = client
     ) as ReturnType<typeof drizzle>);
 
 function resolveConnectionString(): string | undefined {
+  const vercelPostgresUrl =
+    process.env.POSTGRES_URL_NON_POOLING?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    process.env.POSTGRES_PRISMA_URL?.trim();
+  if (vercelPostgresUrl) {
+    return vercelPostgresUrl;
+  }
+
   const host = process.env.PGHOST;
   const database = process.env.PGDATABASE;
   const user = process.env.PGUSER;

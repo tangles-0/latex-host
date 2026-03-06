@@ -1,28 +1,42 @@
 import path from "path";
 import { promises as fs } from "fs";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
   S3Client,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
+import {
+  completeMultipartUpload,
+  createMultipartUpload,
+  del as blobDelete,
+  get as blobGet,
+  head as blobHead,
+  uploadPart,
+} from "@vercel/blob";
 import { db } from "@/db";
 import { uploadSessions } from "@/db/schema";
 import { contentTypeForExt } from "@/lib/media-types";
 
-type StorageBackend = "local" | "s3";
+type StorageBackend = "local" | "s3" | "blob";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SESSION_DIR = path.join(DATA_DIR, "upload-sessions");
-const STORAGE_BACKEND = (process.env.STORAGE_BACKEND as StorageBackend) || "local";
+const STORAGE_BACKEND =
+  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
+    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
 const S3_BUCKET = process.env.S3_BUCKET;
 const S3_REGION = process.env.S3_REGION;
 const S3_ENDPOINT = process.env.S3_ENDPOINT;
 const MAX_SESSION_AGE_MS = 1000 * 60 * 60 * 24;
 const STALE_UPLOAD_STATE_MS = 1000 * 60 * 15;
+const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
+const MIN_CHUNK_SIZE = 1024 * 1024;
 
 const s3Client =
   STORAGE_BACKEND === "s3" && S3_BUCKET && S3_REGION
@@ -53,6 +67,57 @@ export type UploadSessionEntry = {
   createdAt: string;
   updatedAt: string;
 };
+
+export function listMissingUploadPartNumbers(session: Pick<UploadSessionEntry, "totalParts" | "uploadedParts">): number[] {
+  const present = new Set(
+    Object.keys(session.uploadedParts)
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 1),
+  );
+  const missing: number[] = [];
+  for (let partNumber = 1; partNumber <= session.totalParts; partNumber += 1) {
+    if (!present.has(partNumber)) {
+      missing.push(partNumber);
+    }
+  }
+  return missing;
+}
+
+function normalizeChunkSize(rawChunkSize: number): number {
+  if (!Number.isFinite(rawChunkSize) || rawChunkSize <= 0) {
+    return DEFAULT_CHUNK_SIZE;
+  }
+  return Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, Math.floor(rawChunkSize)));
+}
+
+const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
+
+export function expectedPartSizeBytes(session: Pick<UploadSessionEntry, "fileSize" | "chunkSize" | "totalParts">, partNumber: number): number {
+  const normalizedChunkSize = Math.max(1, Math.floor(session.chunkSize));
+  if (partNumber < 1 || partNumber > session.totalParts) {
+    throw new Error("Invalid part number.");
+  }
+  const bytesBefore = (partNumber - 1) * normalizedChunkSize;
+  const remaining = Math.max(0, session.fileSize - bytesBefore);
+  return Math.min(normalizedChunkSize, remaining);
+}
+
+function streamToHash(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const hash = createHash("sha256");
+  const reader = stream.getReader();
+  return (async () => {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+      if (result.value) {
+        hash.update(Buffer.from(result.value));
+      }
+    }
+    return hash.digest("hex");
+  })();
+}
 
 type InitInput = {
   userId: string;
@@ -108,6 +173,7 @@ async function ensureSessionDirs(id: string): Promise<void> {
 }
 
 export async function initUploadSession(input: InitInput): Promise<UploadSessionEntry> {
+  const chunkSize = normalizeChunkSize(input.chunkSize);
   if (input.checksum) {
     const existingRows = await db
       .select()
@@ -120,6 +186,7 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
           row.fileSize === input.fileSize &&
           row.ext === input.ext &&
           row.mimeType === input.mimeType &&
+          row.chunkSize === chunkSize &&
           row.state !== "complete",
       )
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
@@ -148,6 +215,14 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
       }),
     );
     s3UploadId = created.UploadId ?? null;
+  } else if (STORAGE_BACKEND === "blob") {
+    const created = await createMultipartUpload(storageKey, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: input.mimeType || contentTypeForExt(input.ext),
+    });
+    s3UploadId = created.uploadId;
   }
 
   await db.insert(uploadSessions).values({
@@ -160,8 +235,8 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
     checksum: input.checksum ?? null,
     fileName: input.fileName,
     fileSize: input.fileSize,
-    chunkSize: input.chunkSize,
-    totalParts: Math.ceil(input.fileSize / input.chunkSize),
+    chunkSize,
+    totalParts: Math.ceil(input.fileSize / chunkSize),
     state: "initiated",
     storageKey,
     s3UploadId,
@@ -205,6 +280,12 @@ export async function clearUploadSessionsForUser(
     const mapped = mapSession(row);
     if (mapped.backend === "local") {
       await fs.rm(path.join(SESSION_DIR, mapped.id), { recursive: true, force: true });
+    } else if (mapped.backend === "blob" && mapped.storageKey) {
+      try {
+        await blobDelete(mapped.storageKey);
+      } catch {
+        // Ignore if object was never finalized.
+      }
     } else if (s3Client && S3_BUCKET && mapped.storageKey && mapped.s3UploadId) {
       try {
         await s3Client.send(
@@ -304,12 +385,34 @@ export async function uploadSessionPart(
   if (partNumber < 1 || partNumber > session.totalParts) {
     throw new Error("Invalid part number.");
   }
+  const expectedSize = expectedPartSizeBytes(session, partNumber);
+  if (data.length !== expectedSize) {
+    throw new Error(`Invalid part size for part ${partNumber}. Expected ${expectedSize} bytes.`);
+  }
 
   if (session.backend === "local") {
     await ensureSessionDirs(session.id);
     const partPath = path.join(sessionPartsDir(session.id), `${partNumber}.part`);
     await fs.writeFile(partPath, data);
     const etag = `${data.length}-${partNumber}`;
+    await patchUploadedParts(session, partNumber, etag);
+    return { etag };
+  }
+
+  if (session.backend === "blob") {
+    if (!session.storageKey || !session.s3UploadId) {
+      throw new Error("Blob multipart upload session is not configured.");
+    }
+    const uploaded = await uploadPart(session.storageKey, data, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      uploadId: session.s3UploadId,
+      key: session.storageKey,
+      partNumber,
+      contentType: session.mimeType || contentTypeForExt(session.ext),
+    });
+    const etag = uploaded.etag ?? "";
     await patchUploadedParts(session, partNumber, etag);
     return { etag };
   }
@@ -343,21 +446,56 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
     throw new Error("Upload session not found.");
   }
 
+  const missingParts = listMissingUploadPartNumbers(refreshed);
+  if (missingParts.length > 0) {
+    throw new Error(`Upload is incomplete. Missing part(s): ${missingParts.join(", ")}`);
+  }
+
+  let computedChecksum: string | null = null;
+  let computedSize = 0;
+
   if (refreshed.backend === "local") {
     const dir = sessionPartsDir(refreshed.id);
     const outPath = path.join(DATA_DIR, refreshed.storageKey ?? "");
     await fs.mkdir(path.dirname(outPath), { recursive: true });
-    const ordered = Object.keys(refreshed.uploadedParts)
-      .map((key) => Number(key))
-      .filter((n) => Number.isFinite(n))
-      .sort((a, b) => a - b);
+    const hash = createHash("sha256");
     const buffers: Buffer[] = [];
-    for (const partNumber of ordered) {
+    for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
       const partPath = path.join(dir, `${partNumber}.part`);
-      buffers.push(await fs.readFile(partPath));
+      const partBuffer = await fs.readFile(partPath);
+      hash.update(partBuffer);
+      computedSize += partBuffer.length;
+      buffers.push(partBuffer);
     }
+    computedChecksum = hash.digest("hex");
     await fs.writeFile(outPath, Buffer.concat(buffers));
     await fs.rm(path.join(SESSION_DIR, refreshed.id), { recursive: true, force: true });
+  } else if (refreshed.backend === "blob") {
+    if (!refreshed.storageKey || !refreshed.s3UploadId) {
+      throw new Error("Blob upload session is not configured.");
+    }
+    const parts = Object.entries(refreshed.uploadedParts)
+      .map(([partNumber, etag]) => ({
+        etag,
+        partNumber: Number(partNumber),
+      }))
+      .filter((item) => Number.isFinite(item.partNumber))
+      .sort((a, b) => a.partNumber - b.partNumber);
+    await completeMultipartUpload(refreshed.storageKey, parts, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      uploadId: refreshed.s3UploadId,
+      key: refreshed.storageKey,
+      contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
+    });
+    const metadata = await blobHead(refreshed.storageKey);
+    const blobResponse = await blobGet(refreshed.storageKey, { access: "public", useCache: false });
+    if (!blobResponse || blobResponse.statusCode !== 200 || !blobResponse.stream) {
+      throw new Error("Unable to verify uploaded blob object.");
+    }
+    computedSize = metadata.size;
+    computedChecksum = await streamToHash(blobResponse.stream);
   } else {
     if (!s3Client || !S3_BUCKET || !refreshed.storageKey || !refreshed.s3UploadId) {
       throw new Error("S3 upload session is not configured.");
@@ -377,6 +515,32 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
         MultipartUpload: { Parts: parts },
       }),
     );
+    const head = await s3Client.send(
+      new HeadObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: refreshed.storageKey,
+      }),
+    );
+    const response = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: refreshed.storageKey,
+      }),
+    );
+    computedSize = Number(head.ContentLength ?? 0);
+    const hash = createHash("sha256");
+    const body = response.Body as AsyncIterable<Uint8Array>;
+    for await (const chunk of body) {
+      hash.update(Buffer.from(chunk));
+    }
+    computedChecksum = hash.digest("hex");
+  }
+
+  if (computedSize !== refreshed.fileSize) {
+    throw new Error("Uploaded file size does not match the declared file size.");
+  }
+  if (refreshed.checksum && computedChecksum && refreshed.checksum.toLowerCase() !== computedChecksum.toLowerCase()) {
+    throw new Error("Uploaded file checksum did not match.");
   }
 
   await db
@@ -393,6 +557,14 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
 export async function abortUploadSession(session: UploadSessionEntry): Promise<void> {
   if (session.backend === "local") {
     await fs.rm(path.join(SESSION_DIR, session.id), { recursive: true, force: true });
+  } else if (session.backend === "blob") {
+    if (session.storageKey) {
+      try {
+        await blobDelete(session.storageKey);
+      } catch {
+        // No-op for unfinished multipart sessions.
+      }
+    }
   } else if (s3Client && S3_BUCKET && session.storageKey && session.s3UploadId) {
     await s3Client.send(
       new AbortMultipartUploadCommand({

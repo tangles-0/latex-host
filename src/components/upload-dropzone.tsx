@@ -18,7 +18,7 @@ type UploadedImage = {
   originalFileName?: string;
   ext: string;
   mimeType?: string;
-  previewStatus?: "pending" | "ready" | "failed";
+  previewStatus?: "pending" | "processing" | "ready" | "failed";
 };
 
 type ShareInfo = {
@@ -288,7 +288,9 @@ export default function UploadDropzone({
           if (!response.ok) {
             return;
           }
-          const payload = (await response.json()) as { previewStatus?: "pending" | "ready" | "failed" };
+          const payload = (await response.json()) as {
+            previewStatus?: "pending" | "processing" | "ready" | "failed";
+          };
           if (!payload.previewStatus || !isMounted) {
             return;
           }

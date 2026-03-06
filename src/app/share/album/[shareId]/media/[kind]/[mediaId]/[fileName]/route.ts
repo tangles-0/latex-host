@@ -9,9 +9,14 @@ import {
   getMediaStream,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
+import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
 
 export const runtime = "nodejs";
+const PUBLIC_SHARE_CACHE_SECONDS = Math.max(
+  5,
+  Number.parseInt(process.env.PUBLIC_SHARE_CACHE_SECONDS ?? "15", 10) || 15,
+);
 
 function parseKind(kind: string): MediaKind | null {
   if (kind === "image" || kind === "video" || kind === "document" || kind === "other") {
@@ -73,7 +78,7 @@ function withPublicCors(response: Response): Response {
 function publicCacheHeaders(ext: string): Headers {
   return new Headers({
     "Content-Type": contentTypeForExt(ext),
-    "Cache-Control": "public, max-age=60, s-maxage=60, stale-while-revalidate=30, must-revalidate",
+    "Cache-Control": `public, max-age=${PUBLIC_SHARE_CACHE_SECONDS}, s-maxage=${PUBLIC_SHARE_CACHE_SECONDS}, stale-while-revalidate=${PUBLIC_SHARE_CACHE_SECONDS}, must-revalidate`,
     Vary: "Accept-Encoding",
   });
 }
@@ -85,6 +90,22 @@ export async function GET(
   }: { params: Promise<{ shareId: string; kind: string; mediaId: string; fileName: string }> },
 ): Promise<Response> {
   const { shareId, kind, mediaId, fileName } = await params;
+  const rate = await consumeRequestRateLimit({
+    namespace: "public-share-album-media",
+    key: `${shareId}:${mediaId}`,
+    limit: Number(process.env.PUBLIC_SHARE_RATE_LIMIT_PER_MINUTE ?? 240),
+    windowSeconds: 60,
+  });
+  if (!rate.allowed) {
+    return withPublicCors(
+      new Response("Too many requests.", {
+        status: 429,
+        headers: {
+          "Retry-After": String(rate.retryAfterSeconds),
+        },
+      }),
+    );
+  }
   const parsedKind = parseKind(kind);
   const parsed = parseFileName(fileName);
   if (!parsedKind || !parsed) {
@@ -126,7 +147,15 @@ export async function GET(
         uploadedAt: new Date(media.uploadedAt),
         responseContentType: contentTypeForExt(responseExt),
       });
-      return withPublicCors(Response.redirect(signedUrl, 307));
+      return withPublicCors(
+        new Response(null, {
+          status: 307,
+          headers: {
+            Location: signedUrl,
+            "Cache-Control": "no-store",
+          },
+        }),
+      );
     }
 
     if (isRangeStreamableOriginal) {

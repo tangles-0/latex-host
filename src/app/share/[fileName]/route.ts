@@ -9,9 +9,15 @@ import {
 } from "@/lib/media-storage";
 import { getSharedMediaByCode, getSharedMediaByCodeAndExt } from "@/lib/media-store";
 import { contentTypeForExt } from "@/lib/media-types";
+import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
+import { parseByteRange, parseShareFileName } from "@/app/share/share-route-utils";
 
 export const runtime = "nodejs";
+const PUBLIC_SHARE_CACHE_SECONDS = Math.max(
+  5,
+  Number.parseInt(process.env.PUBLIC_SHARE_CACHE_SECONDS ?? "15", 10) || 15,
+);
 
 function withPublicImageCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -26,21 +32,6 @@ function withPublicImageCors(response: Response): Response {
   });
 }
 
-function parseFileName(fileName: string): {
-  code: string;
-  size: "original" | "sm" | "lg" | "x640";
-  ext: string;
-} | null {
-  const match = /^([A-Za-z0-9]+)(-sm|-lg|-640)?\.([a-zA-Z0-9]+)$/.exec(fileName);
-  if (!match) {
-    return null;
-  }
-  const suffix = match[2];
-  const size =
-    suffix === "-sm" ? "sm" : suffix === "-lg" ? "lg" : suffix === "-640" ? "x640" : "original";
-  return { code: match[1], size, ext: match[3].toLowerCase() };
-}
-
 function getInternalAppOrigin(): string {
   const configured = process.env.INTERNAL_APP_ORIGIN?.trim();
   if (configured) {
@@ -52,7 +43,7 @@ function getInternalAppOrigin(): string {
 function publicCacheHeaders(ext: string): Headers {
   return new Headers({
     "Content-Type": contentTypeForExt(ext),
-    "Cache-Control": "public, max-age=60, s-maxage=60, stale-while-revalidate=30, must-revalidate",
+    "Cache-Control": `public, max-age=${PUBLIC_SHARE_CACHE_SECONDS}, s-maxage=${PUBLIC_SHARE_CACHE_SECONDS}, stale-while-revalidate=${PUBLIC_SHARE_CACHE_SECONDS}, must-revalidate`,
     Vary: "Accept-Encoding",
   });
 }
@@ -111,39 +102,29 @@ function signedMediaViewerHtml(input: { src: string; mimeType: string; fileName:
 </html>`;
 }
 
-function parseByteRange(rangeHeader: string, total: number): { start: number; end: number } | null {
-  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
-  if (!match) {
-    return null;
-  }
-  const startRaw = match[1];
-  const endRaw = match[2];
-  if (!startRaw && !endRaw) {
-    return null;
-  }
-  if (!startRaw && endRaw) {
-    const suffixLength = Number(endRaw);
-    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
-      return null;
-    }
-    const length = Math.min(total, suffixLength);
-    return { start: total - length, end: total - 1 };
-  }
-  const start = Number(startRaw);
-  let end = endRaw ? Number(endRaw) : total - 1;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= total) {
-    return null;
-  }
-  end = Math.min(end, total - 1);
-  return { start, end };
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ fileName: string }> },
 ): Promise<Response> {
   const { fileName } = await params;
-  const parsed = parseFileName(fileName);
+  const parsed = parseShareFileName(fileName);
+  const shareLookupKey = parsed?.code ?? fileName;
+  const shareRate = await consumeRequestRateLimit({
+    namespace: "public-share",
+    key: shareLookupKey,
+    limit: Number(process.env.PUBLIC_SHARE_RATE_LIMIT_PER_MINUTE ?? 240),
+    windowSeconds: 60,
+  });
+  if (!shareRate.allowed) {
+    return withPublicImageCors(
+      new Response("Too many requests.", {
+        status: 429,
+        headers: {
+          "Retry-After": String(shareRate.retryAfterSeconds),
+        },
+      }),
+    );
+  }
   const allowHtmlNavigationMode = usesS3StorageBackend()
     ? (await getAppSettings()).shareHtmlNavigationEnabled
     : false;
@@ -210,7 +191,15 @@ export async function GET(
               }),
             );
           }
-          return withPublicImageCors(Response.redirect(signedUrl, 307));
+          return withPublicImageCors(
+            new Response(null, {
+              status: 307,
+              headers: {
+                Location: signedUrl,
+                "Cache-Control": "no-store",
+              },
+            }),
+          );
         }
         const stream = await getMediaStream({
           kind: "image",
@@ -270,7 +259,15 @@ export async function GET(
           }),
         );
       }
-      return withPublicImageCors(Response.redirect(signedUrl, 307));
+      return withPublicImageCors(
+        new Response(null, {
+          status: 307,
+          headers: {
+            Location: signedUrl,
+            "Cache-Control": "no-store",
+          },
+        }),
+      );
     }
     if (isRangeStreamableOriginal) {
       const uploadedAt = new Date(media.uploadedAt);

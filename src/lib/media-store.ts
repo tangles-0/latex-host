@@ -14,7 +14,7 @@ import {
 import { deleteImageFiles } from "@/lib/storage";
 
 export type MediaKind = "image" | "video" | "document" | "other";
-export type PreviewStatus = "pending" | "ready" | "failed";
+export type PreviewStatus = "pending" | "processing" | "ready" | "failed";
 
 export type MediaEntry = {
   id: string;
@@ -480,6 +480,22 @@ export async function getMedia(kind: MediaKind, id: string): Promise<MediaEntry 
   return row ? mapFileRow(row) : undefined;
 }
 
+export async function getMediaWithOwner(
+  kind: Exclude<MediaKind, "image">,
+  id: string,
+): Promise<(MediaEntry & { userId: string }) | undefined> {
+  if (kind === "video") {
+    const [row] = await db.select().from(videos).where(eq(videos.id, id)).limit(1);
+    return row ? { ...mapVideoRow(row), userId: row.userId } : undefined;
+  }
+  if (kind === "document") {
+    const [row] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+    return row ? { ...mapDocumentRow(row), userId: row.userId } : undefined;
+  }
+  const [row] = await db.select().from(files).where(eq(files.id, id)).limit(1);
+  return row ? { ...mapFileRow(row), userId: row.userId } : undefined;
+}
+
 export async function getShareForUserByMedia(
   kind: MediaKind,
   mediaId: string,
@@ -804,6 +820,48 @@ export async function updateVideoPreviewForUser(input: {
     return undefined;
   }
   return mapVideoRow(row);
+}
+
+export async function updateMediaPreviewForUser(input: {
+  userId: string;
+  kind: Exclude<MediaKind, "image">;
+  mediaId: string;
+  previewStatus: PreviewStatus;
+  previewError?: string | null;
+  sizeSm?: number;
+  sizeLg?: number;
+  width?: number;
+  height?: number;
+}): Promise<MediaEntry | undefined> {
+  if (input.kind === "video") {
+    return updateVideoPreviewForUser(input);
+  }
+
+  if (input.kind === "document") {
+    const [row] = await db
+      .update(documents)
+      .set({
+        previewStatus: input.previewStatus,
+        previewError: input.previewError ?? null,
+        sizeSm: input.sizeSm,
+        sizeLg: input.sizeLg,
+      })
+      .where(and(eq(documents.userId, input.userId), eq(documents.id, input.mediaId)))
+      .returning();
+    return row ? mapDocumentRow(row) : undefined;
+  }
+
+  const [row] = await db
+    .update(files)
+    .set({
+      previewStatus: input.previewStatus,
+      previewError: input.previewError ?? null,
+      sizeSm: input.sizeSm,
+      sizeLg: input.sizeLg,
+    })
+    .where(and(eq(files.userId, input.userId), eq(files.id, input.mediaId)))
+    .returning();
+  return row ? mapFileRow(row) : undefined;
 }
 
 export function sortMediaForAlbum(media: MediaEntry[]): MediaEntry[] {

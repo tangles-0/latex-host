@@ -26,7 +26,7 @@ type GalleryImage = {
   height?: number;
   uploadedAt: string;
   shared?: boolean;
-  previewStatus?: "pending" | "ready" | "failed";
+  previewStatus?: "pending" | "processing" | "ready" | "failed";
 };
 
 export default function GalleryTabs({

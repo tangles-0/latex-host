@@ -8,7 +8,7 @@ type ImportResponse = {
 };
 
 type LegacyMigrationReport = {
-  backend: "local" | "s3";
+  backend: "local" | "blob";
   checkedImages: number;
   migrated: number;
   skippedAlreadyMigrated: number;
@@ -22,7 +22,7 @@ type LegacyMigrationReport = {
 
 type DbBackupReport = {
   fileName: string;
-  backend: "local" | "s3";
+  backend: "local" | "blob";
   storagePath: string;
   tableCount: number;
   totalRows: number;
@@ -31,7 +31,6 @@ type DbBackupReport = {
 
 export default function AdminDatabase() {
   const [file, setFile] = useState<File | null>(null);
-  const [s3Key, setS3Key] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -81,9 +80,8 @@ export default function AdminDatabase() {
   }
 
   async function runImport() {
-    const trimmedKey = s3Key.trim();
-    if (!file && !trimmedKey) {
-      setError("Choose a .sql/.dump file or enter an S3 object key.");
+    if (!file) {
+      setError("Choose a .sql file.");
       return;
     }
 
@@ -91,23 +89,14 @@ export default function AdminDatabase() {
     setMessage(null);
     setIsUploading(true);
     try {
-      const response = file
-        ? await (async () => {
-          const formData = new FormData();
-          formData.append("dump", file);
-          if (trimmedKey) {
-            formData.append("s3Key", trimmedKey);
-          }
-          return fetch("/api/admin/settings/db-import", {
-            method: "POST",
-            body: formData,
-          });
-        })()
-        : await fetch("/api/admin/settings/db-import", {
+      const response = await (async () => {
+        const formData = new FormData();
+        formData.append("dump", file);
+        return fetch("/api/admin/settings/db-import", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ s3Key: trimmedKey }),
+          body: formData,
         });
+      })();
 
       const payload = (await response.json()) as ImportResponse;
       if (!response.ok) {
@@ -127,25 +116,18 @@ export default function AdminDatabase() {
       <section className="space-y-3 rounded border border-neutral-200 p-4">
         <h2 className="text-sm font-medium">Database Import</h2>
         <p className="text-xs text-neutral-600">
-          Upload a `.sql` or `.dump` PostgreSQL dump file to import. The server runs `psql` or `pg_restore`
-          against the current database to restore the data.
+          Upload a `.sql` PostgreSQL dump file to import. This feature uses pure SQL execution and does not rely on
+          system `pg_*` binaries.
         </p>
-        <p className="text-xs text-red-600">NOTE: `IS_ENABLED = true;` must be set in `/src/app/api/admin/settings/db-import/route.ts` to enable this unsafe feature.</p>
+        <p className="text-xs text-red-600">
+          NOTE: `IS_ENABLED = true;` must be set in `/src/app/api/admin/settings/db-import/route.ts` to enable this
+          unsafe feature.
+        </p>
         <label className="flex flex-col gap-2 text-xs">
-          S3 object key (optional)
-          <input
-            type="text"
-            placeholder="migration-artifacts/latex-20260219T141457Z.dump"
-            value={s3Key}
-            onChange={(event) => setS3Key(event.target.value)}
-            className="rounded border px-3 py-2 text-xs"
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-xs">
-          Dump file (optional)
+          SQL file
           <input
             type="file"
-            accept=".sql,.dump,text/sql,application/sql,application/octet-stream"
+            accept=".sql,text/sql,application/sql"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             className="rounded border px-3 py-2 text-xs"
           />

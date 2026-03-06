@@ -8,9 +8,10 @@ import {
   getUserGroupInfo,
   isAdminUser,
 } from "@/lib/metadata-store";
-import { addMediaForUser } from "@/lib/media-store";
+import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
 import { extFromFileName, mediaKindFromType } from "@/lib/media-types";
 import { storeGenericMediaFromBuffer, storeImageMediaFromBuffer } from "@/lib/media-storage";
+import { requestPreviewGeneration } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
 
@@ -126,7 +127,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           ext,
           mimeType: file.type,
           uploadedAt,
-          deferPreview: kind === "video",
+          deferPreview: kind === "video" || kind === "document",
         });
 
   const media = await addMediaForUser({
@@ -146,20 +147,28 @@ export async function POST(request: Request): Promise<NextResponse> {
     uploadedAt: uploadedAt.toISOString(),
   });
 
-  if (media.kind === "video" && media.previewStatus === "pending") {
-    const triggerUrl = new URL("/api/media/video-preview", request.url);
-    const cookie = request.headers.get("cookie");
-    void fetch(triggerUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(cookie ? { cookie } : {}),
-      },
-      body: JSON.stringify({ mediaId: media.id }),
-      cache: "no-store",
-    }).catch(() => {
-      // Best-effort background kickoff; polling will keep UI accurate.
+  if (media.kind !== "image" && media.previewStatus === "pending") {
+    const queued = await requestPreviewGeneration({
+      mediaId: media.id,
+      kind: media.kind,
     });
+    if (queued.ok) {
+      await updateMediaPreviewForUser({
+        userId,
+        kind: media.kind,
+        mediaId: media.id,
+        previewStatus: "processing",
+        previewError: null,
+      });
+    } else {
+      await updateMediaPreviewForUser({
+        userId,
+        kind: media.kind,
+        mediaId: media.id,
+        previewStatus: "failed",
+        previewError: queued.error,
+      });
+    }
   }
 
   return NextResponse.json({ media });

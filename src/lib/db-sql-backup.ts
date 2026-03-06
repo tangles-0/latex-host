@@ -1,9 +1,9 @@
 import path from "path";
 import { promises as fs } from "fs";
 import postgres from "postgres";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { put as blobPut } from "@vercel/blob";
 
-type StorageBackend = "local" | "s3";
+type StorageBackend = "local" | "blob";
 
 type TableColumn = {
   columnName: string;
@@ -24,23 +24,21 @@ export type DbBackupResult = {
 };
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const STORAGE_BACKEND = (process.env.STORAGE_BACKEND as StorageBackend) || "local";
-const S3_BUCKET = process.env.S3_BUCKET;
-const S3_REGION = process.env.S3_REGION;
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
-
-const s3Client =
-  STORAGE_BACKEND === "s3" && S3_BUCKET && S3_REGION
-    ? new S3Client({
-        region: S3_REGION,
-        endpoint: S3_ENDPOINT,
-        forcePathStyle: Boolean(S3_ENDPOINT),
-      })
-    : null;
+const STORAGE_BACKEND =
+  ((process.env.STORAGE_BACKEND as StorageBackend | undefined) ??
+    (process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local")) as StorageBackend;
 
 type PgRow = Record<string, unknown>;
 
 function resolveConnectionString(): string | undefined {
+  const vercelPostgresUrl =
+    process.env.POSTGRES_URL_NON_POOLING?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    process.env.POSTGRES_PRISMA_URL?.trim();
+  if (vercelPostgresUrl) {
+    return vercelPostgresUrl;
+  }
+
   const host = process.env.PGHOST;
   const database = process.env.PGDATABASE;
   const user = process.env.PGUSER;
@@ -202,19 +200,15 @@ export async function createSqlBackupAndStore(): Promise<DbBackupResult> {
 
     const body = Buffer.from(lines.join("\n"), "utf8");
     let storagePath = "";
-    if (STORAGE_BACKEND === "s3") {
-      if (!s3Client || !S3_BUCKET) {
-        throw new Error("S3 is not configured.");
-      }
-      await s3Client.send(
-        new PutObjectCommand({
-          Bucket: S3_BUCKET,
-          Key: fileName,
-          Body: body,
-          ContentType: "application/sql",
-        }),
-      );
-      storagePath = fileName;
+    if (STORAGE_BACKEND === "blob") {
+      const pathname = `db-backups/${fileName}`;
+      await blobPut(pathname, body, {
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: "application/sql",
+      });
+      storagePath = pathname;
     } else {
       await fs.mkdir(DATA_DIR, { recursive: true });
       storagePath = path.join(DATA_DIR, fileName);

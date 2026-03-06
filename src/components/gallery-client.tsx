@@ -46,7 +46,7 @@ type GalleryImage = {
   sizeOriginal?: number;
   sizeSm?: number;
   sizeLg?: number;
-  previewStatus?: "pending" | "ready" | "failed";
+  previewStatus?: "pending" | "processing" | "ready" | "failed";
   uploadedAt: string;
   shared?: boolean;
 };
@@ -449,7 +449,10 @@ export default function GalleryClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mediaId }),
       });
-      const payload = (await response.json()) as { error?: string; previewStatus?: "pending" | "ready" | "failed" };
+      const payload = (await response.json()) as {
+        error?: string;
+        previewStatus?: "pending" | "processing" | "ready" | "failed";
+      };
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to regenerate thumbnail.");
       }
@@ -1049,7 +1052,9 @@ export default function GalleryClient({
           if (!response.ok) {
             return;
           }
-          const payload = (await response.json()) as { previewStatus?: "pending" | "ready" | "failed" };
+          const payload = (await response.json()) as {
+            previewStatus?: "pending" | "processing" | "ready" | "failed";
+          };
           if (!payload.previewStatus || !isMounted) {
             return;
           }
