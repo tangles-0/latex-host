@@ -104,7 +104,7 @@ export async function createSqlBackupAndStore(): Promise<DbBackupResult> {
     throw new Error("Database is not configured.");
   }
 
-  const useSsl = process.env.PGSSLMODE === "require";
+  const useSsl = shouldUseSsl(connectionString);
   const sql = postgres(connectionString, {
     max: 1,
     ssl: useSsl ? "require" : undefined,
@@ -225,6 +225,23 @@ export async function createSqlBackupAndStore(): Promise<DbBackupResult> {
     };
   } finally {
     await sql.end({ timeout: 5 });
+  }
+}
+
+function shouldUseSsl(connection: string | undefined): boolean {
+  if (process.env.PGSSLMODE === "require") {
+    return true;
+  }
+  if (!connection) {
+    return false;
+  }
+  try {
+    const parsed = new URL(connection);
+    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+    const ssl = parsed.searchParams.get("ssl")?.toLowerCase();
+    return sslMode === "require" || ssl === "true" || ssl === "1";
+  } catch {
+    return false;
   }
 }
 

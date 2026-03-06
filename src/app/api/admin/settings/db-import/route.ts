@@ -37,7 +37,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "SQL payload is empty." }, { status: 400 });
     }
 
-    const useSsl = process.env.PGSSLMODE === "require";
+    const useSsl = shouldUseSsl(connectionString);
     const dbClient = postgres(connectionString, {
       max: 1,
       ssl: useSsl ? "require" : undefined,
@@ -72,6 +72,23 @@ function resolveConnectionString(): string | undefined {
     process.env.POSTGRES_PRISMA_URL ||
     process.env.DATABASE_URL
   );
+}
+
+function shouldUseSsl(connection: string | undefined): boolean {
+  if (process.env.PGSSLMODE === "require") {
+    return true;
+  }
+  if (!connection) {
+    return false;
+  }
+  try {
+    const parsed = new URL(connection);
+    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+    const ssl = parsed.searchParams.get("ssl")?.toLowerCase();
+    return sslMode === "require" || ssl === "true" || ssl === "1";
+  } catch {
+    return false;
+  }
 }
 
 async function readSqlPayload(request: Request): Promise<string> {

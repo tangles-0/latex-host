@@ -3,7 +3,7 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 const connectionString = resolveConnectionString();
-const useSsl = process.env.PGSSLMODE === "require";
+const useSsl = shouldUseSsl(connectionString);
 
 const globalForPostgres = globalThis as unknown as {
   postgres?: ReturnType<typeof postgres>;
@@ -59,5 +59,22 @@ function resolveConnectionString(): string | undefined {
   }
 
   return undefined;
+}
+
+function shouldUseSsl(connection: string | undefined): boolean {
+  if (process.env.PGSSLMODE === "require") {
+    return true;
+  }
+  if (!connection) {
+    return false;
+  }
+  try {
+    const parsed = new URL(connection);
+    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+    const ssl = parsed.searchParams.get("ssl")?.toLowerCase();
+    return sslMode === "require" || ssl === "true" || ssl === "1";
+  } catch {
+    return false;
+  }
 }
 

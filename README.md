@@ -52,7 +52,7 @@ Then run `docker compose --env-file .env.local.docker up -d app --build` to star
 
 ### Docker - Production
 
-Deploy your app using `docker compose --env-file .env.production up -d --build` with `DB_PUSH_PW` set to a secure string in your env file. Provision the database tables by visiting `{host}/api/admin/settings/db-push?pw={DB_PUSH_PW}`.
+Deploy your app using `docker compose --env-file .env.production up -d --build` 
 
 ### Node / PM2
 
