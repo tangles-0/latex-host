@@ -10,6 +10,11 @@ const IS_ENABLED = true;
 const MAX_SQL_BYTES = 100 * 1024 * 1024;
 
 type ImportPayload = { blobPath?: string };
+type SqlImportPlan = {
+  statements: string[];
+  originalStatementCount: number;
+  resequencedInsertCount: number;
+};
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!IS_ENABLED) {
@@ -36,6 +41,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!sqlText.trim()) {
       return NextResponse.json({ error: "SQL payload is empty." }, { status: 400 });
     }
+    const importPlan = buildSqlImportPlan(sqlText);
+    if (importPlan.statements.length === 0) {
+      return NextResponse.json({ error: "No executable SQL statements found." }, { status: 400 });
+    }
 
     const useSsl = shouldUseSsl(connectionString);
     const dbClient = postgres(connectionString, {
@@ -43,15 +52,147 @@ export async function POST(request: Request): Promise<NextResponse> {
       ssl: useSsl ? "require" : undefined,
     });
     try {
-      await dbClient.unsafe(sqlText);
+      await dbClient.unsafe("BEGIN");
+      try {
+        for (const statement of importPlan.statements) {
+          await dbClient.unsafe(statement);
+        }
+        await dbClient.unsafe("COMMIT");
+      } catch (error) {
+        await dbClient.unsafe("ROLLBACK");
+        throw error;
+      }
     } finally {
       await dbClient.end({ timeout: 5 });
     }
-    return NextResponse.json({ message: "SQL import completed." });
+    return NextResponse.json({
+      message: "SQL import completed.",
+      importedStatements: importPlan.statements.length,
+      originalStatements: importPlan.originalStatementCount,
+      resequencedInserts: importPlan.resequencedInsertCount,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "SQL import failed.";
     return NextResponse.json({ error: message }, { status: 400 });
   }
+}
+
+const FK_SAFE_TABLE_ORDER = [
+  "groups",
+  "group_limits",
+  "app_settings",
+  "users",
+  "patch_notes",
+  "albums",
+  "images",
+  "videos",
+  "documents",
+  "files",
+  "shares",
+  "video_shares",
+  "document_shares",
+  "file_shares",
+  "album_shares",
+  "upload_sessions",
+];
+
+function buildSqlImportPlan(sqlText: string): SqlImportPlan {
+  const statements = splitSqlStatements(sqlText);
+  const executable = statements
+    .map((statement) => stripInlineSqlComments(statement).trim())
+    .filter((statement) => statement.length > 0);
+
+  const setvalStatements: string[] = [];
+  const insertStatements: Array<{ sql: string; table: string; originalIndex: number }> = [];
+  const otherStatements: string[] = [];
+
+  executable.forEach((statement, index) => {
+    if (/^begin\b|^start\s+transaction\b/i.test(statement) || /^commit\b/i.test(statement)) {
+      return;
+    }
+    if (/^select\s+setval\s*\(/i.test(statement)) {
+      setvalStatements.push(statement);
+      return;
+    }
+    const tableName = parseInsertTableName(statement);
+    if (tableName) {
+      insertStatements.push({ sql: statement, table: tableName, originalIndex: index });
+      return;
+    }
+    otherStatements.push(statement);
+  });
+
+  const tableOrderMap = new Map(FK_SAFE_TABLE_ORDER.map((table, idx) => [table, idx]));
+  const orderedInserts = insertStatements
+    .slice()
+    .sort((left, right) => {
+      const leftOrder = tableOrderMap.get(left.table) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = tableOrderMap.get(right.table) ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return left.originalIndex - right.originalIndex;
+    })
+    .map((entry) => entry.sql);
+
+  return {
+    statements: [...otherStatements, ...orderedInserts, ...setvalStatements],
+    originalStatementCount: executable.length,
+    resequencedInsertCount: orderedInserts.length,
+  };
+}
+
+function splitSqlStatements(sqlText: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+
+  for (let idx = 0; idx < sqlText.length; idx += 1) {
+    const char = sqlText[idx];
+    const next = sqlText[idx + 1];
+
+    if (char === "'" && inSingleQuote && next === "'") {
+      current += "''";
+      idx += 1;
+      continue;
+    }
+    if (char === "'") {
+      inSingleQuote = !inSingleQuote;
+      current += char;
+      continue;
+    }
+    if (char === ";" && !inSingleQuote) {
+      const trimmed = current.trim();
+      if (trimmed) {
+        statements.push(trimmed);
+      }
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  const trailing = current.trim();
+  if (trailing) {
+    statements.push(trailing);
+  }
+  return statements;
+}
+
+function stripInlineSqlComments(statement: string): string {
+  return statement
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("--"))
+    .join("\n");
+}
+
+function parseInsertTableName(statement: string): string | null {
+  const match = /^insert\s+into\s+(?:"?public"?\.)?(?:"([^"]+)"|([a-zA-Z0-9_]+))/i.exec(statement);
+  if (!match) {
+    return null;
+  }
+  return (match[1] ?? match[2] ?? "").toLowerCase();
 }
 
 function resolveConnectionString(): string | undefined {

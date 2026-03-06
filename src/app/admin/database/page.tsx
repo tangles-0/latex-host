@@ -24,7 +24,7 @@ export default async function AdminDatabasePage() {
           Back to admin
         </Link>
         <h1 className="text-2xl font-semibold">Database Maintenance</h1>
-        <p className="text-neutral-600">Database import, export, and migration helpers.</p>
+        <p className="text-neutral-600">Database import/export and storage consistency tools.</p>
       </header>
 
       <AdminDatabase />
