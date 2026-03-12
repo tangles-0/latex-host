@@ -7,7 +7,7 @@ import {
   getMediaStream,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
-import { getSharedMediaByCode, getSharedMediaByCodeAndExt } from "@/lib/media-store";
+import { getShareByCode as getMediaShareByCode, getSharedMediaByCode, getSharedMediaByCodeAndExt } from "@/lib/media-store";
 import { contentTypeForExt } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
@@ -134,6 +134,24 @@ export async function GET(
       if (albumShare) {
         // Proxy internally so `/share/<code>` stays in the browser URL.
         const upstream = await fetch(new URL(`/share/internal-album/${albumShare.id}`, getInternalAppOrigin()), {
+          headers: {
+            accept: request.headers.get("accept") ?? "text/html,*/*",
+          },
+          cache: "no-store",
+        });
+        const headers = new Headers(upstream.headers);
+        headers.delete("content-encoding");
+        headers.delete("content-length");
+        headers.delete("transfer-encoding");
+        return new Response(upstream.body, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers,
+        });
+      }
+      const noteShare = await getMediaShareByCode("note", fileName);
+      if (noteShare) {
+        const upstream = await fetch(new URL(`/share/internal-note/${noteShare.code ?? fileName}`, getInternalAppOrigin()), {
           headers: {
             accept: request.headers.get("accept") ?? "text/html,*/*",
           },

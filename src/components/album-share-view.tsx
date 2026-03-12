@@ -1,10 +1,11 @@
 "use client";
 
 import { FileViewerContent } from "@/components/viewers/file-viewer-content";
+import NoteMarkdown from "@/components/note-markdown";
 
 type AlbumMedia = {
   id: string;
-  kind: "image" | "video" | "document" | "other";
+  kind: "image" | "video" | "document" | "other" | "note";
   baseName: string;
   originalFileName?: string;
   ext: string;
@@ -14,6 +15,7 @@ type AlbumMedia = {
   previewStatus?: "pending" | "processing" | "ready" | "failed";
   albumCaption?: string;
   uploadedAt: string;
+  content?: string;
 };
 
 export default function AlbumShareView({
@@ -51,6 +53,10 @@ export default function AlbumShareView({
                   alt="Shared album file"
                   className="w-full rounded border border-neutral-200 object-contain"
                 />
+              ) : item.kind === "note" ? (
+                <div className="rounded border border-neutral-200 p-4">
+                  <NoteMarkdown content={item.content ?? ""} />
+                </div>
               ) : (
                 <FileViewerContent
                   kind={item.kind}

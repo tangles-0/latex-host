@@ -12,6 +12,8 @@ import {
   groupLimits,
   groups,
   images,
+  notes,
+  noteShares,
   patchNotes,
   shares,
   users,
@@ -199,6 +201,22 @@ export async function deleteAlbumForUser(
     .update(images)
     .set({ albumId: null })
     .where(and(eq(images.userId, userId), eq(images.albumId, albumId)));
+  await db
+    .update(videos)
+    .set({ albumId: null })
+    .where(and(eq(videos.userId, userId), eq(videos.albumId, albumId)));
+  await db
+    .update(documents)
+    .set({ albumId: null })
+    .where(and(eq(documents.userId, userId), eq(documents.albumId, albumId)));
+  await db
+    .update(files)
+    .set({ albumId: null })
+    .where(and(eq(files.userId, userId), eq(files.albumId, albumId)));
+  await db
+    .update(notes)
+    .set({ albumId: null })
+    .where(and(eq(notes.userId, userId), eq(notes.albumId, albumId)));
 
   await db
     .delete(albumShares)
@@ -658,7 +676,12 @@ async function generateAlbumShareCode(): Promise<string> {
       .from(albumShares)
       .where(eq(albumShares.code, code))
       .limit(1);
-    if (!existing) {
+    const [noteCollision] = await db
+      .select({ id: noteShares.id })
+      .from(noteShares)
+      .where(eq(noteShares.code, code))
+      .limit(1);
+    if (!existing && !noteCollision) {
       return code;
     }
   }

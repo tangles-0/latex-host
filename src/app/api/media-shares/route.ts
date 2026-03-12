@@ -5,7 +5,7 @@ import { createShareForMedia, deleteShareForMedia, getMediaForUser, getShareForU
 export const runtime = "nodejs";
 
 function parseKind(input: string | null): MediaKind | null {
-  if (input === "image" || input === "video" || input === "document" || input === "other") {
+  if (input === "image" || input === "video" || input === "document" || input === "other" || input === "note") {
     return input;
   }
   return null;
@@ -28,13 +28,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!share) {
     return NextResponse.json({ error: "Unable to create share." }, { status: 500 });
   }
-  const base = `/share/${share.code}.${media.ext}`;
+  const base = kind === "note" ? `/share/${share.code}` : `/share/${share.code}.${media.ext}`;
   return NextResponse.json({
     share,
     urls: {
       original: base,
-      sm: `/share/${share.code}-sm.${kind === "image" ? media.ext : "png"}`,
-      lg: `/share/${share.code}-lg.${kind === "image" ? media.ext : "png"}`,
+      sm: kind === "note" ? base : `/share/${share.code}-sm.${kind === "image" ? media.ext : "png"}`,
+      lg: kind === "note" ? base : `/share/${share.code}-lg.${kind === "image" ? media.ext : "png"}`,
     },
   });
 }
@@ -56,13 +56,13 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!share?.code) {
     return NextResponse.json({ share: null });
   }
-  const base = `/share/${share.code}.${media.ext}`;
+  const base = kind === "note" ? `/share/${share.code}` : `/share/${share.code}.${media.ext}`;
   return NextResponse.json({
     share,
     urls: {
       original: base,
-      sm: `/share/${share.code}-sm.${kind === "image" ? media.ext : "png"}`,
-      lg: `/share/${share.code}-lg.${kind === "image" ? media.ext : "png"}`,
+      sm: kind === "note" ? base : `/share/${share.code}-sm.${kind === "image" ? media.ext : "png"}`,
+      lg: kind === "note" ? base : `/share/${share.code}-lg.${kind === "image" ? media.ext : "png"}`,
     },
   });
 }

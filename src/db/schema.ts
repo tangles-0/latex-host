@@ -149,6 +149,22 @@ export const files = pgTable("files", {
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
 });
 
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  albumId: text("album_id").references(() => albums.id),
+  albumCaption: text("album_caption"),
+  albumOrder: integer("album_order").notNull().default(0),
+  baseName: text("base_name").notNull(),
+  originalFileName: text("original_file_name"),
+  content: text("content").notNull().default(""),
+  sizeOriginal: bigint("size_original", { mode: "number" }).notNull().default(0),
+  uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+});
+
 export const shares = pgTable("shares", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -193,6 +209,18 @@ export const fileShares = pgTable("file_shares", {
   fileId: text("file_id")
     .notNull()
     .references(() => files.id),
+  code: text("code").unique(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+});
+
+export const noteShares = pgTable("note_shares", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  noteId: text("note_id")
+    .notNull()
+    .references(() => notes.id),
   code: text("code").unique(),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });

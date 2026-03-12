@@ -24,16 +24,19 @@ import { SharePill } from "./share-pill";
 import { DitherIcon } from "./icons/dither";
 import { ImageViewerContent } from "./viewers/image-viewer-content";
 import { FileViewerContent } from "./viewers/file-viewer-content";
+import NoteMarkdown from "./note-markdown";
+import NoteRichEditor from "./note-rich-editor";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
 const GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES = 64 * 1024 * 1024;
+const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
 
 type GalleryImage = {
   id: string;
-  kind: "image" | "video" | "document" | "other";
+  kind: "image" | "video" | "document" | "other" | "note";
   baseName: string;
   originalFileName?: string;
   ext: string;
@@ -48,6 +51,8 @@ type GalleryImage = {
   sizeLg?: number;
   previewStatus?: "pending" | "processing" | "ready" | "failed";
   uploadedAt: string;
+  updatedAt?: string;
+  previewText?: string;
   shared?: boolean;
 };
 
@@ -68,7 +73,14 @@ type UploadMessage = {
 };
 
 type RotationDirection = "left" | "right";
+type NoteEditorMode = "markdown" | "preview";
 const PAGE_SIZE = 24;
+
+type NoteDetails = {
+  id: string;
+  content: string;
+  updatedAt?: string;
+};
 
 export default function GalleryClient({
   media,
@@ -84,7 +96,7 @@ export default function GalleryClient({
   showAlbumImageToggle?: boolean;
   uploadAlbumId?: string;
   hideImagesInAlbums?: boolean;
-  kindFilter?: "all" | "image" | "video" | "document" | "other";
+  kindFilter?: "all" | "image" | "video" | "document" | "other" | "note";
   isAdmin?: boolean;
 }) {
   const [items, setItems] = useState<GalleryImage[]>(media);
@@ -122,7 +134,18 @@ export default function GalleryClient({
   const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
   const [dragOverImageId, setDragOverImageId] = useState<string | null>(null);
   const [imageVersionBumps, setImageVersionBumps] = useState<Record<string, number>>({});
+  const [activeNote, setActiveNote] = useState<NoteDetails | null>(null);
+  const [isLoadingNote, setIsLoadingNote] = useState(false);
+  const [noteEditorMode, setNoteEditorMode] = useState<NoteEditorMode>("markdown");
+  const [noteContentDraft, setNoteContentDraft] = useState("");
+  const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
+  const [autosaveEnabled, setAutosaveEnabled] = useState(true);
+  const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const dragCounter = useRef(0);
+  const lastSavedNoteContentRef = useRef("");
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const inAlbumContext = Boolean(uploadAlbumId);
@@ -265,9 +288,18 @@ export default function GalleryClient({
         const previewExt = image.kind === "image" ? image.ext : "png";
         return {
           ...image,
-          thumbUrl: `/media/${image.kind}/${image.id}/${image.baseName}-sm.${previewExt}${cacheBustSuffix}`,
-          fullUrl: `/media/${image.kind}/${image.id}/${image.baseName}.${image.ext}${cacheBustSuffix}`,
-          lgUrl: `/media/${image.kind}/${image.id}/${image.baseName}-lg.${previewExt}${cacheBustSuffix}`,
+          thumbUrl:
+            image.kind === "note"
+              ? ""
+              : `/media/${image.kind}/${image.id}/${image.baseName}-sm.${previewExt}${cacheBustSuffix}`,
+          fullUrl:
+            image.kind === "note"
+              ? ""
+              : `/media/${image.kind}/${image.id}/${image.baseName}.${image.ext}${cacheBustSuffix}`,
+          lgUrl:
+            image.kind === "note"
+              ? ""
+              : `/media/${image.kind}/${image.id}/${image.baseName}-lg.${previewExt}${cacheBustSuffix}`,
         };
       }),
     [filteredItems, imageVersionBumps],
@@ -313,9 +345,33 @@ export default function GalleryClient({
   const canRotateActive =
     active && isImageActive ? ROTATABLE_EXTENSIONS.has(active.ext.toLowerCase()) : false;
   const activeDisplayName = active?.originalFileName || active?.baseName || "";
+  const isNoteActive = active?.kind === "note";
+  const noteIsDirty = isNoteActive && activeNote ? noteContentDraft !== lastSavedNoteContentRef.current : false;
 
   function displayNameForMedia(image: GalleryImage): string {
     return image.originalFileName || image.baseName;
+  }
+
+  function noteAutosaveStorageKey(noteId: string): string {
+    return `${NOTE_AUTOSAVE_STORAGE_KEY_PREFIX}:${noteId}`;
+  }
+
+  function noteDownloadFileName(name?: string): string {
+    const trimmed = name?.trim() || "Untitled note";
+    return trimmed.toLowerCase().endsWith(".md") ? trimmed : `${trimmed}.md`;
+  }
+
+  function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    const tagName = target.tagName.toLowerCase();
+    return (
+      target.isContentEditable ||
+      tagName === "textarea" ||
+      tagName === "input" ||
+      tagName === "select"
+    );
   }
 
   function pushMessage(text: string, tone: UploadMessage["tone"]) {
@@ -363,6 +419,135 @@ export default function GalleryClient({
     }
   }
 
+  async function loadNote(noteId: string) {
+    setIsLoadingNote(true);
+    setNoteSaveError(null);
+    try {
+      const response = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, { cache: "no-store" });
+      const payload = (await response.json()) as { error?: string; note?: NoteDetails };
+      if (!response.ok || !payload.note) {
+        throw new Error(payload.error ?? "Unable to load note.");
+      }
+      setActiveNote(payload.note);
+      setNoteContentDraft(payload.note.content);
+      lastSavedNoteContentRef.current = payload.note.content;
+      setLastSavedAt(payload.note.updatedAt ?? null);
+      setNoteEditorMode("markdown");
+      try {
+        setAutosaveEnabled(window.localStorage.getItem(noteAutosaveStorageKey(noteId)) !== "0");
+      } catch {
+        setAutosaveEnabled(true);
+      }
+    } catch (error) {
+      setNoteSaveError(error instanceof Error ? error.message : "Unable to load note.");
+    } finally {
+      setIsLoadingNote(false);
+    }
+  }
+
+  async function createNote() {
+    if (isCreatingNote) {
+      return;
+    }
+    setIsCreatingNote(true);
+    setBulkError(null);
+    try {
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ albumId: uploadAlbumId }),
+      });
+      const payload = (await response.json()) as { error?: string; note?: GalleryImage };
+      if (!response.ok || !payload.note) {
+        throw new Error(payload.error ?? "Unable to create note.");
+      }
+      setItems((current) => [payload.note!, ...current]);
+      await openModal(payload.note);
+      pushMessage(uploadAlbumId ? "Created note in album." : "Created note.", "success");
+    } catch (error) {
+      pushMessage(error instanceof Error ? error.message : "Unable to create note.", "error");
+    } finally {
+      setIsCreatingNote(false);
+    }
+  }
+
+  async function saveActiveNote(options?: { silent?: boolean }): Promise<boolean> {
+    if (!active || active.kind !== "note" || !activeNote || isSavingNote || !noteIsDirty) {
+      return true;
+    }
+    setIsSavingNote(true);
+    setNoteSaveError(null);
+    try {
+      const response = await fetch(`/api/notes/${encodeURIComponent(active.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: noteContentDraft }),
+      });
+      const payload = (await response.json()) as { error?: string; note?: NoteDetails & GalleryImage };
+      if (!response.ok || !payload.note) {
+        throw new Error(payload.error ?? "Unable to save note.");
+      }
+      setActiveNote({
+        id: payload.note.id,
+        content: payload.note.content,
+        updatedAt: payload.note.updatedAt,
+      });
+      setLastSavedAt(payload.note.updatedAt ?? null);
+      lastSavedNoteContentRef.current = payload.note.content;
+      setItems((current) =>
+        current.map((item) =>
+          item.id === payload.note!.id
+            ? {
+                ...item,
+                previewText: payload.note!.previewText,
+                updatedAt: payload.note!.updatedAt,
+                sizeOriginal: payload.note!.sizeOriginal,
+              }
+            : item,
+        ),
+      );
+      setActive((current) =>
+        current?.id === payload.note!.id
+          ? {
+              ...current,
+              previewText: payload.note!.previewText,
+              updatedAt: payload.note!.updatedAt,
+              sizeOriginal: payload.note!.sizeOriginal,
+            }
+          : current,
+      );
+      if (!options?.silent) {
+        pushMessage("Saved note.", "success");
+      }
+      return true;
+    } catch (error) {
+      setNoteSaveError(error instanceof Error ? error.message : "Unable to save note.");
+      return false;
+    } finally {
+      setIsSavingNote(false);
+    }
+  }
+
+  async function handlePendingNoteBefore(action: () => void | Promise<void>) {
+    if (!isNoteActive || !activeNote || !noteIsDirty) {
+      await action();
+      return;
+    }
+    if (autosaveEnabled) {
+      const saved = await saveActiveNote({ silent: true });
+      if (!saved) {
+        return;
+      }
+      await action();
+      return;
+    }
+    const shouldDiscard = window.confirm("Discard unsaved note changes?");
+    if (!shouldDiscard) {
+      return;
+    }
+    await action();
+  }
+
   async function openModal(image: GalleryImage) {
     setActive(image);
     setIsDitherOpen(false);
@@ -378,8 +563,18 @@ export default function GalleryClient({
     setOriginalFileNameDraft(image.originalFileName ?? "");
     setHas640Variant(null);
     setIsChecking640(false);
+    setActiveNote(null);
+    setNoteContentDraft("");
+    lastSavedNoteContentRef.current = "";
+    setLastSavedAt(null);
+    setNoteEditorMode("markdown");
+    setNoteSaveError(null);
+    setIsNoteFullscreen(false);
 
     try {
+      if (image.kind === "note") {
+        await loadNote(image.id);
+      }
       const response = await fetch(
         `/api/media-shares?kind=${encodeURIComponent(image.kind)}&mediaId=${encodeURIComponent(image.id)}`,
       );
@@ -424,6 +619,14 @@ export default function GalleryClient({
     setOriginalFileNameDraft("");
     setHas640Variant(null);
     setIsChecking640(false);
+    setActiveNote(null);
+    setIsLoadingNote(false);
+    setNoteContentDraft("");
+    setNoteSaveError(null);
+    setIsSavingNote(false);
+    setLastSavedAt(null);
+    setNoteEditorMode("markdown");
+    setIsNoteFullscreen(false);
   }
 
   async function regenerateVideoThumbnail() {
@@ -491,7 +694,7 @@ export default function GalleryClient({
     if (!previous) {
       return;
     }
-    void openModal(previous);
+    void handlePendingNoteBefore(() => openModal(previous));
   }
 
   function openNextImage() {
@@ -502,7 +705,7 @@ export default function GalleryClient({
     if (!next) {
       return;
     }
-    void openModal(next);
+    void handlePendingNoteBefore(() => openModal(next));
   }
 
   async function copyText(text: string, label: string) {
@@ -516,8 +719,11 @@ export default function GalleryClient({
   }
 
   function formatBytes(bytes?: number): string {
-    if (!bytes || bytes <= 0) {
+    if (typeof bytes !== "number" || Number.isNaN(bytes) || bytes < 0) {
       return "Unknown";
+    }
+    if (bytes === 0) {
+      return "0 B";
     }
     const units = ["B", "KB", "MB", "GB", "TB"];
     const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
@@ -1097,6 +1303,29 @@ export default function GalleryClient({
   }, [hideImagesInAlbums, kindFilter, showAlbumImageToggle, showAlbumImages, usePagination]);
 
   useEffect(() => {
+    if (!active || active.kind !== "note") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(noteAutosaveStorageKey(active.id), autosaveEnabled ? "1" : "0");
+    } catch {
+      // ignore storage errors
+    }
+  }, [active, autosaveEnabled]);
+
+  useEffect(() => {
+    if (!isNoteActive || !activeNote || !autosaveEnabled) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      if (noteIsDirty) {
+        void saveActiveNote({ silent: true });
+      }
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [activeNote, autosaveEnabled, isNoteActive, noteContentDraft, noteIsDirty]);
+
+  useEffect(() => {
     if (!active) {
       return;
     }
@@ -1106,6 +1335,9 @@ export default function GalleryClient({
     }
 
     function onKeyDown(event: KeyboardEvent) {
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         openPreviousImage();
@@ -1128,14 +1360,16 @@ export default function GalleryClient({
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        closeModal();
+        void handlePendingNoteBefore(() => {
+          closeModal();
+        });
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, activeIndex, displayItems, hasNext, hasPrevious]);
+  }, [active, activeIndex, displayItems, hasNext, hasPrevious, autosaveEnabled, noteContentDraft, noteIsDirty, activeNote, isNoteActive]);
 
   return (
     <>
@@ -1206,6 +1440,17 @@ export default function GalleryClient({
           </button>
         </div>
       ) : null}
+
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => void createNote()}
+          disabled={isCreatingNote}
+          className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+        >
+          {isCreatingNote ? "Creating note..." : "+ new note"}
+        </button>
+      </div>
 
       {displayItems.length === 0 ? (
         <div className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-neutral-500">
@@ -1305,6 +1550,13 @@ export default function GalleryClient({
                       return <Icon className="h-10 w-10 text-neutral-500" fill="currentColor" />;
                     })()}
                   </div>
+                ) : image.kind === "note" ? (
+                  <div className="mt-2 flex h-48 max-h-64 w-full flex-col justify-between rounded border border-neutral-200 bg-neutral-50 p-4 text-left">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">note</div>
+                    <div className="line-clamp-6 text-sm text-neutral-700">
+                      {image.previewText || "Empty note"}
+                    </div>
+                  </div>
                 ) : (
                   <div className="relative mt-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1327,7 +1579,7 @@ export default function GalleryClient({
               <div className="flex items-center justify-between px-3 py-2 text-xs text-neutral-500">
                 <span className="truncate">{displayNameForMedia(image)}</span>
                 <span>
-                  {image.width && image.height ? `${image.width}×${image.height}` : image.kind}
+                  {image.width && image.height ? `${image.width}×${image.height}` : image.kind === "note" ? "markdown" : image.kind}
                 </span>
               </div>
               {inAlbumContext && image.albumCaption ? (
@@ -1364,6 +1616,9 @@ export default function GalleryClient({
 
       {active ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 sm:px-4 sm:py-6" onKeyDown={(event) => {
+          if (isEditableKeyboardTarget(event.target)) {
+            return;
+          }
           if (event.key === "ArrowLeft") {
             event.preventDefault();
             openPreviousImage();
@@ -1382,10 +1637,12 @@ export default function GalleryClient({
           }
           if (event.key === "Escape") {
             event.preventDefault();
-            closeModal();
+            void handlePendingNoteBefore(() => {
+              closeModal();
+            });
           }
         }}>
-          <div className="max-h-full w-full max-w-3xl overflow-y-auto overflow-x-hidden sm:rounded-md bg-white p-2 sm:p-6 text-sm">
+          <div className={`${isNoteActive && isNoteFullscreen ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} w-full overflow-y-auto overflow-x-hidden bg-white text-sm`}>
             <div className="flex sm:flex-row flex-col items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-semibold">file details</h2>
@@ -1523,26 +1780,69 @@ export default function GalleryClient({
                     </button>
                   </>
                 ) : null}
+                {isNoteActive ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void saveActiveNote()}
+                      disabled={isSavingNote || !noteIsDirty}
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                    >
+                      {isSavingNote ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsNoteFullscreen((current) => !current)}
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                    >
+                      {isNoteFullscreen ? "Windowed" : "Full screen"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const blob = new Blob([noteContentDraft], { type: "text/markdown;charset=utf-8" });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = noteDownloadFileName(activeDisplayName);
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                      aria-label="Download note"
+                      title="Download note"
+                    >
+                      <LightDownload className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const downloadUrl = `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`;
+                      const link = document.createElement("a");
+                      link.href = downloadUrl;
+                      link.download = `${active.baseName}.${active.ext}`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                    className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                    aria-label="Download image"
+                    title="Download image"
+                  >
+                    <LightDownload className="h-4 w-4" fill="currentColor" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    const downloadUrl = `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`;
-                    const link = document.createElement("a");
-                    link.href = downloadUrl;
-                    link.download = `${active.baseName}.${active.ext}`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }}
-                  className="rounded border border-neutral-200 px-2 py-1 text-xs"
-                  aria-label="Download image"
-                  title="Download image"
-                >
-                  <LightDownload className="h-4 w-4" fill="currentColor" />
-                </button>
-                <button
-                  type="button"
-                  onClick={closeModal}
+                  onClick={() =>
+                    void handlePendingNoteBefore(() => {
+                      closeModal();
+                    })
+                  }
                   className="rounded border border-neutral-200 px-2 py-1 text-xs"
                 >
                   <LightTimes className="h-4 w-4" fill="currentColor" />
@@ -1581,6 +1881,36 @@ export default function GalleryClient({
                       }
                     }}
                   />
+                ) : active.kind === "note" ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      {(["markdown", "preview"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setNoteEditorMode(mode)}
+                          className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
+                        >
+                          {mode === "markdown" ? "markdown" : "preview"}
+                        </button>
+                      ))}
+                    </div>
+                    {isLoadingNote ? (
+                      <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+                        Loading note...
+                      </div>
+                    ) : noteEditorMode === "markdown" ? (
+                      <NoteRichEditor
+                        value={noteContentDraft}
+                        onChange={setNoteContentDraft}
+                        fullScreen={isNoteFullscreen}
+                      />
+                    ) : (
+                      <div className={`${isNoteFullscreen ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}>
+                        <NoteMarkdown content={noteContentDraft} />
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <FileViewerContent
                     isAdmin={isAdmin}
@@ -1602,10 +1932,13 @@ export default function GalleryClient({
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
                   <div className="min-w-0">
                     <div>
-                      Dimensions: {active.width && active.height ? `${active.width}×${active.height}` : "n/a"}
+                      Dimensions: {active.width && active.height ? `${active.width}×${active.height}` : active.kind === "note" ? "markdown" : "n/a"}
                     </div>
                     <div>File size: {formatBytes(active.sizeOriginal)}</div>
                     <div>Uploaded: {new Date(active.uploadedAt).toLocaleString()}</div>
+                    {active.kind === "note" && lastSavedAt ? (
+                      <div>Last saved: {new Date(lastSavedAt).toLocaleString()}</div>
+                    ) : null}
                   </div>
                   <div className="justify-self-center">
                     <SharePill isShared={Boolean(share)} shouldShowOff />
@@ -1629,6 +1962,21 @@ export default function GalleryClient({
                 {ditherError ? <p className="text-xs text-red-600">{ditherError}</p> : null}
                 {previewActionError ? <p className="text-xs text-red-600">{previewActionError}</p> : null}
                 {albumEditError ? <p className="text-xs text-red-600">{albumEditError}</p> : null}
+                {noteSaveError ? <p className="text-xs text-red-600">{noteSaveError}</p> : null}
+
+                {active.kind === "note" ? (
+                  <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={autosaveEnabled}
+                        onChange={(event) => setAutosaveEnabled(event.target.checked)}
+                      />
+                      Auto-save every 30s
+                    </label>
+                    <div>{noteIsDirty ? "Unsaved changes" : "All changes saved"}</div>
+                  </div>
+                ) : null}
 
                 {inAlbumContext ? (
                   <div className="space-y-2 rounded border border-neutral-200 p-3">
@@ -1684,6 +2032,7 @@ export default function GalleryClient({
                       </div>
                     ) : null}
 
+                    {active.kind !== "note" ? (
                     <div className="space-y-2">
                       <label className="text-xs font-medium text-neutral-600">
                         Linked BBCode
@@ -1718,6 +2067,7 @@ export default function GalleryClient({
                         </button>
                       )}
                     </div>
+                    ) : null}
 
                     {supports640Variant ? (
                       <div className="space-y-2">
@@ -1757,7 +2107,7 @@ export default function GalleryClient({
                   </div>
                 ) : (
                   <p className="text-xs text-neutral-500 text-center">
-                    Share links are disabled for this image.
+                    Share links are disabled for this file.
                   </p>
                 )}
               </div>

@@ -16,7 +16,7 @@ type AlbumInfo = {
 
 type GalleryImage = {
   id: string;
-  kind: "image" | "video" | "document" | "other";
+  kind: "image" | "video" | "document" | "other" | "note";
   baseName: string;
   originalFileName?: string;
   ext: string;
@@ -27,6 +27,7 @@ type GalleryImage = {
   uploadedAt: string;
   shared?: boolean;
   previewStatus?: "pending" | "processing" | "ready" | "failed";
+  previewText?: string;
 };
 
 export default function GalleryTabs({
@@ -45,7 +46,7 @@ export default function GalleryTabs({
   const searchParams = useSearchParams();
   const [imageItems, setImageItems] = useState<GalleryImage[]>(media);
   const [activeTab, setActiveTab] = useState<"albums" | "files">(initialTab);
-  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "image" | "video" | "document" | "other">("all");
+  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "image" | "video" | "document" | "other" | "note">("all");
   const [albumItems, setAlbumItems] = useState(albums);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
@@ -206,7 +207,7 @@ export default function GalleryTabs({
       </div>
       {activeTab === "files" ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {(["all", "image", "video", "document", "other"] as const).map((item) => (
+          {(["all", "image", "video", "document", "other", "note"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -215,7 +216,7 @@ export default function GalleryTabs({
                 fileTypeFilter === item ? "bg-black text-white" : "border border-neutral-200"
               }`}
             >
-              {item === "image" ? "images" : item === "document" ? "documents" : item}
+              {item === "image" ? "images" : item === "document" ? "documents" : item === "note" ? "notes" : item}
             </button>
           ))}
         </div>
