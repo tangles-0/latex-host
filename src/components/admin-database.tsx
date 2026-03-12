@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { BlobMediaKind } from "@/lib/media-types";
 
 type ImportResponse = {
   message?: string;
@@ -20,7 +21,7 @@ type StorageAuditReport = {
   expectedBlobPathCount: number;
   blobPathCount: number;
   missingRecords: Array<{
-    kind: "image" | "video" | "document" | "other";
+    kind: BlobMediaKind;
     id: string;
     baseName: string;
     ext: string;

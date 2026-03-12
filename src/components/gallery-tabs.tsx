@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
+import type { MediaKind } from "@/lib/media-types";
 import { LightPencil } from '@energiz3r/icon-library/Icons/Light/LightPencil';
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 
@@ -16,7 +17,7 @@ type AlbumInfo = {
 
 type GalleryImage = {
   id: string;
-  kind: "image" | "video" | "document" | "other" | "note";
+  kind: MediaKind;
   baseName: string;
   originalFileName?: string;
   ext: string;
@@ -46,7 +47,7 @@ export default function GalleryTabs({
   const searchParams = useSearchParams();
   const [imageItems, setImageItems] = useState<GalleryImage[]>(media);
   const [activeTab, setActiveTab] = useState<"albums" | "files">(initialTab);
-  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "image" | "video" | "document" | "other" | "note">("all");
+  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | MediaKind>("all");
   const [albumItems, setAlbumItems] = useState(albums);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");

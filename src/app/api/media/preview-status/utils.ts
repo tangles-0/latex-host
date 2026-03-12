@@ -1,8 +1,5 @@
-import type { MediaKind } from "@/lib/media-store";
+import { isBlobMediaKind, type BlobMediaKind } from "@/lib/media-types";
 
-export function parsePreviewStatusKind(kind: string | null): MediaKind | null {
-  if (kind === "image" || kind === "video" || kind === "document" || kind === "other") {
-    return kind;
-  }
-  return null;
+export function parsePreviewStatusKind(kind: string | null): BlobMediaKind | null {
+  return isBlobMediaKind(kind) ? kind : null;
 }

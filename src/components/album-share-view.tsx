@@ -2,10 +2,11 @@
 
 import { FileViewerContent } from "@/components/viewers/file-viewer-content";
 import NoteMarkdown from "@/components/note-markdown";
+import type { MediaKind } from "@/lib/media-types";
 
 type AlbumMedia = {
   id: string;
-  kind: "image" | "video" | "document" | "other" | "note";
+  kind: MediaKind;
   baseName: string;
   originalFileName?: string;
   ext: string;

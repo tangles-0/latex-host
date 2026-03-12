@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { BlobMediaKind } from "@/lib/media-types";
 import {
   DEFAULT_RESUMABLE_THRESHOLD,
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
@@ -13,7 +14,7 @@ type UploadState = "idle" | "uploading" | "success" | "error";
 
 type UploadedImage = {
   id: string;
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   originalFileName?: string;
   ext: string;

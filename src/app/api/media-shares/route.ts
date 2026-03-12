@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { createShareForMedia, deleteShareForMedia, getMediaForUser, getShareForUserByMedia, type MediaKind } from "@/lib/media-store";
+import { isMediaKind } from "@/lib/media-types";
 
 export const runtime = "nodejs";
 
 function parseKind(input: string | null): MediaKind | null {
-  if (input === "image" || input === "video" || input === "document" || input === "other" || input === "note") {
-    return input;
-  }
-  return null;
+  return isMediaKind(input) ? input : null;
 }
 
 export async function POST(request: Request): Promise<NextResponse> {

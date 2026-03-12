@@ -1,15 +1,10 @@
-import type { MediaKind } from "@/lib/media-store";
-
-export type AsyncPreviewKind = Exclude<MediaKind, "image">;
+import { isAsyncPreviewKind, type AsyncPreviewKind } from "@/lib/media-types";
+export { isAsyncPreviewKind } from "@/lib/media-types";
 
 type PreviewRequestPayload = {
   mediaId: string;
   kind: AsyncPreviewKind;
 };
-
-export function isAsyncPreviewKind(value: string): value is AsyncPreviewKind {
-  return value === "video" || value === "document" || value === "other";
-}
 
 export async function requestPreviewGeneration(payload: PreviewRequestPayload): Promise<{ ok: true } | { ok: false; error: string }> {
   const webhookUrl = process.env.PREVIEW_WORKER_WEBHOOK_URL?.trim();

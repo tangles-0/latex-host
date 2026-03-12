@@ -10,6 +10,7 @@ describe("isAsyncPreviewKind", () => {
 
   it("rejects unsupported kinds", () => {
     expect(isAsyncPreviewKind("image")).toBe(false);
+    expect(isAsyncPreviewKind("note")).toBe(false);
     expect(isAsyncPreviewKind("archive")).toBe(false);
   });
 });

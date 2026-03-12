@@ -147,7 +147,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     uploadedAt: uploadedAt.toISOString(),
   });
 
-  if (media.kind !== "image" && media.previewStatus === "pending") {
+  if (
+    (media.kind === "video" || media.kind === "document" || media.kind === "other") &&
+    media.previewStatus === "pending"
+  ) {
     const queued = await requestPreviewGeneration({
       mediaId: media.id,
       kind: media.kind,

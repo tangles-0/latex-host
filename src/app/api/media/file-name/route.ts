@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { updateOriginalFileNameForUser, type MediaKind } from "@/lib/media-store";
+import { isMediaKind } from "@/lib/media-types";
 
 export const runtime = "nodejs";
-
-function isMediaKind(value: string): value is MediaKind {
-  return value === "image" || value === "video" || value === "document" || value === "other" || value === "note";
-}
 
 export async function PATCH(request: Request): Promise<NextResponse> {
   const userId = await getSessionUserId();

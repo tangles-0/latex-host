@@ -8,7 +8,7 @@ import {
   usesS3StorageBackend,
 } from "@/lib/media-storage";
 import { getShareByCode as getMediaShareByCode, getSharedMediaByCode, getSharedMediaByCodeAndExt } from "@/lib/media-store";
-import { contentTypeForExt } from "@/lib/media-types";
+import { contentTypeForExt, isBlobMediaKind } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
 import { parseByteRange, parseShareFileName } from "@/app/share/share-route-utils";
@@ -236,6 +236,9 @@ export async function GET(
     }
     if (!media) {
       return withPublicImageCors(await unavailableImageResponse(parsed.ext));
+    }
+    if (!isBlobMediaKind(media.kind)) {
+      return withPublicImageCors(new Response("Not found", { status: 404 }));
     }
     if (media.kind === "video" && media.previewStatus !== "ready" && parsed.size !== "original") {
       return withPublicImageCors(new Response("Not found", { status: 404 }));

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { remark } from "remark";
 import stripMarkdown from "strip-markdown";
 import { db } from "@/db";
+import type { MediaKind } from "@/lib/media-types";
 import {
   albumShares,
   albums,
@@ -1345,10 +1346,10 @@ export async function upsertGroupLimits(input: {
   };
 }
 
-export function getMaxAllowedBytesForKind(limits: GroupLimits, kind: "image" | "video" | "document" | "other"): number {
+export function getMaxAllowedBytesForKind(limits: GroupLimits, kind: MediaKind): number {
   if (kind === "image") return limits.maxImageSize;
   if (kind === "video") return limits.maxVideoSize;
-  if (kind === "document") return limits.maxDocumentSize;
+  if (kind === "document" || kind === "note") return limits.maxDocumentSize;
   return limits.maxOtherSize;
 }
 

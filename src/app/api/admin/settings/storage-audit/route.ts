@@ -14,13 +14,13 @@ import {
   videos,
 } from "@/db/schema";
 import { getSessionUserId } from "@/lib/auth";
+import type { BlobMediaKind } from "@/lib/media-types";
 import { isAdminUser } from "@/lib/metadata-store";
 
 export const runtime = "nodejs";
 
-type MediaKind = "image" | "video" | "document" | "other";
 type MissingRecord = {
-  kind: MediaKind;
+  kind: BlobMediaKind;
   id: string;
   baseName: string;
   ext: string;
@@ -81,7 +81,7 @@ async function runStorageAudit(): Promise<{
   const missingRecords: MissingRecord[] = [];
 
   const evaluateMedia = async (input: {
-    kind: MediaKind;
+    kind: BlobMediaKind;
     id: string;
     baseName: string;
     ext: string;
@@ -209,7 +209,7 @@ async function listBlobPathnames(prefix: string): Promise<string[]> {
 }
 
 function buildStoragePathname(
-  kind: MediaKind,
+  kind: BlobMediaKind,
   baseName: string,
   ext: string,
   size: "original" | "sm" | "lg",

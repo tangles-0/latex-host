@@ -1,4 +1,23 @@
-export type MediaKind = "image" | "video" | "document" | "other";
+export const MEDIA_KINDS = ["image", "video", "document", "other", "note"] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+
+export const BLOB_MEDIA_KINDS = ["image", "video", "document", "other"] as const;
+export type BlobMediaKind = (typeof BLOB_MEDIA_KINDS)[number];
+
+export const PREVIEWABLE_MEDIA_KINDS = ["video", "document", "other"] as const;
+export type AsyncPreviewKind = (typeof PREVIEWABLE_MEDIA_KINDS)[number];
+
+export function isMediaKind(value: string | null | undefined): value is MediaKind {
+  return Boolean(value && MEDIA_KINDS.includes(value as MediaKind));
+}
+
+export function isBlobMediaKind(value: string | null | undefined): value is BlobMediaKind {
+  return Boolean(value && BLOB_MEDIA_KINDS.includes(value as BlobMediaKind));
+}
+
+export function isAsyncPreviewKind(value: string | null | undefined): value is AsyncPreviewKind {
+  return Boolean(value && PREVIEWABLE_MEDIA_KINDS.includes(value as AsyncPreviewKind));
+}
 
 export const PDF_EXTENSIONS = new Set(["pdf"]);
 
@@ -191,7 +210,7 @@ export function extFromFileName(fileName: string): string {
   return fileName.slice(idx + 1).toLowerCase();
 }
 
-export function mediaKindFromType(mimeType: string, ext: string): MediaKind {
+export function mediaKindFromType(mimeType: string, ext: string): BlobMediaKind {
   if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(ext)) {
     return "image";
   }

@@ -1,9 +1,11 @@
+import { extFromFileName, mediaKindFromType, type BlobMediaKind } from "@/lib/media-types";
+
 export type UploadResult = {
   ok: boolean;
   message: string;
   media?: {
     id: string;
-    kind: "image" | "video" | "document" | "other";
+    kind: BlobMediaKind;
     baseName: string;
     originalFileName?: string;
     ext: string;
@@ -69,7 +71,7 @@ function sumUploadedBytes(uploadedParts: Record<string, string>, chunkSize: numb
 
 async function uploadResumable(
   file: File,
-  targetType: "image" | "video" | "document" | "other",
+  targetType: BlobMediaKind,
   options?: Pick<UploadOptions, "resumeFromSessionId" | "checksum" | "onProgress">,
 ): Promise<{ ok: boolean; sessionId?: string; storageKey?: string; error?: string }> {
   const checksum = options?.checksum ?? (await computeSha256Hex(file));
@@ -170,14 +172,7 @@ export async function uploadSingleMedia(
   options?: UploadOptions,
 ): Promise<UploadResult> {
   const type = file.type.toLowerCase();
-  const kind: "image" | "video" | "document" | "other" =
-    type.startsWith("image/")
-      ? "image"
-      : type.startsWith("video/")
-        ? "video"
-        : type.startsWith("text/") || type.includes("pdf") || type.includes("document")
-          ? "document"
-          : "other";
+  const kind = mediaKindFromType(type, extFromFileName(file.name));
 
   const resumableThresholdBytes = Math.max(
     1024 * 1024,

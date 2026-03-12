@@ -9,7 +9,7 @@ import {
 } from "@vercel/blob";
 import { db } from "@/db";
 import { uploadSessions } from "@/db/schema";
-import { contentTypeForExt } from "@/lib/media-types";
+import { contentTypeForExt, type BlobMediaKind } from "@/lib/media-types";
 
 type StorageBackend = "local" | "blob";
 
@@ -92,7 +92,7 @@ type InitInput = {
   mimeType: string;
   ext: string;
   checksum?: string;
-  targetType?: "image" | "video" | "document" | "other";
+  targetType?: BlobMediaKind;
 };
 
 function mapSession(row: typeof uploadSessions.$inferSelect): UploadSessionEntry {

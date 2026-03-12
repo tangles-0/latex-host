@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { getAppSettings, getGroupLimits, getMaxAllowedBytesForKind, getUserGroupInfo } from "@/lib/metadata-store";
-import { extFromFileName, mediaKindFromType } from "@/lib/media-types";
+import { extFromFileName, mediaKindFromType, type BlobMediaKind } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { initUploadSession } from "@/lib/upload-sessions";
 
@@ -48,7 +48,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     mimeType?: string;
     chunkSize?: number;
     checksum?: string;
-    targetType?: "image" | "video" | "document" | "other";
+    targetType?: BlobMediaKind;
   };
 
   const fileName = payload.fileName?.trim() ?? "";

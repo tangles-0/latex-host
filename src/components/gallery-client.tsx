@@ -27,6 +27,7 @@ import { FileViewerContent } from "./viewers/file-viewer-content";
 import NoteMarkdown from "./note-markdown";
 import NoteRichEditor from "./note-rich-editor";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
+import type { MediaKind } from "@/lib/media-types";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
@@ -36,7 +37,7 @@ const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
 
 type GalleryImage = {
   id: string;
-  kind: "image" | "video" | "document" | "other" | "note";
+  kind: MediaKind;
   baseName: string;
   originalFileName?: string;
   ext: string;
@@ -58,7 +59,7 @@ type GalleryImage = {
 
 type ShareInfo = {
   id: string;
-  kind?: "image" | "video" | "document" | "other";
+  kind?: MediaKind;
   urls: {
     original: string;
     sm: string;
@@ -74,6 +75,7 @@ type UploadMessage = {
 
 type RotationDirection = "left" | "right";
 type NoteEditorMode = "markdown" | "preview";
+type GalleryKindFilter = "all" | MediaKind;
 const PAGE_SIZE = 24;
 
 type NoteDetails = {
@@ -96,7 +98,7 @@ export default function GalleryClient({
   showAlbumImageToggle?: boolean;
   uploadAlbumId?: string;
   hideImagesInAlbums?: boolean;
-  kindFilter?: "all" | "image" | "video" | "document" | "other" | "note";
+  kindFilter?: GalleryKindFilter;
   isAdmin?: boolean;
 }) {
   const [items, setItems] = useState<GalleryImage[]>(media);

@@ -8,6 +8,8 @@ import sharp from "sharp";
 import mammoth from "mammoth";
 import { copy as blobCopy, del as blobDelete, get as blobGet, head as blobHead, put as blobPut } from "@vercel/blob";
 import {
+  type BlobMediaKind,
+  type AsyncPreviewKind,
   CODE_EXTENSIONS,
   CSV_EXTENSIONS,
   DOCUMENT_TEXT_EXTENSIONS,
@@ -151,7 +153,7 @@ async function createWorkingDir(prefix: string, candidates: string[] = TMP_CANDI
 }
 
 function mediaStorageKey(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -541,7 +543,7 @@ async function tryGenerateVideoPreviewFromSource(source: string): Promise<Buffer
 }
 
 export async function storeGenericMediaFromBuffer(input: {
-  kind: "video" | "document" | "other";
+  kind: AsyncPreviewKind;
   buffer: Buffer;
   ext: string;
   mimeType: string;
@@ -604,7 +606,7 @@ export async function storeGenericMediaFromBuffer(input: {
 const MAX_INLINE_PREVIEW_BYTES = 512 * 1024 * 1024;
 
 export async function storeGenericMediaFromStoredUpload(input: {
-  kind: "video" | "document" | "other";
+  kind: AsyncPreviewKind;
   sourceKey: string;
   sizeOriginal: number;
   ext: string;
@@ -772,7 +774,7 @@ export async function storeImageMediaFromBuffer(input: {
 }
 
 export async function getMediaBuffer(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -783,7 +785,7 @@ export async function getMediaBuffer(input: {
 }
 
 export async function getMediaBufferSize(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -794,7 +796,7 @@ export async function getMediaBufferSize(input: {
 }
 
 export async function getMediaBufferRange(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -807,7 +809,7 @@ export async function getMediaBufferRange(input: {
 }
 
 export async function getMediaStream(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -818,7 +820,7 @@ export async function getMediaStream(input: {
 }
 
 export async function getMediaRangeStream(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -831,7 +833,7 @@ export async function getMediaRangeStream(input: {
 }
 
 export async function getMediaSignedUrl(input: {
-  kind: "image" | "video" | "document" | "other";
+  kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
@@ -893,7 +895,7 @@ export async function generateVideoPreviewFromStoredMedia(input: {
 }
 
 export async function storeGeneratedPreviewForMedia(input: {
-  kind: "video" | "document" | "other";
+  kind: AsyncPreviewKind;
   baseName: string;
   uploadedAt: Date;
   previewImageBuffer: Buffer;

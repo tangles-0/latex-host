@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { remark } from "remark";
 import stripMarkdown from "strip-markdown";
 import { db } from "@/db";
+import type { BlobMediaKind, MediaKind } from "@/lib/media-types";
 import {
   albumShares,
   documentShares,
@@ -17,8 +18,7 @@ import {
   videos,
 } from "@/db/schema";
 import { deleteImageFiles } from "@/lib/storage";
-
-export type MediaKind = "image" | "video" | "document" | "other" | "note";
+export type { MediaKind } from "@/lib/media-types";
 export type PreviewStatus = "pending" | "processing" | "ready" | "failed";
 
 export type MediaEntry = {
@@ -682,7 +682,7 @@ export async function getMedia(kind: MediaKind, id: string): Promise<MediaEntry 
 }
 
 export async function getMediaWithOwner(
-  kind: Exclude<MediaKind, "image">,
+  kind: Exclude<BlobMediaKind, "image">,
   id: string,
 ): Promise<(MediaEntry & { userId: string }) | undefined> {
   if (kind === "video") {

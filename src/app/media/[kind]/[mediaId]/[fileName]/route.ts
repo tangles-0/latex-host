@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { getMediaForUser, type MediaKind } from "@/lib/media-store";
-import { contentTypeForExt } from "@/lib/media-types";
+import { getMediaForUser } from "@/lib/media-store";
+import { contentTypeForExt, isBlobMediaKind, type BlobMediaKind } from "@/lib/media-types";
 import {
   getMediaBufferSize,
   getMediaSignedUrl,
@@ -59,11 +59,8 @@ function privateCacheHeaders(etag: string, lastModified: string): HeadersInit {
   };
 }
 
-function parseKind(kind: string): MediaKind | null {
-  if (kind === "image" || kind === "video" || kind === "document" || kind === "other") {
-    return kind;
-  }
-  return null;
+function parseKind(kind: string): BlobMediaKind | null {
+  return isBlobMediaKind(kind) ? kind : null;
 }
 
 function parseFileName(fileName: string): { baseName: string; size: "original" | "sm" | "lg"; ext: string } | null {
