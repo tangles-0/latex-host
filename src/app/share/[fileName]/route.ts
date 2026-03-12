@@ -37,7 +37,7 @@ function getInternalAppOrigin(): string {
   if (configured) {
     return configured;
   }
-  return `http://127.0.0.1:${process.env.PORT ?? "3000"}`;
+  return `${process.env.NEXTAUTH_URL ?? ""}`;
 }
 
 function publicCacheHeaders(ext: string): Headers {
@@ -157,6 +157,7 @@ export async function GET(
           },
           cache: "no-store",
         });
+        console.log("upstream", upstream);
         const headers = new Headers(upstream.headers);
         headers.delete("content-encoding");
         headers.delete("content-length");

@@ -10,6 +10,7 @@
     "lint": "next lint",
     "lint:es": "pnpm exec eslint",
     "db:push": "drizzle-kit push --config ./drizzle.config.ts",
+    "db:push-prod": "drizzle-kit push --config ./drizzle.config.prod.ts",
     "db:push:force": "drizzle-kit push --force --config ./drizzle.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
