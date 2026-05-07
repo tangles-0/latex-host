@@ -7,7 +7,12 @@ import {
   getMediaStream,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
-import { getShareByCode as getMediaShareByCode, getSharedMediaByCode, getSharedMediaByCodeAndExt } from "@/lib/media-store";
+import {
+  getNote,
+  getShareByCode as getMediaShareByCode,
+  getSharedMediaByCode,
+  getSharedMediaByCodeAndExt,
+} from "@/lib/media-store";
 import { contentTypeForExt, isBlobMediaKind } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
@@ -46,6 +51,47 @@ function publicCacheHeaders(ext: string): Headers {
     "Cache-Control": `public, max-age=${PUBLIC_SHARE_CACHE_SECONDS}, s-maxage=${PUBLIC_SHARE_CACHE_SECONDS}, stale-while-revalidate=${PUBLIC_SHARE_CACHE_SECONDS}, must-revalidate`,
     Vary: "Accept-Encoding",
   });
+}
+
+function isDownloadRequested(request: NextRequest): boolean {
+  return request.nextUrl.searchParams.get("download") === "true";
+}
+
+function sanitizeDownloadFileName(fileName: string): string {
+  const sanitized = fileName.replace(/[/\\]/g, "-").replace(/[\r\n]+/g, " ").trim();
+  return sanitized || "download";
+}
+
+function ensureFileExtension(fileName: string, ext: string): string {
+  const normalizedExt = ext.toLowerCase();
+  return fileName.toLowerCase().endsWith(`.${normalizedExt}`) ? fileName : `${fileName}.${normalizedExt}`;
+}
+
+function buildAttachmentDisposition(fileName: string): string {
+  const safeFileName = sanitizeDownloadFileName(fileName);
+  const asciiFallback = safeFileName.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`;
+}
+
+function applyAttachmentDisposition(headers: Headers, fileName: string): Headers {
+  headers.set("Content-Disposition", buildAttachmentDisposition(fileName));
+  return headers;
+}
+
+function resolveDownloadFileName(input: {
+  requestedFileName: string;
+  preferredFileName?: string;
+  requestedSize: "original" | "sm" | "lg";
+  responseExt: string;
+}): string {
+  if (input.requestedSize !== "original") {
+    return sanitizeDownloadFileName(input.requestedFileName);
+  }
+  const preferred = input.preferredFileName?.trim();
+  if (!preferred) {
+    return sanitizeDownloadFileName(input.requestedFileName);
+  }
+  return sanitizeDownloadFileName(ensureFileExtension(preferred, input.responseExt));
 }
 
 function isDocumentNavigation(request: NextRequest): boolean {
@@ -109,6 +155,7 @@ export async function GET(
   const { fileName } = await params;
   const parsed = parseShareFileName(fileName);
   const shareLookupKey = parsed?.code ?? fileName;
+  const downloadRequested = isDownloadRequested(request);
   const shareRate = await consumeRequestRateLimit({
     namespace: "public-share",
     key: shareLookupKey,
@@ -151,13 +198,27 @@ export async function GET(
       }
       const noteShare = await getMediaShareByCode("note", fileName);
       if (noteShare) {
+        if (downloadRequested) {
+          const note = await getNote(noteShare.mediaId);
+          if (!note) {
+            return withPublicImageCors(new Response("Not found", { status: 404 }));
+          }
+          const headers = new Headers({
+            "Content-Type": "text/markdown; charset=utf-8",
+            "Cache-Control": "no-store",
+          });
+          applyAttachmentDisposition(
+            headers,
+            ensureFileExtension(note.originalFileName?.trim() || note.baseName, "md"),
+          );
+          return withPublicImageCors(new Response(note.content, { headers }));
+        }
         const upstream = await fetch(new URL(`/share/internal-note/${noteShare.code ?? fileName}`, getInternalAppOrigin()), {
           headers: {
             accept: request.headers.get("accept") ?? "text/html,*/*",
           },
           cache: "no-store",
         });
-        console.log("upstream", upstream);
         const headers = new Headers(upstream.headers);
         headers.delete("content-encoding");
         headers.delete("content-length");
@@ -184,7 +245,12 @@ export async function GET(
             : parsed.size === "x640"
               ? "lg"
               : parsed.size;
-        if (usesS3StorageBackend()) {
+        const imageDownloadFileName = resolveDownloadFileName({
+          requestedFileName: fileName,
+          requestedSize: imageRequestedSize,
+          responseExt: image.ext,
+        });
+        if (usesS3StorageBackend() && !downloadRequested) {
           const responseExt = imageRequestedSize === "original" ? image.ext : "png";
           const mimeType = contentTypeForExt(responseExt);
           const signedUrl = await getMediaSignedUrl({
@@ -227,7 +293,11 @@ export async function GET(
           size: imageRequestedSize,
           uploadedAt: new Date(image.uploadedAt),
         });
-        return withPublicImageCors(new Response(stream, { headers: publicCacheHeaders(image.ext) }));
+        const headers = publicCacheHeaders(image.ext);
+        if (downloadRequested) {
+          applyAttachmentDisposition(headers, imageDownloadFileName);
+        }
+        return withPublicImageCors(new Response(stream, { headers }));
       }
     }
 
@@ -250,13 +320,19 @@ export async function GET(
         : parsed.size === "x640"
           ? "lg"
           : parsed.size;
+    const responseExt =
+      requestedSize === "original" ? media.ext : media.kind === "image" ? media.ext : "png";
+    const downloadFileName = resolveDownloadFileName({
+      requestedFileName: fileName,
+      preferredFileName: media.originalFileName,
+      requestedSize,
+      responseExt,
+    });
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (media.kind === "video" ||
         (media.kind === "other" && (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
-    if (usesS3StorageBackend()) {
-      const responseExt =
-        requestedSize === "original" ? media.ext : media.kind === "image" ? media.ext : "png";
+    if (usesS3StorageBackend() && !downloadRequested) {
       const mimeType = contentTypeForExt(responseExt);
       const signedUrl = await getMediaSignedUrl({
         kind: media.kind,
@@ -327,6 +403,9 @@ export async function GET(
         headers.set("Content-Range", `bytes ${byteRange.start}-${byteRange.end}/${total}`);
         headers.set("Content-Length", String(byteRange.end - byteRange.start + 1));
         headers.set("Accept-Ranges", "bytes");
+        if (downloadRequested) {
+          applyAttachmentDisposition(headers, downloadFileName);
+        }
         return withPublicImageCors(new Response(stream, { status: 206, headers }));
       }
     }
@@ -338,11 +417,12 @@ export async function GET(
       size: requestedSize,
       uploadedAt: new Date(media.uploadedAt),
     });
-    const responseExt =
-      requestedSize === "original" ? media.ext : media.kind === "image" ? media.ext : "png";
     const headers = publicCacheHeaders(responseExt);
     if (isRangeStreamableOriginal) {
       headers.set("Accept-Ranges", "bytes");
+    }
+    if (downloadRequested) {
+      applyAttachmentDisposition(headers, downloadFileName);
     }
     return withPublicImageCors(new Response(stream, { headers }));
   } catch {
