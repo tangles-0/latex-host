@@ -314,15 +314,28 @@ export async function clearUploadSessionsForUser(
   const rows = await db
     .select()
     .from(uploadSessions)
-    .where(and(eq(uploadSessions.userId, userId), eq(uploadSessions.state, "failed")));
+    .where(eq(uploadSessions.userId, userId));
   const targetIds = new Set(sessionIds);
-  const targets = rows.filter((row) => targetIds.has(row.id));
+  const targets = rows.filter(
+    (row) => targetIds.has(row.id) && row.state !== "complete" && row.state !== "uploading",
+  );
 
   for (const row of targets) {
     const mapped = mapSession(row);
     if (mapped.backend === "local") {
       await fs.rm(path.join(SESSION_DIR, mapped.id), { recursive: true, force: true });
     } else if (mapped.backend === "blob" && mapped.storageKey) {
+      const multipartMetadata = parseBlobMultipartMetadata(mapped.s3UploadId);
+      if (!multipartMetadata) {
+        for (let partNumber = 1; partNumber <= mapped.totalParts; partNumber += 1) {
+          const partKey = sessionPartStorageKey(mapped.storageKey, partNumber);
+          try {
+            await blobDelete(partKey);
+          } catch {
+            // Ignore stale/missing temp parts during cleanup.
+          }
+        }
+      }
       try {
         await blobDelete(mapped.storageKey);
       } catch {

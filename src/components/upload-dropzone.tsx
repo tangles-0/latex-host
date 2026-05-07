@@ -137,25 +137,27 @@ export default function UploadDropzone({
   }
 
   async function clearFailedSessions() {
-    const failedIds = incompleteSessions
-      .filter((session) => session.state === "failed")
+    const clearableIds = incompleteSessions
+      .filter((session) => session.state === "failed" || session.state === "finalizing")
       .map((session) => session.id);
-    if (failedIds.length === 0) {
+    if (clearableIds.length === 0) {
       return;
     }
     setIsClearingFailed(true);
     const response = await fetch("/api/uploads/clear-failed", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionIds: failedIds }),
+      body: JSON.stringify({ sessionIds: clearableIds }),
     });
     if (!response.ok) {
-      pushMessage("Unable to clear failed uploads.", "error");
+      pushMessage("Unable to clear stuck uploads.", "error");
       setIsClearingFailed(false);
       return;
     }
-    setIncompleteSessions((current) => current.filter((session) => session.state !== "failed"));
-    pushMessage("Cleared failed uploads.", "success");
+    setIncompleteSessions((current) =>
+      current.filter((session) => session.state !== "failed" && session.state !== "finalizing"),
+    );
+    pushMessage("Cleared stuck uploads.", "success");
     setIsClearingFailed(false);
   }
 
@@ -736,7 +738,12 @@ export default function UploadDropzone({
             <button
               type="button"
               onClick={() => void clearFailedSessions()}
-              disabled={isClearingFailed || !incompleteSessions.some((session) => session.state === "failed")}
+              disabled={
+                isClearingFailed ||
+                !incompleteSessions.some(
+                  (session) => session.state === "failed" || session.state === "finalizing",
+                )
+              }
               className="rounded border border-neutral-200 px-2 py-1 text-[11px] disabled:opacity-50"
             >
               {isClearingFailed ? "Clearing..." : "Clear"}
