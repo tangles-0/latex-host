@@ -384,6 +384,8 @@ export async function listImagesByIdsForUser(
 
 export async function getUserUploadStats(userId: string): Promise<{
   imageCount: number;
+  videoCount: number;
+  otherFileCount: number;
   totalBytes: number;
 }> {
   const [imageRow] = await db
@@ -415,11 +417,9 @@ export async function getUserUploadStats(userId: string): Promise<{
     .from(files)
     .where(eq(files.userId, userId));
 
-  const totalCount =
-    Number(imageRow?.imageCount ?? 0) +
-    Number(videoRow?.count ?? 0) +
-    Number(documentRow?.count ?? 0) +
-    Number(fileRow?.count ?? 0);
+  const imageCount = Number(imageRow?.imageCount ?? 0);
+  const videoCount = Number(videoRow?.count ?? 0);
+  const otherFileCount = Number(documentRow?.count ?? 0) + Number(fileRow?.count ?? 0);
   const totalBytes =
     Number(imageRow?.totalBytes ?? 0) +
     Number(videoRow?.totalBytes ?? 0) +
@@ -427,7 +427,9 @@ export async function getUserUploadStats(userId: string): Promise<{
     Number(fileRow?.totalBytes ?? 0);
 
   return {
-    imageCount: totalCount,
+    imageCount,
+    videoCount,
+    otherFileCount,
     totalBytes,
   };
 }

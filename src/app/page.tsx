@@ -94,7 +94,8 @@ export default async function Home() {
             u r <span className="font-bold">{session?.user?.name ?? session?.user?.email ?? "...who r u?"}</span>. wb &lt;3
           </h2>
           <p className="text-xs text-neutral-600">
-            u hav {userStats?.imageCount ?? 0} imgs uploaded using{" "}
+            u hav {userStats?.imageCount ?? 0} imgs, {userStats?.videoCount ?? 0} vids, and{" "}
+            {userStats?.otherFileCount ?? 0} other files uploaded using{" "}
             {formatBytes(userStats?.totalBytes ?? 0)} of spinning rust
           </p>
           <TextLink
