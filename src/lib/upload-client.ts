@@ -1,3 +1,4 @@
+import { uploadPart as uploadBlobPart } from "@vercel/blob/client";
 import { extFromFileName, mediaKindFromType, type BlobMediaKind } from "@/lib/media-types";
 
 export type UploadResult = {
@@ -19,7 +20,7 @@ export type UploadResult = {
   };
 };
 
-const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
+const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 // Keep regular uploads below common serverless payload caps.
 export const DEFAULT_RESUMABLE_THRESHOLD = 4 * 1024 * 1024;
 const MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES = 4 * 1024 * 1024;
@@ -39,6 +40,12 @@ type InitUploadResponse = {
   chunkSize: number;
   totalParts: number;
   uploadedParts: Record<string, string>;
+  storageKey?: string;
+  multipart?: {
+    token: string;
+    key: string;
+    uploadId: string;
+  };
 };
 
 type StatusUploadResponse = {
@@ -48,6 +55,12 @@ type StatusUploadResponse = {
   totalParts: number;
   chunkSize: number;
   fileSize: number;
+  storageKey?: string;
+  multipart?: {
+    token: string;
+    key: string;
+    uploadId: string;
+  };
 };
 
 async function sleep(ms: number): Promise<void> {
@@ -91,6 +104,8 @@ async function uploadResumable(
       chunkSize: statusPayload.chunkSize,
       totalParts: statusPayload.totalParts,
       uploadedParts: statusPayload.uploadedParts,
+      storageKey: statusPayload.storageKey,
+      multipart: statusPayload.multipart,
     };
   } else {
     const initResponse = await fetch("/api/uploads/init", {
@@ -113,6 +128,7 @@ async function uploadResumable(
   }
   const chunkSize = initPayload.chunkSize;
   const totalParts = initPayload.totalParts;
+  const multipart = initPayload.multipart;
   options?.onProgress?.(sumUploadedBytes(initPayload.uploadedParts, chunkSize, file.size), file.size);
 
   for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
@@ -124,22 +140,60 @@ async function uploadResumable(
     const chunk = file.slice(start, end);
     let success = false;
     for (let attempt = 0; attempt < PART_RETRY_LIMIT; attempt += 1) {
-      const partResponse = await fetch("/api/uploads/part", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "x-upload-session-id": initPayload.sessionId,
-          "x-upload-part-number": String(partNumber),
-        },
-        body: chunk,
-      });
-      if (partResponse.ok) {
-        success = true;
-        options?.onProgress?.(
-          Math.min(file.size, partNumber * chunkSize),
-          file.size,
-        );
-        break;
+      if (multipart) {
+        try {
+          const pathname = initPayload.storageKey;
+          if (!pathname) {
+            throw new Error("Missing multipart storage key.");
+          }
+          const uploadedForPath = await uploadBlobPart(pathname, chunk, {
+            // Blob multipart parts must target the original pathname created on init.
+            // The final blob key stays opaque and private in storage.
+            access: "private",
+            token: multipart.token,
+            key: multipart.key,
+            uploadId: multipart.uploadId,
+            partNumber,
+            contentType: file.type || undefined,
+          });
+          const ackResponse = await fetch("/api/uploads/part", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: initPayload.sessionId,
+              partNumber,
+              etag: uploadedForPath.etag,
+            }),
+          });
+          if (ackResponse.ok) {
+            success = true;
+            options?.onProgress?.(
+              Math.min(file.size, partNumber * chunkSize),
+              file.size,
+            );
+            break;
+          }
+        } catch {
+          // Retry below.
+        }
+      } else {
+        const partResponse = await fetch("/api/uploads/part", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "x-upload-session-id": initPayload.sessionId,
+            "x-upload-part-number": String(partNumber),
+          },
+          body: chunk,
+        });
+        if (partResponse.ok) {
+          success = true;
+          options?.onProgress?.(
+            Math.min(file.size, partNumber * chunkSize),
+            file.size,
+          );
+          break;
+        }
       }
       await sleep(300 * (attempt + 1));
     }

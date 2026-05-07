@@ -3,14 +3,14 @@ import { getSessionUserId } from "@/lib/auth";
 import { getAppSettings, getGroupLimits, getMaxAllowedBytesForKind, getUserGroupInfo } from "@/lib/metadata-store";
 import { extFromFileName, mediaKindFromType, type BlobMediaKind } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
-import { initUploadSession } from "@/lib/upload-sessions";
+import { getBlobMultipartClientState, initUploadSession } from "@/lib/upload-sessions";
 
 export const runtime = "nodejs";
 
-// Vercel Functions request/response body limit is 4.5 MB.
+// The session layer normalizes chunk size per backend:
+// - local/server-proxied uploads stay under function body caps
+// - blob multipart uploads are raised above the 5 MB minimum
 const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
-const MIN_CHUNK_SIZE = 4 * 1024 * 1024;
-const MAX_CHUNK_SIZE = 4 * 1024 * 1024;
 
 function isAllowedType(allowed: string[], mime: string): boolean {
   if (allowed.length === 0) {
@@ -55,7 +55,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   const fileSize = Number(payload.fileSize ?? 0);
   const mimeType = payload.mimeType?.trim() ?? "application/octet-stream";
   const chunkSizeRaw = Number(payload.chunkSize ?? DEFAULT_CHUNK_SIZE);
-  const chunkSize = Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, Math.floor(chunkSizeRaw)));
   const ext = extFromFileName(fileName);
   const checksum = payload.checksum?.trim() || undefined;
 
@@ -88,7 +87,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     userId,
     fileName,
     fileSize,
-    chunkSize,
+    chunkSize: chunkSizeRaw,
     mimeType,
     ext,
     checksum,
@@ -100,6 +99,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     chunkSize: session.chunkSize,
     totalParts: session.totalParts,
     uploadedParts: session.uploadedParts,
+    storageKey: session.storageKey,
+    multipart: await getBlobMultipartClientState(session),
   });
 }
 

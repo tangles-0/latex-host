@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
-import { getUploadSessionForUser } from "@/lib/upload-sessions";
+import { getBlobMultipartClientState, getUploadSessionForUser } from "@/lib/upload-sessions";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     chunkSize: session.chunkSize,
     checksum: session.checksum,
     storageKey: session.storageKey,
+    multipart: await getBlobMultipartClientState(session),
   });
 }
 

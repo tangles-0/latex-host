@@ -3,10 +3,16 @@ import { promises as fs } from "fs";
 import { createHash, randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import {
+  completeMultipartUpload,
+  createMultipartUpload,
   del as blobDelete,
   get as blobGet,
+  head as blobHead,
   put as blobPut,
+  uploadPart as blobUploadPart,
+  type Part,
 } from "@vercel/blob";
+import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
 import { db } from "@/db";
 import { uploadSessions } from "@/db/schema";
 import { contentTypeForExt, type BlobMediaKind } from "@/lib/media-types";
@@ -25,8 +31,10 @@ function resolveStorageBackend(): StorageBackend {
 const STORAGE_BACKEND = resolveStorageBackend();
 const MAX_SESSION_AGE_MS = 1000 * 60 * 60 * 24;
 const STALE_UPLOAD_STATE_MS = 1000 * 60 * 15;
-const MAX_CHUNK_SIZE = 4 * 1024 * 1024;
-const MIN_CHUNK_SIZE = 4 * 1024 * 1024;
+const MAX_SERVER_CHUNK_SIZE = 4 * 1024 * 1024;
+const MIN_SERVER_CHUNK_SIZE = 4 * 1024 * 1024;
+const MIN_BLOB_MULTIPART_CHUNK_SIZE = 8 * 1024 * 1024;
+const DEFAULT_BLOB_MULTIPART_CHUNK_SIZE = 8 * 1024 * 1024;
 const BLOB_ACCESS = "private";
 
 export type UploadSessionState = "initiated" | "uploading" | "finalizing" | "complete" | "failed";
@@ -50,6 +58,11 @@ export type UploadSessionEntry = {
   updatedAt: string;
 };
 
+type BlobMultipartMetadata = {
+  key: string;
+  uploadId: string;
+};
+
 export function listMissingUploadPartNumbers(session: Pick<UploadSessionEntry, "totalParts" | "uploadedParts">): number[] {
   const present = new Set(
     Object.keys(session.uploadedParts)
@@ -67,12 +80,83 @@ export function listMissingUploadPartNumbers(session: Pick<UploadSessionEntry, "
 
 function normalizeChunkSize(rawChunkSize: number): number {
   if (!Number.isFinite(rawChunkSize) || rawChunkSize <= 0) {
-    return DEFAULT_CHUNK_SIZE;
+    return STORAGE_BACKEND === "blob" ? DEFAULT_BLOB_MULTIPART_CHUNK_SIZE : DEFAULT_CHUNK_SIZE;
   }
-  return Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, Math.floor(rawChunkSize)));
+  const normalized = Math.floor(rawChunkSize);
+  if (STORAGE_BACKEND === "blob") {
+    return Math.max(MIN_BLOB_MULTIPART_CHUNK_SIZE, normalized);
+  }
+  return Math.max(MIN_SERVER_CHUNK_SIZE, Math.min(MAX_SERVER_CHUNK_SIZE, normalized));
 }
 
 const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
+
+function serializeBlobMultipartMetadata(metadata: BlobMultipartMetadata): string {
+  return JSON.stringify(metadata);
+}
+
+function parseBlobMultipartMetadata(raw: string | null | undefined): BlobMultipartMetadata | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<BlobMultipartMetadata>;
+    if (typeof parsed.key === "string" && typeof parsed.uploadId === "string") {
+      return { key: parsed.key, uploadId: parsed.uploadId };
+    }
+  } catch {
+    // Legacy sessions stored plain text or empty values.
+  }
+  return undefined;
+}
+
+async function createBlobMultipartSession(pathname: string, contentType: string): Promise<BlobMultipartMetadata> {
+  const created = await createMultipartUpload(pathname, {
+    access: BLOB_ACCESS,
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType,
+  });
+  return {
+    key: created.key,
+    uploadId: created.uploadId,
+  };
+}
+
+async function generateBlobMultipartClientToken(session: UploadSessionEntry): Promise<string | undefined> {
+  if (session.backend !== "blob" || !session.storageKey || !parseBlobMultipartMetadata(session.s3UploadId)) {
+    return undefined;
+  }
+  return generateClientTokenFromReadWriteToken({
+    pathname: session.storageKey,
+    maximumSizeInBytes: session.fileSize,
+    allowedContentTypes: [session.mimeType || contentTypeForExt(session.ext)],
+    validUntil: Date.now() + 1000 * 60 * 60,
+  });
+}
+
+export async function getBlobMultipartClientState(session: UploadSessionEntry): Promise<
+  | {
+      token: string;
+      key: string;
+      uploadId: string;
+    }
+  | undefined
+> {
+  const metadata = parseBlobMultipartMetadata(session.s3UploadId);
+  if (!metadata) {
+    return undefined;
+  }
+  const token = await generateBlobMultipartClientToken(session);
+  if (!token) {
+    return undefined;
+  }
+  return {
+    token,
+    key: metadata.key,
+    uploadId: metadata.uploadId,
+  };
+}
 
 export function expectedPartSizeBytes(session: Pick<UploadSessionEntry, "fileSize" | "chunkSize" | "totalParts">, partNumber: number): number {
   const normalizedChunkSize = Math.max(1, Math.floor(session.chunkSize));
@@ -176,8 +260,11 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
   if (STORAGE_BACKEND === "local") {
     await ensureSessionDirs(sessionId);
   } else if (STORAGE_BACKEND === "blob") {
-    // Blob parts are stored as temporary objects and composed on complete.
-    s3UploadId = null;
+    const metadata = await createBlobMultipartSession(
+      storageKey,
+      input.mimeType || contentTypeForExt(input.ext),
+    );
+    s3UploadId = serializeBlobMultipartMetadata(metadata);
   }
 
   await db.insert(uploadSessions).values({
@@ -236,18 +323,10 @@ export async function clearUploadSessionsForUser(
     if (mapped.backend === "local") {
       await fs.rm(path.join(SESSION_DIR, mapped.id), { recursive: true, force: true });
     } else if (mapped.backend === "blob" && mapped.storageKey) {
-      for (let partNumber = 1; partNumber <= mapped.totalParts; partNumber += 1) {
-        const partKey = sessionPartStorageKey(mapped.storageKey, partNumber);
-        try {
-          await blobDelete(partKey);
-        } catch {
-          // Ignore stale/missing temp parts during cleanup.
-        }
-      }
       try {
         await blobDelete(mapped.storageKey);
       } catch {
-        // Ignore if object was never finalized.
+        // Ignore if object was never finalized or is already gone.
       }
     }
     await db.delete(uploadSessions).where(eq(uploadSessions.id, mapped.id));
@@ -328,6 +407,20 @@ async function patchUploadedParts(
     .where(eq(uploadSessions.id, session.id));
 }
 
+export async function recordUploadSessionPart(
+  session: UploadSessionEntry,
+  partNumber: number,
+  etag: string,
+): Promise<void> {
+  if (partNumber < 1 || partNumber > session.totalParts) {
+    throw new Error("Invalid part number.");
+  }
+  if (!etag.trim()) {
+    throw new Error("Missing uploaded part etag.");
+  }
+  await patchUploadedParts(session, partNumber, etag.trim());
+}
+
 export async function uploadSessionPart(
   session: UploadSessionEntry,
   partNumber: number,
@@ -353,6 +446,19 @@ export async function uploadSessionPart(
   if (session.backend === "blob") {
     if (!session.storageKey) {
       throw new Error("Blob upload session is not configured.");
+    }
+    const multipartMetadata = parseBlobMultipartMetadata(session.s3UploadId);
+    if (multipartMetadata) {
+      const uploaded = await blobUploadPart(session.storageKey, data, {
+        access: BLOB_ACCESS,
+        key: multipartMetadata.key,
+        uploadId: multipartMetadata.uploadId,
+        partNumber,
+        contentType: session.mimeType || contentTypeForExt(session.ext),
+      });
+      const etag = uploaded.etag ?? "";
+      await patchUploadedParts(session, partNumber, etag);
+      return { etag };
     }
     const partKey = sessionPartStorageKey(session.storageKey, partNumber);
     const uploaded = await blobPut(partKey, data, {
@@ -408,46 +514,67 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
       throw new Error("Blob upload session is not configured.");
     }
     const storageKey = refreshed.storageKey;
-    const hash = createHash("sha256");
-    const orderedParts: Buffer[] = [];
-    for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
-      const partKey = sessionPartStorageKey(storageKey, partNumber);
-      const partResponse = await blobGet(partKey, { access: BLOB_ACCESS, useCache: false });
-      if (!partResponse || partResponse.statusCode !== 200 || !partResponse.stream) {
-        throw new Error(`Missing uploaded part ${partNumber}.`);
-      }
-      const reader = partResponse.stream.getReader();
-      const partChunks: Buffer[] = [];
-      while (true) {
-        const result = await reader.read();
-        if (result.done) {
-          break;
+    const multipartMetadata = parseBlobMultipartMetadata(refreshed.s3UploadId);
+    if (multipartMetadata) {
+      const parts = Array.from({ length: refreshed.totalParts }, (_, index) => {
+        const partNumber = index + 1;
+        const etag = refreshed.uploadedParts[String(partNumber)];
+        if (!etag) {
+          throw new Error(`Missing uploaded part ${partNumber}.`);
         }
-        if (result.value) {
-          const chunk = Buffer.from(result.value);
-          partChunks.push(chunk);
-          hash.update(chunk);
-          computedSize += chunk.length;
+        return { partNumber, etag } satisfies Part;
+      });
+      await completeMultipartUpload(storageKey, parts, {
+        access: BLOB_ACCESS,
+        key: multipartMetadata.key,
+        uploadId: multipartMetadata.uploadId,
+        contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
+      });
+      const blobMetadata = await blobHead(storageKey);
+      computedSize = Number(blobMetadata.size ?? 0);
+      computedChecksum = null;
+    } else {
+      const hash = createHash("sha256");
+      const orderedParts: Buffer[] = [];
+      for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
+        const partKey = sessionPartStorageKey(storageKey, partNumber);
+        const partResponse = await blobGet(partKey, { access: BLOB_ACCESS, useCache: false });
+        if (!partResponse || partResponse.statusCode !== 200 || !partResponse.stream) {
+          throw new Error(`Missing uploaded part ${partNumber}.`);
         }
+        const reader = partResponse.stream.getReader();
+        const partChunks: Buffer[] = [];
+        while (true) {
+          const result = await reader.read();
+          if (result.done) {
+            break;
+          }
+          if (result.value) {
+            const chunk = Buffer.from(result.value);
+            partChunks.push(chunk);
+            hash.update(chunk);
+            computedSize += chunk.length;
+          }
+        }
+        orderedParts.push(Buffer.concat(partChunks));
       }
-      orderedParts.push(Buffer.concat(partChunks));
-    }
 
-    const combined = Buffer.concat(orderedParts);
-    await blobPut(storageKey, combined, {
-      access: BLOB_ACCESS,
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
-    });
-    computedChecksum = hash.digest("hex");
+      const combined = Buffer.concat(orderedParts);
+      await blobPut(storageKey, combined, {
+        access: BLOB_ACCESS,
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: refreshed.mimeType || contentTypeForExt(refreshed.ext),
+      });
+      computedChecksum = hash.digest("hex");
 
-    for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
-      const partKey = sessionPartStorageKey(storageKey, partNumber);
-      try {
-        await blobDelete(partKey);
-      } catch {
-        // Ignore stale/missing temp parts during cleanup.
+      for (let partNumber = 1; partNumber <= refreshed.totalParts; partNumber += 1) {
+        const partKey = sessionPartStorageKey(storageKey, partNumber);
+        try {
+          await blobDelete(partKey);
+        } catch {
+          // Ignore stale/missing temp parts during cleanup.
+        }
       }
     }
   } else {
@@ -477,12 +604,15 @@ export async function abortUploadSession(session: UploadSessionEntry): Promise<v
     await fs.rm(path.join(SESSION_DIR, session.id), { recursive: true, force: true });
   } else if (session.backend === "blob") {
     if (session.storageKey) {
-      for (let partNumber = 1; partNumber <= session.totalParts; partNumber += 1) {
-        const partKey = sessionPartStorageKey(session.storageKey, partNumber);
-        try {
-          await blobDelete(partKey);
-        } catch {
-          // No-op for missing temp parts.
+      const multipartMetadata = parseBlobMultipartMetadata(session.s3UploadId);
+      if (!multipartMetadata) {
+        for (let partNumber = 1; partNumber <= session.totalParts; partNumber += 1) {
+          const partKey = sessionPartStorageKey(session.storageKey, partNumber);
+          try {
+            await blobDelete(partKey);
+          } catch {
+            // No-op for missing temp parts.
+          }
         }
       }
       try {

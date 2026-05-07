@@ -4,6 +4,7 @@ import {
   expectedPartSizeBytes,
   getUploadSessionForUser,
   markUploadSessionFailedForUser,
+  recordUploadSessionPart,
   uploadSessionPart,
 } from "@/lib/upload-sessions";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
@@ -50,12 +51,28 @@ export async function POST(request: Request): Promise<NextResponse> {
     let sessionId = hintedSessionId;
     let partNumber = Number(request.headers.get("x-upload-part-number") ?? 0);
     let data: Buffer | null = null;
+    let etag = "";
 
-    if (contentType.startsWith("application/octet-stream")) {
+    if (contentType.startsWith("application/json")) {
+      const payload = (await request.json()) as {
+        sessionId?: string;
+        partNumber?: number;
+        etag?: string;
+      };
+      sessionId = payload.sessionId?.trim() ?? hintedSessionId;
+      partNumber = Number(payload.partNumber ?? 0);
+      etag = payload.etag?.trim() ?? "";
+    } else if (contentType.startsWith("application/octet-stream")) {
       data = Buffer.from(await request.arrayBuffer());
     } else {
       const formData = await request.formData();
-      sessionId = String(formData.get("sessionId") ?? hintedSessionId).trim();
+      const formSessionId = formData.get("sessionId");
+      sessionId =
+        typeof formSessionId === "string"
+          ? formSessionId.trim()
+          : formSessionId instanceof File
+            ? formSessionId.name.trim()
+            : hintedSessionId;
       partNumber = Number(formData.get("partNumber") ?? 0);
       const filePart = formData.get("chunk");
       if (!(filePart instanceof File)) {
@@ -67,9 +84,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     hintedSessionId = sessionId || hintedSessionId;
     if (!sessionId || !Number.isFinite(partNumber) || partNumber <= 0) {
       return NextResponse.json({ error: "sessionId and partNumber are required." }, { status: 400 });
-    }
-    if (!data) {
-      return NextResponse.json({ error: "chunk payload is required." }, { status: 400 });
     }
 
     const session = await getUploadSessionForUser(sessionId, userId);
@@ -92,15 +106,22 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    const expectedSize = expectedPartSizeBytes(session, partNumber);
-    if (data.length !== expectedSize) {
-      return NextResponse.json(
-        { error: `Invalid chunk size for part ${partNumber}. Expected ${expectedSize} bytes.` },
-        { status: 400 },
-      );
+    if (data) {
+      const expectedSize = expectedPartSizeBytes(session, partNumber);
+      if (data.length !== expectedSize) {
+        return NextResponse.json(
+          { error: `Invalid chunk size for part ${partNumber}. Expected ${expectedSize} bytes.` },
+          { status: 400 },
+        );
+      }
+      const uploaded = await uploadSessionPart(session, partNumber, data);
+      return NextResponse.json({ etag: uploaded.etag, partNumber });
     }
-    const uploaded = await uploadSessionPart(session, partNumber, data);
-    return NextResponse.json({ etag: uploaded.etag, partNumber });
+    if (!etag) {
+      return NextResponse.json({ error: "etag is required." }, { status: 400 });
+    }
+    await recordUploadSessionPart(session, partNumber, etag);
+    return NextResponse.json({ etag, partNumber });
   } catch (error) {
     if (hintedSessionId && isConnectionResetError(error)) {
       await markUploadSessionFailedForUser(hintedSessionId, userId, "connection reset");
