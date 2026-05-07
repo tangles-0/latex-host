@@ -43,6 +43,7 @@ type GalleryImage = {
   ext: string;
   mimeType?: string;
   albumId?: string;
+  albumIds?: string[];
   albumCaption?: string;
   albumOrder?: number;
   width?: number;
@@ -272,10 +273,10 @@ export default function GalleryClient({
         next = next.filter((image) => image.kind === kindFilter);
       }
       if (hideImagesInAlbums) {
-        next = next.filter((image) => !image.albumId);
+        next = next.filter((image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId);
       }
       if (showAlbumImageToggle && !showAlbumImages) {
-        next = next.filter((image) => !image.albumId);
+        next = next.filter((image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId);
       }
       return next;
     },
@@ -968,18 +969,23 @@ export default function GalleryClient({
     const copiedImage = await saveDitheredImage(blob, "copy");
     setItems((current) => [copiedImage, ...current]);
     setIsDitherOpen(false);
-    pushMessage(copiedImage.albumId ? "Saved dither copy to album." : "Saved dither copy to gallery.", "success");
+    pushMessage(
+      (copiedImage.albumIds?.length ?? 0) > 0 || copiedImage.albumId
+        ? "Saved dither copy to album."
+        : "Saved dither copy to gallery.",
+      "success",
+    );
   }
 
   async function persistAlbumOrder(nextItems: GalleryImage[]) {
     if (!uploadAlbumId) {
       return;
     }
-    const imageIds = nextItems.map((item) => item.id);
+    const mediaItems = nextItems.map((item) => ({ id: item.id, kind: item.kind }));
     const response = await fetch(`/api/albums/${uploadAlbumId}/images/order`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageIds }),
+      body: JSON.stringify({ mediaItems }),
     });
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
@@ -1056,7 +1062,7 @@ export default function GalleryClient({
       const response = await fetch(`/api/albums/${uploadAlbumId}/images/${active.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caption: captionDraft }),
+        body: JSON.stringify({ caption: captionDraft, kind: active.kind }),
       });
       const payload = (await response.json()) as {
         error?: string;
@@ -1195,7 +1201,13 @@ export default function GalleryClient({
     if (!ok) return;
     setItems((current) =>
       current.map((item) =>
-        selected.has(item.id) ? { ...item, albumId: selectedAlbumId } : item,
+        selected.has(item.id)
+          ? {
+              ...item,
+              albumId: item.albumId ?? selectedAlbumId,
+              albumIds: Array.from(new Set([...(item.albumIds ?? []), selectedAlbumId])),
+            }
+          : item,
       ),
     );
     setSelected(new Set());

@@ -23,6 +23,7 @@ type GalleryImage = {
   ext: string;
   mimeType?: string;
   albumId?: string;
+  albumIds?: string[];
   width?: number;
   height?: number;
   uploadedAt: string;
@@ -72,7 +73,11 @@ export default function GalleryTabs({
 
   const albumPreviews = albumItems.map((album) => {
     const previews = imageItems
-      .filter((image) => image.albumId === album.id && image.kind === "image")
+      .filter(
+        (image) =>
+          (image.albumIds?.includes(album.id) || image.albumId === album.id) &&
+          image.kind === "image",
+      )
       .slice(0, 3)
       .map((image) => ({ id: image.id, kind: image.kind, baseName: image.baseName, ext: image.ext }));
     return { ...album, previews };
@@ -127,7 +132,13 @@ export default function GalleryTabs({
     setAlbumItems((current) => current.filter((item) => item.id !== album.id));
     setImageItems((current) =>
       current.map((image) =>
-        image.albumId === album.id ? { ...image, albumId: undefined } : image,
+        image.albumId === album.id || image.albumIds?.includes(album.id)
+          ? {
+              ...image,
+              albumId: image.albumId === album.id ? undefined : image.albumId,
+              albumIds: (image.albumIds ?? []).filter((id) => id !== album.id),
+            }
+          : image,
       ),
     );
     setAlbumToDelete(null);

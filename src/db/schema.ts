@@ -1,4 +1,4 @@
-import { pgTable, text, integer, bigint, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, bigint, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const groups = pgTable("groups", {
   id: text("id").primaryKey(),
@@ -65,6 +65,31 @@ export const albums = pgTable("albums", {
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
+
+export const mediaInAlbums = pgTable(
+  "media_in_albums",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    albumId: text("album_id")
+      .notNull()
+      .references(() => albums.id),
+    mediaType: text("media_type").notNull(),
+    mediaId: text("media_id").notNull(),
+    albumCaption: text("album_caption"),
+    albumOrder: integer("album_order").notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    albumMediaUnique: uniqueIndex("media_in_albums_album_media_unique").on(
+      table.albumId,
+      table.mediaType,
+      table.mediaId,
+    ),
+  }),
+);
 
 export const images = pgTable("images", {
   id: text("id").primaryKey(),

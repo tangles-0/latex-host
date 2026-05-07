@@ -20,6 +20,18 @@ import {
   users,
   videos,
 } from "@/db/schema";
+import {
+  addMediaItemsToAlbum,
+  getFirstAlbumMembershipForMedia,
+  listAlbumMembershipsForUser,
+  listAlbumMembershipsPublic,
+  listFirstAlbumMembershipByMediaForUser,
+  removeAllMediaItemsForUser,
+  removeAllMediaItemsFromAlbum,
+  removeMediaItemsFromAlbum,
+  reorderAlbumMediaForUser,
+  updateAlbumMembershipCaptionForUser,
+} from "@/lib/album-membership-store";
 
 export type Album = {
   id: string;
@@ -87,9 +99,7 @@ function getPatchNoteFirstLine(content: string): string {
 function mapImageRow(row: typeof images.$inferSelect): ImageEntry {
   return {
     id: row.id,
-    albumId: row.albumId ?? undefined,
-    albumCaption: row.albumCaption ?? undefined,
-    albumOrder: row.albumOrder,
+    albumOrder: 0,
     baseName: row.baseName,
     ext: row.ext,
     width: row.width,
@@ -98,6 +108,21 @@ function mapImageRow(row: typeof images.$inferSelect): ImageEntry {
     sizeSm: row.sizeSm,
     sizeLg: row.sizeLg,
     uploadedAt: row.uploadedAt.toISOString(),
+  };
+}
+
+function withAlbumMembership(
+  entry: ImageEntry,
+  membership?: { albumId: string; albumCaption?: string; albumOrder: number },
+): ImageEntry {
+  if (!membership) {
+    return entry;
+  }
+  return {
+    ...entry,
+    albumId: membership.albumId,
+    albumCaption: membership.albumCaption,
+    albumOrder: membership.albumOrder,
   };
 }
 
@@ -198,26 +223,7 @@ export async function deleteAlbumForUser(
     return false;
   }
 
-  await db
-    .update(images)
-    .set({ albumId: null })
-    .where(and(eq(images.userId, userId), eq(images.albumId, albumId)));
-  await db
-    .update(videos)
-    .set({ albumId: null })
-    .where(and(eq(videos.userId, userId), eq(videos.albumId, albumId)));
-  await db
-    .update(documents)
-    .set({ albumId: null })
-    .where(and(eq(documents.userId, userId), eq(documents.albumId, albumId)));
-  await db
-    .update(files)
-    .set({ albumId: null })
-    .where(and(eq(files.userId, userId), eq(files.albumId, albumId)));
-  await db
-    .update(notes)
-    .set({ albumId: null })
-    .where(and(eq(notes.userId, userId), eq(notes.albumId, albumId)));
+  await removeAllMediaItemsFromAlbum(userId, albumId);
 
   await db
     .delete(albumShares)
@@ -254,20 +260,9 @@ export async function addImage(
 ): Promise<ImageEntry> {
   const imageId = randomUUID();
   const uploadedAt = new Date(entry.uploadedAt);
-  let albumOrder = entry.albumOrder ?? 0;
-  if (entry.albumId && typeof entry.albumOrder !== "number") {
-    const [maxOrderRow] = await db
-      .select({ value: sql<number>`coalesce(max(${images.albumOrder}), 0)` })
-      .from(images)
-      .where(and(eq(images.userId, entry.userId), eq(images.albumId, entry.albumId)));
-    albumOrder = Number(maxOrderRow?.value ?? 0) + 1;
-  }
   await db.insert(images).values({
     id: imageId,
     userId: entry.userId,
-    albumId: entry.albumId ?? null,
-    albumCaption: entry.albumCaption ?? null,
-    albumOrder,
     baseName: entry.baseName,
     ext: entry.ext,
     width: entry.width,
@@ -277,25 +272,44 @@ export async function addImage(
     sizeLg: entry.sizeLg,
     uploadedAt,
   });
+  if (entry.albumId) {
+    await addMediaItemsToAlbum(entry.userId, entry.albumId, [{ id: imageId, kind: "image" }]);
+    if (entry.albumCaption?.trim()) {
+      await updateAlbumMembershipCaptionForUser(
+        entry.userId,
+        entry.albumId,
+        { id: imageId, kind: "image" },
+        entry.albumCaption,
+      );
+    }
+  }
+  const membership = entry.albumId
+    ? await getFirstAlbumMembershipForMedia("image", imageId, entry.userId)
+    : undefined;
 
   return {
     ...entry,
     id: imageId,
-    albumOrder,
+    albumId: membership?.albumId,
+    albumCaption: membership?.albumCaption,
+    albumOrder: membership?.albumOrder ?? 0,
     uploadedAt: uploadedAt.toISOString(),
   };
 }
 
 export async function listImagesForUser(userId: string): Promise<ImageEntry[]> {
-  const rows = await db
+  const [rows, membershipByMedia] = await Promise.all([
+    db
     .select({ image: images, shareId: shares.id })
     .from(images)
     .leftJoin(shares, and(eq(shares.imageId, images.id), eq(shares.userId, userId)))
     .where(eq(images.userId, userId))
-    .orderBy(desc(images.uploadedAt));
+    .orderBy(desc(images.uploadedAt)),
+    listFirstAlbumMembershipByMediaForUser(userId),
+  ]);
 
   return rows.map((row) => ({
-    ...mapImageRow(row.image),
+    ...withAlbumMembership(mapImageRow(row.image), membershipByMedia.get(`image:${row.image.id}`)),
     shared: Boolean(row.shareId),
   }));
 }
@@ -304,27 +318,49 @@ export async function listImagesForAlbum(
   userId: string,
   albumId: string,
 ): Promise<ImageEntry[]> {
+  const memberships = (await listAlbumMembershipsForUser(userId, albumId)).filter(
+    (item) => item.mediaType === "image",
+  );
+  if (memberships.length === 0) {
+    return [];
+  }
+  const ids = memberships.map((item) => item.mediaId);
   const rows = await db
     .select({ image: images, shareId: shares.id })
     .from(images)
     .leftJoin(shares, and(eq(shares.imageId, images.id), eq(shares.userId, userId)))
-    .where(and(eq(images.userId, userId), eq(images.albumId, albumId)))
-    .orderBy(asc(images.albumOrder), desc(images.uploadedAt));
-
-  return rows.map((row) => ({
-    ...mapImageRow(row.image),
-    shared: Boolean(row.shareId),
-  }));
+    .where(and(eq(images.userId, userId), inArray(images.id, ids)));
+  const byId = new Map(rows.map((row) => [row.image.id, row]));
+  return memberships
+    .map((membership) => {
+      const row = byId.get(membership.mediaId);
+      if (!row) {
+        return undefined;
+      }
+      return {
+        ...withAlbumMembership(mapImageRow(row.image), membership),
+        shared: Boolean(row.shareId),
+      };
+    })
+    .filter(Boolean) as ImageEntry[];
 }
 
 export async function listImagesForAlbumPublic(albumId: string): Promise<ImageEntry[]> {
-  const rows = await db
-    .select()
-    .from(images)
-    .where(eq(images.albumId, albumId))
-    .orderBy(asc(images.albumOrder), desc(images.uploadedAt));
-
-  return rows.map((row) => mapImageRow(row));
+  const memberships = (await listAlbumMembershipsPublic(albumId)).filter(
+    (item) => item.mediaType === "image",
+  );
+  if (memberships.length === 0) {
+    return [];
+  }
+  const ids = memberships.map((item) => item.mediaId);
+  const rows = await db.select().from(images).where(inArray(images.id, ids));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return memberships
+    .map((membership) => {
+      const row = byId.get(membership.mediaId);
+      return row ? withAlbumMembership(mapImageRow(row), membership) : undefined;
+    })
+    .filter(Boolean) as ImageEntry[];
 }
 
 export async function listImagesByIdsForUser(
@@ -340,7 +376,10 @@ export async function listImagesByIdsForUser(
     .from(images)
     .where(and(eq(images.userId, userId), inArray(images.id, imageIds)));
 
-  return rows.map((row) => mapImageRow(row));
+  const membershipByMedia = await listFirstAlbumMembershipByMediaForUser(userId);
+  return rows.map((row) =>
+    withAlbumMembership(mapImageRow(row), membershipByMedia.get(`image:${row.id}`)),
+  );
 }
 
 export async function getUserUploadStats(userId: string): Promise<{
@@ -401,28 +440,12 @@ export async function updateImagesAlbum(
   if (imageIds.length === 0) {
     return;
   }
-
-  if (!albumId) {
-    await db
-      .update(images)
-      .set({ albumId: null, albumCaption: null, albumOrder: 0 })
-      .where(and(eq(images.userId, userId), inArray(images.id, imageIds)));
+  const mediaItems = imageIds.map((id) => ({ id, kind: "image" as const }));
+  if (albumId) {
+    await addMediaItemsToAlbum(userId, albumId, mediaItems);
     return;
   }
-
-  const [maxOrderRow] = await db
-    .select({ value: sql<number>`coalesce(max(${images.albumOrder}), 0)` })
-    .from(images)
-    .where(and(eq(images.userId, userId), eq(images.albumId, albumId)));
-  let nextOrder = Number(maxOrderRow?.value ?? 0) + 1;
-
-  for (const imageId of imageIds) {
-    await db
-      .update(images)
-      .set({ albumId, albumCaption: null, albumOrder: nextOrder })
-      .where(and(eq(images.userId, userId), eq(images.id, imageId)));
-    nextOrder += 1;
-  }
+  await removeMediaItemsFromAlbum(userId, mediaItems);
 }
 
 export async function reorderAlbumImagesForUser(
@@ -430,31 +453,11 @@ export async function reorderAlbumImagesForUser(
   albumId: string,
   orderedImageIds: string[],
 ): Promise<boolean> {
-  if (orderedImageIds.length === 0) {
-    return true;
-  }
-
-  const rows = await db
-    .select({ id: images.id })
-    .from(images)
-    .where(
-      and(
-        eq(images.userId, userId),
-        eq(images.albumId, albumId),
-        inArray(images.id, orderedImageIds),
-      ),
-    );
-  if (rows.length !== orderedImageIds.length) {
-    return false;
-  }
-
-  for (const [index, imageId] of orderedImageIds.entries()) {
-    await db
-      .update(images)
-      .set({ albumOrder: index + 1 })
-      .where(and(eq(images.userId, userId), eq(images.albumId, albumId), eq(images.id, imageId)));
-  }
-  return true;
+  return reorderAlbumMediaForUser(
+    userId,
+    albumId,
+    orderedImageIds.map((id) => ({ id, kind: "image" as const })),
+  );
 }
 
 export async function updateAlbumImageCaptionForUser(
@@ -463,23 +466,21 @@ export async function updateAlbumImageCaptionForUser(
   imageId: string,
   caption: string,
 ): Promise<ImageEntry | undefined> {
-  const normalizedCaption = caption.trim();
-  const [row] = await db
-    .update(images)
-    .set({ albumCaption: normalizedCaption.length > 0 ? normalizedCaption : null })
-    .where(
-      and(
-        eq(images.userId, userId),
-        eq(images.albumId, albumId),
-        eq(images.id, imageId),
-      ),
-    )
-    .returning();
-
-  if (!row) {
+  const membership = await updateAlbumMembershipCaptionForUser(
+    userId,
+    albumId,
+    { id: imageId, kind: "image" },
+    caption,
+  );
+  if (!membership) {
     return undefined;
   }
-  return mapImageRow(row);
+  const [row] = await db
+    .select()
+    .from(images)
+    .where(and(eq(images.userId, userId), eq(images.id, imageId)))
+    .limit(1);
+  return row ? withAlbumMembership(mapImageRow(row), membership) : undefined;
 }
 
 export async function deleteImagesForUser(
@@ -509,7 +510,8 @@ export async function getImage(imageId: string): Promise<ImageEntry | undefined>
     return undefined;
   }
 
-  return mapImageRow(row);
+  const membership = await getFirstAlbumMembershipForMedia("image", row.id);
+  return withAlbumMembership(mapImageRow(row), membership);
 }
 
 export async function getImageForUser(
@@ -526,7 +528,8 @@ export async function getImageForUser(
     return undefined;
   }
 
-  return mapImageRow(row);
+  const membership = await getFirstAlbumMembershipForMedia("image", row.id, userId);
+  return withAlbumMembership(mapImageRow(row), membership);
 }
 
 export async function updateImageMetadataForUser(
@@ -948,6 +951,7 @@ export async function promoteUserToAdmin(userId: string): Promise<boolean> {
 }
 
 export async function deleteUser(userId: string): Promise<void> {
+  await removeAllMediaItemsForUser(userId);
   await db.delete(albumShares).where(eq(albumShares.userId, userId));
   await db.delete(shares).where(eq(shares.userId, userId));
   await db.delete(images).where(eq(images.userId, userId));

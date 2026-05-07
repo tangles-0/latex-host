@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { getAlbumForUser } from "@/lib/metadata-store";
-import { deleteMediaForUser, deleteShareForMedia, updateMediaAlbum, type MediaKind } from "@/lib/media-store";
+import {
+  deleteMediaForUser,
+  deleteShareForMedia,
+  removeMediaFromAlbum,
+  updateMediaAlbum,
+  type MediaKind,
+} from "@/lib/media-store";
 
 export const runtime = "nodejs";
 
@@ -32,7 +38,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
   if (action === "removeFromAlbum") {
-    await updateMediaAlbum(userId, mediaItems, null);
+    const albumId = payload.albumId?.trim();
+    if (albumId) {
+      const album = await getAlbumForUser(albumId, userId);
+      if (!album) return NextResponse.json({ error: "Album not found." }, { status: 404 });
+      await removeMediaFromAlbum(userId, mediaItems, albumId);
+    } else {
+      await updateMediaAlbum(userId, mediaItems, null);
+    }
     return NextResponse.json({ ok: true });
   }
   if (action === "disableSharing") {

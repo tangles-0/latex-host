@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getAlbumShareById, getImage } from "@/lib/metadata-store";
+import { mediaIsInAlbum } from "@/lib/media-store";
 import { getMediaSignedUrl, getMediaStream, usesS3StorageBackend } from "@/lib/media-storage";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
@@ -76,7 +77,10 @@ export async function GET(
     }
 
     const image = await getImage(imageId);
-    if (!image || image.albumId !== share.albumId) {
+    const inAlbum = image
+      ? await mediaIsInAlbum(share.albumId, { id: imageId, kind: "image" })
+      : false;
+    if (!image || !inAlbum) {
       return unavailableImageResponse(parsed.ext);
     }
 

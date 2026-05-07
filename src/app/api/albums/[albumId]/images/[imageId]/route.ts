@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
-import { getAlbumForUser, updateAlbumImageCaptionForUser } from "@/lib/metadata-store";
+import { getAlbumForUser } from "@/lib/metadata-store";
+import { updateAlbumMediaCaption } from "@/lib/media-store";
+import { isMediaKind, type MediaKind } from "@/lib/media-types";
 
 export const runtime = "nodejs";
 
@@ -25,18 +27,24 @@ export async function PATCH(
     return NextResponse.json({ error: "Album not found." }, { status: 404 });
   }
 
-  const payload = (await request.json()) as { caption?: string };
+  const payload = (await request.json()) as { caption?: string; kind?: string };
   const caption = typeof payload?.caption === "string" ? payload.caption : "";
+  const kind = isMediaKind(payload?.kind) ? (payload.kind as MediaKind) : "image";
   if (caption.length > 1000) {
     return NextResponse.json({ error: "Caption is too long." }, { status: 400 });
   }
 
-  const image = await updateAlbumImageCaptionForUser(userId, albumId, imageId, caption);
-  if (!image) {
-    return NextResponse.json({ error: "Image not found in album." }, { status: 404 });
+  const media = await updateAlbumMediaCaption(
+    userId,
+    albumId,
+    { id: imageId, kind },
+    caption,
+  );
+  if (!media) {
+    return NextResponse.json({ error: "Media not found in album." }, { status: 404 });
   }
 
-  return NextResponse.json({ image });
+  return NextResponse.json({ image: media });
 }
 
 

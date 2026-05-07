@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getAlbumShareById } from "@/lib/metadata-store";
-import { getMedia } from "@/lib/media-store";
+import { getMedia, mediaIsInAlbum } from "@/lib/media-store";
 import { contentTypeForExt, isBlobMediaKind, type BlobMediaKind } from "@/lib/media-types";
 import {
   getMediaBufferSize,
@@ -116,7 +116,10 @@ export async function GET(
     }
 
     const media = await getMedia(parsedKind, mediaId);
-    if (!media || media.albumId !== share.albumId || media.baseName !== parsed.baseName) {
+    const inAlbum = media
+      ? await mediaIsInAlbum(share.albumId, { id: mediaId, kind: parsedKind })
+      : false;
+    if (!media || !inAlbum || media.baseName !== parsed.baseName) {
       return withPublicCors(await unavailableImageResponse(parsed.ext));
     }
 
