@@ -729,8 +729,21 @@ body {
   background-color: var(--theme-button-bg);
 }
 
+[data-theme] .bg-highlight {
+  background-color: var(--theme-button-bg);
+}
+
+[data-theme="dark"] .bg-highlight,
+[data-theme="light"] .bg-highlight {
+  background-color: var(--theme-button-text);
+}
+
 [data-theme] .text-white {
   color: var(--theme-button-text);
+}
+
+[data-theme] .text-highlight {
+  color: var(--theme-button-border);
 }
 
 [data-theme] .border-emerald-200 {

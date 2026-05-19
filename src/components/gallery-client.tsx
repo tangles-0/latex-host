@@ -1389,7 +1389,7 @@ export default function GalleryClient({
     <>
       {globalDragging ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/30">
-          <div className="rounded border border-dashed border-white px-6 py-4 text-sm text-white">
+          <div className="rounded border border-dashed bg-highlight border-border-highlight px-6 py-4 text-sm text-highlight">
             Drop files to upload
           </div>
         </div>
