@@ -74,6 +74,57 @@ type UploadMessage = {
   tone: "success" | "error";
 };
 
+type GalleryUploadProgressEntry = {
+  id: string;
+  name: string;
+  uploaded: number;
+  total: number;
+  status: "queued" | "uploading" | "complete" | "error";
+};
+
+function extensionForClipboardMimeType(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "image/bmp":
+      return "bmp";
+    case "image/svg+xml":
+      return "svg";
+    default:
+      return "png";
+  }
+}
+
+function clipboardImageFileName(index: number, mimeType: string): string {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+  return `clipboard-image-${stamp}-${index + 1}.${extensionForClipboardMimeType(mimeType)}`;
+}
+
+function extractClipboardImageFiles(event: ClipboardEvent): File[] {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  return items
+    .filter((item) => item.kind === "file" && item.type.toLowerCase().startsWith("image/"))
+    .map((item, index) => {
+      const file = item.getAsFile();
+      if (!file) {
+        return null;
+      }
+      if (file.name) {
+        return file;
+      }
+      return new File([file], clipboardImageFileName(index, file.type), {
+        type: file.type,
+        lastModified: Date.now(),
+      });
+    })
+    .filter(Boolean) as File[];
+}
+
 type RotationDirection = "left" | "right";
 type NoteEditorMode = "markdown" | "preview";
 type GalleryKindFilter = "all" | MediaKind;
@@ -119,6 +170,7 @@ export default function GalleryClient({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [globalDragging, setGlobalDragging] = useState(false);
   const [messages, setMessages] = useState<UploadMessage[]>([]);
+  const [dropUploadProgress, setDropUploadProgress] = useState<GalleryUploadProgressEntry[]>([]);
   const [showAlbumImages, setShowAlbumImages] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [isRotating, setIsRotating] = useState(false);
@@ -149,6 +201,8 @@ export default function GalleryClient({
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const dragCounter = useRef(0);
   const lastSavedNoteContentRef = useRef("");
+  const uploadModalDismissTimeoutRef = useRef<number | null>(null);
+  const isGalleryModalOpenRef = useRef(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const inAlbumContext = Boolean(uploadAlbumId);
@@ -157,6 +211,23 @@ export default function GalleryClient({
   useEffect(() => {
     setItems((current) => (current === media ? current : media));
   }, [media]);
+
+  useEffect(() => {
+    const isModalOpen = active !== null;
+    isGalleryModalOpenRef.current = isModalOpen;
+    if (isModalOpen) {
+      dragCounter.current = 0;
+      setGlobalDragging(false);
+    }
+  }, [active]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadModalDismissTimeoutRef.current !== null) {
+        window.clearTimeout(uploadModalDismissTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!showAlbumImageToggle) {
@@ -202,6 +273,9 @@ export default function GalleryClient({
     }
 
     function handleDragEnter(event: DragEvent) {
+      if (isGalleryModalOpenRef.current) {
+        return;
+      }
       if (isInternalImageDrag(event)) {
         return;
       }
@@ -214,6 +288,9 @@ export default function GalleryClient({
     }
 
     function handleDragOver(event: DragEvent) {
+      if (isGalleryModalOpenRef.current) {
+        return;
+      }
       if (isInternalImageDrag(event)) {
         return;
       }
@@ -224,6 +301,9 @@ export default function GalleryClient({
     }
 
     function handleDragLeave(event: DragEvent) {
+      if (isGalleryModalOpenRef.current) {
+        return;
+      }
       if (isInternalImageDrag(event)) {
         return;
       }
@@ -238,6 +318,9 @@ export default function GalleryClient({
     }
 
     function handleDrop(event: DragEvent) {
+      if (isGalleryModalOpenRef.current) {
+        return;
+      }
       if (isInternalImageDrag(event)) {
         return;
       }
@@ -253,15 +336,29 @@ export default function GalleryClient({
       }
     }
 
+    function handlePaste(event: ClipboardEvent) {
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+      const files = extractClipboardImageFiles(event);
+      if (files.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      void uploadFiles(files);
+    }
+
     window.addEventListener("dragenter", handleDragEnter);
     window.addEventListener("dragover", handleDragOver);
     window.addEventListener("dragleave", handleDragLeave);
     window.addEventListener("drop", handleDrop);
+    window.addEventListener("paste", handlePaste);
     return () => {
       window.removeEventListener("dragenter", handleDragEnter);
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("dragleave", handleDragLeave);
       window.removeEventListener("drop", handleDrop);
+      window.removeEventListener("paste", handlePaste);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -403,6 +500,7 @@ export default function GalleryClient({
       keepOriginalFileName = false;
     }
 
+    const acceptedFiles: Array<{ file: File; progressId: string }> = [];
     for (const file of itemsToUpload) {
       if (file.size >= GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES) {
         window.alert(
@@ -411,15 +509,77 @@ export default function GalleryClient({
         pushMessage(`${file.name}: use Upload page for files over 64MB.`, "error");
         continue;
       }
+      acceptedFiles.push({
+        file,
+        progressId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      });
+    }
+
+    if (acceptedFiles.length === 0) {
+      return;
+    }
+
+    if (uploadModalDismissTimeoutRef.current !== null) {
+      window.clearTimeout(uploadModalDismissTimeoutRef.current);
+      uploadModalDismissTimeoutRef.current = null;
+    }
+
+    setDropUploadProgress(
+      acceptedFiles.map(({ file, progressId }) => ({
+        id: progressId,
+        name: file.name,
+        uploaded: 0,
+        total: file.size,
+        status: "queued",
+      })),
+    );
+
+    for (const { file, progressId } of acceptedFiles) {
+      setDropUploadProgress((current) =>
+        current.map((entry) =>
+          entry.id === progressId ? { ...entry, status: "uploading", uploaded: 0, total: file.size } : entry,
+        ),
+      );
       const result = await uploadSingleMedia(file, uploadAlbumId, {
         keepOriginalFileName,
+        onProgress: (uploaded, total) => {
+          setDropUploadProgress((current) =>
+            current.map((entry) =>
+              entry.id === progressId
+                ? {
+                    ...entry,
+                    status: "uploading",
+                    uploaded,
+                    total,
+                  }
+                : entry,
+            ),
+          );
+        },
       });
       pushMessage(result.message, result.ok ? "success" : "error");
+
+      setDropUploadProgress((current) =>
+        current.map((entry) =>
+          entry.id === progressId
+            ? {
+                ...entry,
+                status: result.ok ? "complete" : "error",
+                uploaded: result.ok ? entry.total : entry.uploaded,
+              }
+            : entry,
+        ),
+      );
 
       if (result.ok && result.media) {
         setItems((current) => [result.media as GalleryImage, ...current]);
       }
     }
+
+    uploadModalDismissTimeoutRef.current = window.setTimeout(() => {
+      setDropUploadProgress([]);
+      uploadModalDismissTimeoutRef.current = null;
+    }, 1200);
   }
 
   async function loadNote(noteId: string) {
@@ -1395,6 +1555,52 @@ export default function GalleryClient({
         </div>
       ) : null}
 
+      {dropUploadProgress.length > 0 ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm shadow-xl">
+            <h3 className="text-lg font-semibold">uploading to gallery</h3>
+            <div className="mt-4 space-y-3">
+              {dropUploadProgress.map((entry) => {
+                const percent = entry.total > 0 ? Math.max(0, Math.min(100, (entry.uploaded / entry.total) * 100)) : 0;
+                return (
+                  <div key={entry.id} className="space-y-1">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="min-w-0 truncate text-neutral-700">{entry.name}</span>
+                      <span className="shrink-0 text-neutral-500">
+                        {entry.status === "queued"
+                          ? "queued"
+                          : entry.status === "complete"
+                            ? "done"
+                            : entry.status === "error"
+                              ? "failed"
+                              : `${Math.round(percent)}%`}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded bg-neutral-200">
+                      <div
+                        className={`h-full transition-[width] duration-150 ${
+                          entry.status === "error"
+                            ? "bg-red-500"
+                            : entry.status === "complete"
+                              ? "bg-emerald-500"
+                              : "bg-black"
+                        }`}
+                        style={{
+                          width: `${entry.status === "error" ? Math.max(percent, 6) : entry.status === "complete" ? 100 : percent}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-neutral-500">
+                      {formatBytes(entry.uploaded)} / {formatBytes(entry.total)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {messages.length > 0 ? (
         <div className="fixed top-4 left-1/2 z-50 w-full max-w-md -translate-x-1/2 space-y-2 px-4">
           {messages.map((item) => (
@@ -1629,33 +1835,44 @@ export default function GalleryClient({
       )}
 
       {active ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 sm:px-4 sm:py-6" onKeyDown={(event) => {
-          if (isEditableKeyboardTarget(event.target)) {
-            return;
-          }
-          if (event.key === "ArrowLeft") {
-            event.preventDefault();
-            openPreviousImage();
-          }
-          if (event.key === "ArrowRight") {
-            event.preventDefault();
-            openNextImage();
-          }
-          if (event.key === "ArrowUp") {
-            event.preventDefault();
-            void moveActiveImage(-1);
-          }
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            void moveActiveImage(1);
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 sm:px-4 sm:py-6"
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) {
+              return;
+            }
             void handlePendingNoteBefore(() => {
               closeModal();
             });
-          }
-        }}>
+          }}
+          onKeyDown={(event) => {
+            if (isEditableKeyboardTarget(event.target)) {
+              return;
+            }
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              openPreviousImage();
+            }
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              openNextImage();
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              void moveActiveImage(-1);
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              void moveActiveImage(1);
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              void handlePendingNoteBefore(() => {
+                closeModal();
+              });
+            }
+          }}
+        >
           <div className={`${isNoteActive && isNoteFullscreen ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} w-full overflow-y-auto overflow-x-hidden bg-white text-sm`}>
             <div className="flex sm:flex-row flex-col items-start justify-between gap-4">
               <div>

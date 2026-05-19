@@ -35,6 +35,57 @@ type UploadMessage = {
   tone: "success" | "error";
 };
 
+function isEditablePasteTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === "textarea" || tagName === "input" || tagName === "select";
+}
+
+function extensionForClipboardMimeType(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "image/bmp":
+      return "bmp";
+    case "image/svg+xml":
+      return "svg";
+    default:
+      return "png";
+  }
+}
+
+function clipboardImageFileName(index: number, mimeType: string): string {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+  return `clipboard-image-${stamp}-${index + 1}.${extensionForClipboardMimeType(mimeType)}`;
+}
+
+function extractClipboardImageFiles(event: ClipboardEvent): File[] {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  return items
+    .filter((item) => item.kind === "file" && item.type.toLowerCase().startsWith("image/"))
+    .map((item, index) => {
+      const file = item.getAsFile();
+      if (!file) {
+        return null;
+      }
+      if (file.name) {
+        return file;
+      }
+      return new File([file], clipboardImageFileName(index, file.type), {
+        type: file.type,
+        lastModified: Date.now(),
+      });
+    })
+    .filter(Boolean) as File[];
+}
+
 export default function UploadDropzone({
   uploadsEnabled = true,
   resumableThresholdBytes = DEFAULT_RESUMABLE_THRESHOLD,
@@ -51,6 +102,12 @@ export default function UploadDropzone({
   const [isAlbumModalOpen, setIsAlbumModalOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const [albumError, setAlbumError] = useState<string | null>(null);
+  const [albumPickerUpload, setAlbumPickerUpload] = useState<UploadedImage | null>(null);
+  const [albumPickerAlbumId, setAlbumPickerAlbumId] = useState("");
+  const [albumPickerNewAlbumName, setAlbumPickerNewAlbumName] = useState("");
+  const [albumPickerError, setAlbumPickerError] = useState<string | null>(null);
+  const [isCreatingAlbumFromPicker, setIsCreatingAlbumFromPicker] = useState(false);
+  const [isSavingAlbumPicker, setIsSavingAlbumPicker] = useState(false);
   const [recentUploads, setRecentUploads] = useState<UploadedImage[]>([]);
   const [shareStates, setShareStates] = useState<Record<string, ShareInfo>>({});
   const [copied, setCopied] = useState<string | null>(null);
@@ -254,15 +311,29 @@ export default function UploadDropzone({
       }
     }
 
+    function handlePaste(event: ClipboardEvent) {
+      if (!uploadsEnabled || isEditablePasteTarget(event.target)) {
+        return;
+      }
+      const files = extractClipboardImageFiles(event);
+      if (files.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      void uploadFilesRef.current(files);
+    }
+
     window.addEventListener("dragenter", handleDragEnter);
     window.addEventListener("dragover", handleDragOver);
     window.addEventListener("dragleave", handleDragLeave);
     window.addEventListener("drop", handleDrop);
+    window.addEventListener("paste", handlePaste);
     return () => {
       window.removeEventListener("dragenter", handleDragEnter);
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("dragleave", handleDragLeave);
       window.removeEventListener("drop", handleDrop);
+      window.removeEventListener("paste", handlePaste);
     };
   }, [uploadsEnabled]);
 
@@ -439,6 +510,27 @@ export default function UploadDropzone({
     uploadFilesRef.current = uploadFiles;
   });
 
+  async function createAlbum(name: string): Promise<{ id: string; name: string } | null> {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const response = await fetch("/api/albums", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      throw new Error(payload.error ?? "Unable to create album.");
+    }
+
+    const payload = (await response.json()) as { album: { id: string; name: string } };
+    setAlbums((current) => [payload.album, ...current]);
+    return payload.album;
+  }
+
   async function handleCreateAlbum() {
     const name = newAlbumName.trim();
     if (!name) {
@@ -447,23 +539,86 @@ export default function UploadDropzone({
     }
 
     setAlbumError(null);
-    const response = await fetch("/api/albums", {
+    try {
+      const album = await createAlbum(name);
+      if (!album) {
+        setAlbumError("Album name is required.");
+        return;
+      }
+      setAlbumId(album.id);
+      setNewAlbumName("");
+      setIsAlbumModalOpen(false);
+    } catch (error) {
+      setAlbumError(error instanceof Error ? error.message : "Unable to create album.");
+    }
+  }
+
+  function openAlbumPicker(upload: UploadedImage) {
+    setAlbumPickerUpload(upload);
+    setAlbumPickerAlbumId("");
+    setAlbumPickerNewAlbumName("");
+    setAlbumPickerError(null);
+    setIsCreatingAlbumFromPicker(false);
+  }
+
+  function closeAlbumPicker(force = false) {
+    if (isSavingAlbumPicker && !force) {
+      return;
+    }
+    setAlbumPickerUpload(null);
+    setAlbumPickerAlbumId("");
+    setAlbumPickerNewAlbumName("");
+    setAlbumPickerError(null);
+    setIsCreatingAlbumFromPicker(false);
+  }
+
+  async function addRecentUploadToAlbum(upload: UploadedImage, targetAlbumId: string) {
+    const response = await fetch("/api/media/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        action: "addToAlbum",
+        albumId: targetAlbumId,
+        mediaItems: [{ id: upload.id, kind: upload.kind }],
+      }),
     });
-
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
-      setAlbumError(payload.error ?? "Unable to create album.");
+      throw new Error(payload.error ?? "Unable to add file to album.");
+    }
+  }
+
+  async function handleSaveAlbumPicker() {
+    if (!albumPickerUpload) {
+      return;
+    }
+    setAlbumPickerError(null);
+
+    const existingAlbumId = albumPickerAlbumId.trim();
+    const newAlbumName = albumPickerNewAlbumName.trim();
+    if (!existingAlbumId && !newAlbumName) {
+      setAlbumPickerError("Pick an album or create a new one.");
       return;
     }
 
-    const payload = (await response.json()) as { album: { id: string; name: string } };
-    setAlbums((current) => [payload.album, ...current]);
-    setAlbumId(payload.album.id);
-    setNewAlbumName("");
-    setIsAlbumModalOpen(false);
+    setIsSavingAlbumPicker(true);
+    try {
+      let targetAlbumId = existingAlbumId;
+      if (!targetAlbumId) {
+        const album = await createAlbum(newAlbumName);
+        if (!album) {
+          throw new Error("Album name is required.");
+        }
+        targetAlbumId = album.id;
+      }
+      await addRecentUploadToAlbum(albumPickerUpload, targetAlbumId);
+      pushMessage("added 2 album.", "success");
+      closeAlbumPicker(true);
+    } catch (error) {
+      setAlbumPickerError(error instanceof Error ? error.message : "Unable to add file to album.");
+    } finally {
+      setIsSavingAlbumPicker(false);
+    }
   }
 
   async function enableSharing(image: UploadedImage): Promise<ShareInfo | null> {
@@ -564,7 +719,13 @@ export default function UploadDropzone({
         name="albumId"
         value={albumId}
         onChange={(event) => setAlbumId(event.target.value)}
-        className="w-full rounded border px-3 py-2"
+        className="w-full rounded border px-3 py-2 pr-8 appearance-none"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+          backgroundPosition: "right 0.75rem center",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "1rem",
+        }}
       >
         <option value="">no album</option>
         {albums.map((album) => (
@@ -690,6 +851,15 @@ export default function UploadDropzone({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={() => openAlbumPicker(image)}
+                      className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
+                      aria-label="Add to album"
+                      title="Add to album"
+                    >
+                      +
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => void copyShare(image)}
                       className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
                     >
@@ -790,6 +960,78 @@ export default function UploadDropzone({
                 className="rounded bg-black px-3 py-1 text-xs text-white"
               >
                 saveth the album
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {albumPickerUpload ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+            <h3 className="text-lg font-semibold">add file 2 album</h3>
+            <p className="mt-1 text-xs text-neutral-500">
+              {albumPickerUpload.originalFileName || albumPickerUpload.baseName}
+            </p>
+            <select
+              value={albumPickerAlbumId}
+              onChange={(event) => {
+                setAlbumPickerAlbumId(event.target.value);
+                if (event.target.value) {
+                  setIsCreatingAlbumFromPicker(false);
+                }
+              }}
+              className="mt-4 w-full rounded border px-3 py-2 pr-8 appearance-none"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundPosition: "right 0.75rem center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "1rem",
+              }}
+            >
+              <option value="">choose an existing album</option>
+              {albums.map((album) => (
+                <option key={album.id} value={album.id}>
+                  {album.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                setIsCreatingAlbumFromPicker((current) => !current);
+                setAlbumPickerAlbumId("");
+              }}
+              className="mt-3 rounded border border-neutral-200 px-3 py-1 text-xs"
+            >
+              {isCreatingAlbumFromPicker ? "cancel new album" : "+ new album"}
+            </button>
+            {isCreatingAlbumFromPicker ? (
+              <input
+                className="mt-3 w-full rounded border px-3 py-2"
+                placeholder="album name"
+                value={albumPickerNewAlbumName}
+                onChange={(event) => setAlbumPickerNewAlbumName(event.target.value)}
+              />
+            ) : null}
+            {albumPickerError ? (
+              <p className="mt-2 text-xs text-red-600">{albumPickerError}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => closeAlbumPicker()}
+                className="rounded border border-neutral-200 px-3 py-1 text-xs"
+              >
+                cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveAlbumPicker()}
+                disabled={isSavingAlbumPicker}
+                className="rounded bg-black px-3 py-1 text-xs text-white disabled:opacity-50"
+              >
+                {isSavingAlbumPicker ? "saving..." : "add 2 album"}
               </button>
             </div>
           </div>
