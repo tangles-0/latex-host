@@ -1,4 +1,4 @@
-# LATEX
+# LATEX self-hosted public / private file and media sharing
 
 Cloud app for hosting and sharing images, videos, audio, documents, and archives.
 

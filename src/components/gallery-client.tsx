@@ -127,6 +127,7 @@ function extractClipboardImageFiles(event: ClipboardEvent): File[] {
 
 type RotationDirection = "left" | "right";
 type NoteEditorMode = "markdown" | "preview";
+type NoteWindowMode = "windowed" | "large" | "fullscreen";
 type GalleryKindFilter = "all" | MediaKind;
 const PAGE_SIZE = 24;
 
@@ -197,7 +198,7 @@ export default function GalleryClient({
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [autosaveEnabled, setAutosaveEnabled] = useState(true);
-  const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);
+  const [noteWindowMode, setNoteWindowMode] = useState<NoteWindowMode>("windowed");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const dragCounter = useRef(0);
   const lastSavedNoteContentRef = useRef("");
@@ -219,6 +220,23 @@ export default function GalleryClient({
       dragCounter.current = 0;
       setGlobalDragging(false);
     }
+  }, [active]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    if (!active) {
+      return;
+    }
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
   }, [active]);
 
   useEffect(() => {
@@ -447,6 +465,23 @@ export default function GalleryClient({
   const activeDisplayName = active?.originalFileName || active?.baseName || "";
   const isNoteActive = active?.kind === "note";
   const noteIsDirty = isNoteActive && activeNote ? noteContentDraft !== lastSavedNoteContentRef.current : false;
+  const isNoteLarge = isNoteActive && noteWindowMode === "large";
+  const isNoteFullscreen = isNoteActive && noteWindowMode === "fullscreen";
+  const isNoteExpanded = isNoteLarge || isNoteFullscreen;
+
+  function nextNoteWindowMode(mode: NoteWindowMode): NoteWindowMode {
+    if (mode === "windowed") return "large";
+    if (mode === "large") return "fullscreen";
+    return "windowed";
+  }
+
+  function noteWindowModeButtonLabel(mode: NoteWindowMode): string {
+    return nextNoteWindowMode(mode) === "large"
+      ? "Large"
+      : nextNoteWindowMode(mode) === "fullscreen"
+        ? "Fullscreen"
+        : "Windowed";
+  }
 
   function displayNameForMedia(image: GalleryImage): string {
     return image.originalFileName || image.baseName;
@@ -732,7 +767,7 @@ export default function GalleryClient({
     setLastSavedAt(null);
     setNoteEditorMode("markdown");
     setNoteSaveError(null);
-    setIsNoteFullscreen(false);
+    setNoteWindowMode("windowed");
 
     try {
       if (image.kind === "note") {
@@ -789,7 +824,7 @@ export default function GalleryClient({
     setIsSavingNote(false);
     setLastSavedAt(null);
     setNoteEditorMode("markdown");
-    setIsNoteFullscreen(false);
+    setNoteWindowMode("windowed");
   }
 
   async function regenerateVideoThumbnail() {
@@ -1836,7 +1871,9 @@ export default function GalleryClient({
 
       {active ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 sm:px-4 sm:py-6"
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 ${
+            isNoteFullscreen ? "" : "sm:px-4 sm:py-6"
+          }`}
           onClick={(event) => {
             if (event.target !== event.currentTarget) {
               return;
@@ -1873,61 +1910,144 @@ export default function GalleryClient({
             }
           }}
         >
-          <div className={`${isNoteActive && isNoteFullscreen ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} w-full overflow-y-auto overflow-x-hidden bg-white text-sm`}>
-            <div className="flex sm:flex-row flex-col items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">file details</h2>
-                <div className="mt-1 flex items-center gap-2">
-                  {isEditingOriginalFileName ? (
-                    <>
+          <div
+            className={`w-full bg-white text-sm ${
+              isNoteFullscreen
+                ? "flex h-full max-h-none max-w-none flex-col overflow-hidden rounded-none"
+                : `${isNoteExpanded ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} overflow-y-auto overflow-x-hidden`
+            }`}
+          >
+            {isNoteFullscreen ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {(["markdown", "preview"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setNoteEditorMode(mode)}
+                        className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
+                      >
+                        {mode === "markdown" ? "markdown" : "preview"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-600">
+                    <label className="flex items-center gap-2">
                       <input
-                        value={originalFileNameDraft}
-                        onChange={(event) => setOriginalFileNameDraft(event.target.value)}
-                        className="w-full rounded border border-neutral-200 px-2 py-1 text-xs"
-                        placeholder={active.baseName}
-                        maxLength={255}
+                        type="checkbox"
+                        checked={autosaveEnabled}
+                        onChange={(event) => setAutosaveEnabled(event.target.checked)}
                       />
-                      <button
-                        type="button"
-                        onClick={() => void saveOriginalFileName()}
-                        disabled={isSavingOriginalFileName}
-                        className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                      >
-                        {isSavingOriginalFileName ? "Saving..." : "Save"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsEditingOriginalFileName(false);
-                          setOriginalFileNameDraft(active.originalFileName ?? "");
-                        }}
-                        className="rounded border border-neutral-200 px-2 py-1 text-xs"
-                      >
-                        Cancel
-                      </button>
-                    </>
+                      Auto-save every 30s
+                    </label>
+                    <div>{noteIsDirty ? "Unsaved changes" : "All changes saved"}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveActiveNote()}
+                      disabled={isSavingNote || !noteIsDirty}
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                    >
+                      {isSavingNote ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNoteWindowMode((current) => nextNoteWindowMode(current))}
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                    >
+                      {noteWindowModeButtonLabel(noteWindowMode)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handlePendingNoteBefore(() => {
+                          closeModal();
+                        })
+                      }
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                    >
+                      <LightTimes className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
+                  {shareError ? <p className="mb-3 text-xs text-red-600">{shareError}</p> : null}
+                  {noteSaveError ? <p className="mb-3 text-xs text-red-600">{noteSaveError}</p> : null}
+                  {isLoadingNote ? (
+                    <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+                      Loading note...
+                    </div>
+                  ) : noteEditorMode === "markdown" ? (
+                    <NoteRichEditor
+                      value={noteContentDraft}
+                      onChange={setNoteContentDraft}
+                      layoutMode={noteWindowMode}
+                    />
                   ) : (
-                    <>
-                      <p className="text-xs text-neutral-500">{activeDisplayName}</p>
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingOriginalFileName(true)}
-                        className="rounded border border-neutral-200 p-1 text-neutral-500"
-                        aria-label="Edit file name"
-                        title="Edit file name"
-                      >
-                        <LightEdit className="h-4 w-4" fill="currentColor" />
-                      </button>
-                    </>
+                    <div className="min-h-0 flex-1 overflow-y-auto rounded border border-neutral-200 p-4">
+                      <NoteMarkdown content={noteContentDraft} />
+                    </div>
                   )}
                 </div>
-                {activeIndex >= 0 ? (
-                  <p className="text-xs text-neutral-500">
-                    {activeIndex + 1} / {displayItems.length}
-                  </p>
-                ) : null}
-              </div>
-              <div className="w-full sm:w-auto flex items-center justify-center gap-2">
+              </>
+            ) : (
+              <>
+                <div className="flex sm:flex-row flex-col items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold">file details</h2>
+                    <div className="mt-1 flex items-center gap-2">
+                      {isEditingOriginalFileName ? (
+                        <>
+                          <input
+                            value={originalFileNameDraft}
+                            onChange={(event) => setOriginalFileNameDraft(event.target.value)}
+                            className="w-full rounded border border-neutral-200 px-2 py-1 text-xs"
+                            placeholder={active.baseName}
+                            maxLength={255}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void saveOriginalFileName()}
+                            disabled={isSavingOriginalFileName}
+                            className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                          >
+                            {isSavingOriginalFileName ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditingOriginalFileName(false);
+                              setOriginalFileNameDraft(active.originalFileName ?? "");
+                            }}
+                            className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs text-neutral-500">{activeDisplayName}</p>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingOriginalFileName(true)}
+                            className="rounded border border-neutral-200 p-1 text-neutral-500"
+                            aria-label="Edit file name"
+                            title="Edit file name"
+                          >
+                            <LightEdit className="h-4 w-4" fill="currentColor" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {activeIndex >= 0 ? (
+                      <p className="text-xs text-neutral-500">
+                        {activeIndex + 1} / {displayItems.length}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="w-full sm:w-auto flex items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={openPreviousImage}
@@ -2023,10 +2143,10 @@ export default function GalleryClient({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsNoteFullscreen((current) => !current)}
+                      onClick={() => setNoteWindowMode((current) => nextNoteWindowMode(current))}
                       className="rounded border border-neutral-200 px-2 py-1 text-xs"
                     >
-                      {isNoteFullscreen ? "Windowed" : "Full screen"}
+                      {noteWindowModeButtonLabel(noteWindowMode)}
                     </button>
                     <button
                       type="button"
@@ -2078,11 +2198,11 @@ export default function GalleryClient({
                 >
                   <LightTimes className="h-4 w-4" fill="currentColor" />
                 </button>
-              </div>
-            </div>
+                  </div>
+                </div>
 
-            <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[2fr,1fr]">
-              <div className="space-y-3">
+                <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[2fr,1fr]">
+                  <div className="space-y-3">
                 {active.kind === "image" ? (
                   <ImageViewerContent
                     imageUrl={activeDisplayItem?.lgUrl ?? `/media/${active.kind}/${active.id}/${active.baseName}-lg.${active.ext}`}
@@ -2134,10 +2254,10 @@ export default function GalleryClient({
                       <NoteRichEditor
                         value={noteContentDraft}
                         onChange={setNoteContentDraft}
-                        fullScreen={isNoteFullscreen}
+                    layoutMode={noteWindowMode}
                       />
                     ) : (
-                      <div className={`${isNoteFullscreen ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}>
+                      <div className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}>
                         <NoteMarkdown content={noteContentDraft} />
                       </div>
                     )}
@@ -2157,9 +2277,9 @@ export default function GalleryClient({
                     isRegeneratingThumbnail={active.kind === "video" ? isRegeneratingVideoPreview : false}
                   />
                 )}
-              </div>
+                  </div>
 
-              <div className="min-w-0 space-y-3">
+                  <div className="min-w-0 space-y-3">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
                   <div className="min-w-0">
                     <div>
@@ -2341,8 +2461,10 @@ export default function GalleryClient({
                     Share links are disabled for this file.
                   </p>
                 )}
-              </div>
-            </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}

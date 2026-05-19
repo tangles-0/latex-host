@@ -1,23 +1,17 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useRef } from "react";
 
 type NoteRichEditorProps = {
   value: string;
   onChange: (next: string) => void;
-  fullScreen?: boolean;
+  layoutMode?: "windowed" | "large" | "fullscreen";
 };
-
-type ToolbarAction =
-  | { label: string; wrap: [string, string] }
-  | { label: string; prefix: string }
-  | { label: string; code: true }
-  | { label: string; run: () => void };
 
 export default function NoteRichEditor({
   value,
   onChange,
-  fullScreen = false,
+  layoutMode = "windowed",
 }: NoteRichEditorProps) {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -165,50 +159,43 @@ export default function NoteRichEditor({
     updateSelection(nextValue, nextCursor, nextCursor);
   }
 
-  const actions = useMemo<ToolbarAction[]>(
-    () => [
-      { label: "B", wrap: ["**", "**"] },
-      { label: "I", wrap: ["*", "*"] },
-      { label: "H1", prefix: "# " },
-      { label: "H2", prefix: "## " },
-      { label: "H3", prefix: "### " },
-      { label: "Quote", prefix: "> " },
-      { label: "UL", prefix: "- " },
-      { label: "OL", prefix: "1. " },
-      { label: "Code", code: true },
-      { label: "Link", run: insertLink },
-    ],
-    [insertLink],
-  );
-
   return (
-    <div className={`rounded border border-neutral-200 ${fullScreen ? "h-full" : ""}`}>
+    <div
+      className={`rounded border border-neutral-200 ${
+        layoutMode === "fullscreen" ? "flex h-full min-h-0 flex-col" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 p-2 text-xs">
-        {actions.map((action) => (
-          <button
-            key={action.label}
-            type="button"
-            onClick={() => {
-              focusEditor();
-              if ("run" in action) {
-                action.run();
-                return;
-              }
-              if ("code" in action) {
-                applyCodeFormatting();
-                return;
-              }
-              if ("wrap" in action) {
-                applyWrap(action.wrap[0], action.wrap[1]);
-                return;
-              }
-              applyLinePrefix(action.prefix);
-            }}
-            className="rounded border border-neutral-200 px-2 py-1"
-          >
-            {action.label}
-          </button>
-        ))}
+        <button type="button" onClick={() => { focusEditor(); applyWrap("**", "**"); }} className="rounded border border-neutral-200 px-2 py-1">
+          B
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyWrap("*", "*"); }} className="rounded border border-neutral-200 px-2 py-1">
+          I
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("# "); }} className="rounded border border-neutral-200 px-2 py-1">
+          H1
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("## "); }} className="rounded border border-neutral-200 px-2 py-1">
+          H2
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("### "); }} className="rounded border border-neutral-200 px-2 py-1">
+          H3
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("> "); }} className="rounded border border-neutral-200 px-2 py-1">
+          Quote
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("- "); }} className="rounded border border-neutral-200 px-2 py-1">
+          UL
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("1. "); }} className="rounded border border-neutral-200 px-2 py-1">
+          OL
+        </button>
+        <button type="button" onClick={() => { focusEditor(); applyCodeFormatting(); }} className="rounded border border-neutral-200 px-2 py-1">
+          Code
+        </button>
+        <button type="button" onClick={() => { focusEditor(); insertLink(); }} className="rounded border border-neutral-200 px-2 py-1">
+          Link
+        </button>
       </div>
       <textarea
         ref={editorRef}
@@ -216,7 +203,13 @@ export default function NoteRichEditor({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleEnterKey}
         spellCheck={false}
-        className={`w-full resize-none overflow-y-auto px-4 py-3 font-mono text-sm outline-none ${fullScreen ? "h-[calc(100vh-16rem)]" : "min-h-[320px]"}`}
+        className={`w-full resize-none overflow-y-auto px-4 py-3 font-mono text-sm outline-none ${
+          layoutMode === "fullscreen"
+            ? "note-editor-fullscreen-scrollbar min-h-0 flex-1"
+            : layoutMode === "large"
+              ? "h-[calc(100vh-16rem)]"
+              : "min-h-[320px]"
+        }`}
       />
     </div>
   );

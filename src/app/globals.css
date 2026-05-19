@@ -676,6 +676,32 @@ body {
   box-shadow: 0 0 0 3px var(--theme-focus);
 }
 
+.note-editor-fullscreen-scrollbar {
+  scrollbar-gutter: stable;
+}
+
+.note-editor-fullscreen-scrollbar::-webkit-scrollbar {
+  width: 1.35rem;
+}
+
+.note-editor-fullscreen-scrollbar::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--theme-border) 72%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-strong) 55%, transparent);
+}
+
+.note-editor-fullscreen-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--theme-text) 42%, var(--theme-panel) 58%);
+  border: 0.28rem solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+  min-height: 3rem;
+}
+
+.note-editor-fullscreen-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--theme-text) 55%, var(--theme-panel) 45%);
+  background-clip: content-box;
+}
+
 [data-theme="neon-green"] button,
 [data-theme="retro"] button,
 [data-theme="cyber"] button,
