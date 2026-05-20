@@ -1,0 +1,8 @@
+---
+description: Root agent instructions — read AGENTS.md (all sessions)
+alwaysApply: true
+---
+
+# Agent context
+
+Read and follow repository root [`AGENTS.md`](../../AGENTS.md): retrieval-led reasoning, local Next.js docs index, and links to `.agent/` front-end standards. That file is the canonical entry for tools outside Cursor (Claude, Codex, Kiro root `AGENTS.md`, and so on).

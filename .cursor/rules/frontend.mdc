@@ -1,0 +1,9 @@
+---
+description: Front-end standards — read .agent checklist and code style guide
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Front-end rules
+
+Follow [`.agent/AGENT_FRONTEND_CHECKLIST.md`](../../.agent/AGENT_FRONTEND_CHECKLIST.md) and [`.agent/CODESTYLEGUIDE.md`](../../.agent/CODESTYLEGUIDE.md) for changes in TypeScript and TSX.
