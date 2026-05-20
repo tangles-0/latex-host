@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
 import type { MediaKind } from "@/lib/media-types";
-import { LightPencil } from '@energiz3r/icon-library/Icons/Light/LightPencil';
+import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 
 const HIDE_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-hide-album-images";
@@ -28,7 +28,7 @@ type GalleryImage = {
   height?: number;
   uploadedAt: string;
   shared?: boolean;
-  previewStatus?: "pending" | "processing" | "ready" | "failed";
+  previewStatus?: "pending" | "started" | "complete" | "error";
   previewText?: string;
 };
 
@@ -48,7 +48,9 @@ export default function GalleryTabs({
   const searchParams = useSearchParams();
   const [imageItems, setImageItems] = useState<GalleryImage[]>(media);
   const [activeTab, setActiveTab] = useState<"albums" | "files">(initialTab);
-  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | MediaKind>("all");
+  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | MediaKind>(
+    "all",
+  );
   const [albumItems, setAlbumItems] = useState(albums);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
@@ -60,14 +62,18 @@ export default function GalleryTabs({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   let storedSetting = "";
   try {
-    storedSetting = window.localStorage.getItem(HIDE_ALBUM_IMAGES_STORAGE_KEY) ?? "0";
+    storedSetting =
+      window.localStorage.getItem(HIDE_ALBUM_IMAGES_STORAGE_KEY) ?? "0";
   } catch {} // ignore storage errors
   const [hideAlbumImages, setHideAlbumImages] = useState(storedSetting === "1");
   const [delBtnLabel, setDelBtnLabel] = useState("del album");
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(HIDE_ALBUM_IMAGES_STORAGE_KEY, hideAlbumImages ? "1" : "0");
+      window.localStorage.setItem(
+        HIDE_ALBUM_IMAGES_STORAGE_KEY,
+        hideAlbumImages ? "1" : "0",
+      );
     } catch {} // ignore storage errors
   }, [hideAlbumImages]);
 
@@ -79,7 +85,12 @@ export default function GalleryTabs({
           image.kind === "image",
       )
       .slice(0, 3)
-      .map((image) => ({ id: image.id, kind: image.kind, baseName: image.baseName, ext: image.ext }));
+      .map((image) => ({
+        id: image.id,
+        kind: image.kind,
+        baseName: image.baseName,
+        ext: image.ext,
+      }));
     return { ...album, previews };
   });
 
@@ -92,7 +103,9 @@ export default function GalleryTabs({
       params.delete("tab");
     }
     const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   }
 
   async function createAlbum() {
@@ -114,15 +127,21 @@ export default function GalleryTabs({
       return;
     }
 
-    const payload = (await response.json()) as { album: { id: string; name: string } };
-    setAlbumItems((current) => [...current, payload.album].sort((a, b) => a.name.localeCompare(b.name)));
+    const payload = (await response.json()) as {
+      album: { id: string; name: string };
+    };
+    setAlbumItems((current) =>
+      [...current, payload.album].sort((a, b) => a.name.localeCompare(b.name)),
+    );
     setNewAlbumName("");
     setIsCreateOpen(false);
   }
 
   async function deleteAlbum(album: AlbumInfo) {
     setDeleteError(null);
-    const response = await fetch(`/api/albums/${album.id}`, { method: "DELETE" });
+    const response = await fetch(`/api/albums/${album.id}`, {
+      method: "DELETE",
+    });
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
       setDeleteError(payload.error ?? "Unable to delete album.");
@@ -181,7 +200,9 @@ export default function GalleryTabs({
           type="button"
           onClick={() => setTab("albums")}
           className={`rounded px-3 py-1 ${
-            activeTab === "albums" ? "bg-black text-white" : "border border-neutral-200"
+            activeTab === "albums"
+              ? "bg-black text-white"
+              : "border border-neutral-200"
           }`}
         >
           albums
@@ -190,7 +211,9 @@ export default function GalleryTabs({
           type="button"
           onClick={() => setTab("files")}
           className={`rounded px-3 py-1 ${
-            activeTab === "files" ? "bg-black text-white" : "border border-neutral-200"
+            activeTab === "files"
+              ? "bg-black text-white"
+              : "border border-neutral-200"
           }`}
         >
           files
@@ -219,16 +242,26 @@ export default function GalleryTabs({
       </div>
       {activeTab === "files" ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {(["all", "image", "video", "document", "other", "note"] as const).map((item) => (
+          {(
+            ["all", "image", "video", "document", "other", "note"] as const
+          ).map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => setFileTypeFilter(item)}
               className={`rounded px-3 py-1 ${
-                fileTypeFilter === item ? "bg-black text-white" : "border border-neutral-200"
+                fileTypeFilter === item
+                  ? "bg-black text-white"
+                  : "border border-neutral-200"
               }`}
             >
-              {item === "image" ? "images" : item === "document" ? "documents" : item === "note" ? "notes" : item}
+              {item === "image"
+                ? "images"
+                : item === "document"
+                  ? "documents"
+                  : item === "note"
+                    ? "notes"
+                    : item}
             </button>
           ))}
         </div>
@@ -267,7 +300,8 @@ export default function GalleryTabs({
                     </div>
                     <div className="mt-3 text-sm font-medium">{album.name}</div>
                     <div className="text-xs text-neutral-500">
-                      {album.previews.length} preview{album.previews.length === 1 ? "" : "s"}
+                      {album.previews.length} preview
+                      {album.previews.length === 1 ? "" : "s"}
                     </div>
                   </Link>
                   <button
@@ -344,7 +378,8 @@ export default function GalleryTabs({
               <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
                 <h3 className="text-lg font-semibold">delete album?</h3>
                 <p className="mt-1 text-xs text-neutral-500">
-                  this deletes the album only. imgs will stay in ur library. 0.5% chance of nuclear winter.
+                  this deletes the album only. imgs will stay in ur library.
+                  0.5% chance of nuclear winter.
                 </p>
                 {deleteError ? (
                   <p className="mt-2 text-xs text-red-600">{deleteError}</p>
@@ -420,4 +455,3 @@ export default function GalleryTabs({
     </div>
   );
 }
-

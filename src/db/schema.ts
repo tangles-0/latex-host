@@ -1,4 +1,12 @@
-import { pgTable, text, integer, bigint, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  integer,
+  bigint,
+  timestamp,
+  boolean,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 export const groups = pgTable("groups", {
   id: text("id").primaryKey(),
@@ -29,8 +37,12 @@ export const appSettings = pgTable("app_settings", {
   supportEnabled: boolean("support_enabled").notNull().default(true),
   signupsEnabled: boolean("signups_enabled").notNull().default(true),
   uploadsEnabled: boolean("uploads_enabled").notNull().default(true),
-  shareHtmlNavigationEnabled: boolean("share_html_navigation_enabled").notNull().default(true),
-  resumableThresholdBytes: bigint("resumable_threshold_bytes", { mode: "number" })
+  shareHtmlNavigationEnabled: boolean("share_html_navigation_enabled")
+    .notNull()
+    .default(true),
+  resumableThresholdBytes: bigint("resumable_threshold_bytes", {
+    mode: "number",
+  })
     .notNull()
     .default(64 * 1024 * 1024),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
@@ -42,12 +54,16 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   passwordResetTokenHash: text("password_reset_token_hash"),
-  passwordResetTokenExpiresAt: timestamp("password_reset_token_expires_at", { mode: "date" }),
+  passwordResetTokenExpiresAt: timestamp("password_reset_token_expires_at", {
+    mode: "date",
+  }),
   groupId: text("group_id").references(() => groups.id),
   theme: text("theme").notNull().default("dark"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   lastLoginAt: timestamp("last_login_at", { mode: "date" }),
-  lastPatchNoteDismissed: timestamp("last_patch_note_dismissed", { mode: "date" }),
+  lastPatchNoteDismissed: timestamp("last_patch_note_dismissed", {
+    mode: "date",
+  }),
 });
 
 export const patchNotes = pgTable("patch_notes", {
@@ -104,9 +120,13 @@ export const images = pgTable("images", {
   ext: text("ext").notNull().default("jpg"),
   width: integer("width").notNull(),
   height: integer("height").notNull(),
-  sizeOriginal: bigint("size_original", { mode: "number" }).notNull().default(0),
+  sizeOriginal: bigint("size_original", { mode: "number" })
+    .notNull()
+    .default(0),
   sizeSm: bigint("size_sm", { mode: "number" }).notNull().default(0),
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
+  previewStatus: text("preview_status").notNull().default("complete"),
+  previewError: text("preview_error"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
 });
 
@@ -125,7 +145,9 @@ export const videos = pgTable("videos", {
   durationSeconds: integer("duration_seconds"),
   width: integer("width"),
   height: integer("height"),
-  sizeOriginal: bigint("size_original", { mode: "number" }).notNull().default(0),
+  sizeOriginal: bigint("size_original", { mode: "number" })
+    .notNull()
+    .default(0),
   sizeSm: bigint("size_sm", { mode: "number" }).notNull().default(0),
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("pending"),
@@ -146,7 +168,9 @@ export const documents = pgTable("documents", {
   ext: text("ext").notNull(),
   mimeType: text("mime_type").notNull(),
   pageCount: integer("page_count"),
-  sizeOriginal: bigint("size_original", { mode: "number" }).notNull().default(0),
+  sizeOriginal: bigint("size_original", { mode: "number" })
+    .notNull()
+    .default(0),
   sizeSm: bigint("size_sm", { mode: "number" }).notNull().default(0),
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("pending"),
@@ -166,7 +190,9 @@ export const files = pgTable("files", {
   originalFileName: text("original_file_name"),
   ext: text("ext").notNull(),
   mimeType: text("mime_type").notNull(),
-  sizeOriginal: bigint("size_original", { mode: "number" }).notNull().default(0),
+  sizeOriginal: bigint("size_original", { mode: "number" })
+    .notNull()
+    .default(0),
   sizeSm: bigint("size_sm", { mode: "number" }).notNull().default(0),
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("pending"),
@@ -185,7 +211,9 @@ export const notes = pgTable("notes", {
   baseName: text("base_name").notNull(),
   originalFileName: text("original_file_name"),
   content: text("content").notNull().default(""),
-  sizeOriginal: bigint("size_original", { mode: "number" }).notNull().default(0),
+  sizeOriginal: bigint("size_original", { mode: "number" })
+    .notNull()
+    .default(0),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });
@@ -285,4 +313,3 @@ export const uploadSessions = pgTable("upload_sessions", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });
-

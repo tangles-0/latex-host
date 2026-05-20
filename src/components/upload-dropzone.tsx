@@ -11,6 +11,8 @@ import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 
 type UploadState = "idle" | "uploading" | "success" | "error";
+type PreviewStatus = "pending" | "started" | "complete" | "error";
+const PREVIEW_POLL_MAX_MS = 2 * 60 * 1000;
 
 type UploadedImage = {
   id: string;
@@ -19,7 +21,7 @@ type UploadedImage = {
   originalFileName?: string;
   ext: string;
   mimeType?: string;
-  previewStatus?: "pending" | "processing" | "ready" | "failed";
+  previewStatus?: PreviewStatus;
 };
 
 type ShareInfo = {
@@ -40,7 +42,16 @@ function isEditablePasteTarget(target: EventTarget | null): boolean {
     return false;
   }
   const tagName = target.tagName.toLowerCase();
-  return target.isContentEditable || tagName === "textarea" || tagName === "input" || tagName === "select";
+  return (
+    target.isContentEditable ||
+    tagName === "textarea" ||
+    tagName === "input" ||
+    tagName === "select"
+  );
+}
+
+function isPreviewPollingStatus(status: PreviewStatus | undefined): boolean {
+  return status === "pending" || status === "started";
 }
 
 function extensionForClipboardMimeType(mimeType: string): string {
@@ -69,7 +80,10 @@ function clipboardImageFileName(index: number, mimeType: string): string {
 function extractClipboardImageFiles(event: ClipboardEvent): File[] {
   const items = Array.from(event.clipboardData?.items ?? []);
   return items
-    .filter((item) => item.kind === "file" && item.type.toLowerCase().startsWith("image/"))
+    .filter(
+      (item) =>
+        item.kind === "file" && item.type.toLowerCase().startsWith("image/"),
+    )
     .map((item, index) => {
       const file = item.getAsFile();
       if (!file) {
@@ -102,18 +116,23 @@ export default function UploadDropzone({
   const [isAlbumModalOpen, setIsAlbumModalOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const [albumError, setAlbumError] = useState<string | null>(null);
-  const [albumPickerUpload, setAlbumPickerUpload] = useState<UploadedImage | null>(null);
+  const [albumPickerUpload, setAlbumPickerUpload] =
+    useState<UploadedImage | null>(null);
   const [albumPickerAlbumId, setAlbumPickerAlbumId] = useState("");
   const [albumPickerNewAlbumName, setAlbumPickerNewAlbumName] = useState("");
   const [albumPickerError, setAlbumPickerError] = useState<string | null>(null);
-  const [isCreatingAlbumFromPicker, setIsCreatingAlbumFromPicker] = useState(false);
+  const [isCreatingAlbumFromPicker, setIsCreatingAlbumFromPicker] =
+    useState(false);
   const [isSavingAlbumPicker, setIsSavingAlbumPicker] = useState(false);
   const [recentUploads, setRecentUploads] = useState<UploadedImage[]>([]);
   const [shareStates, setShareStates] = useState<Record<string, ShareInfo>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [messages, setMessages] = useState<UploadMessage[]>([]);
   const [uploadProgress, setUploadProgress] = useState<
-    Record<string, { name: string; uploaded: number; total: number; resumed: boolean }>
+    Record<
+      string,
+      { name: string; uploaded: number; total: number; resumed: boolean }
+    >
   >({});
   const [incompleteSessions, setIncompleteSessions] = useState<
     Array<{
@@ -129,9 +148,12 @@ export default function UploadDropzone({
   >([]);
   const [isClearingFailed, setIsClearingFailed] = useState(false);
   const [keepOriginalFileName, setKeepOriginalFileName] = useState(false);
-  const [hasLoadedKeepOriginalFileName, setHasLoadedKeepOriginalFileName] = useState(false);
+  const [hasLoadedKeepOriginalFileName, setHasLoadedKeepOriginalFileName] =
+    useState(false);
   const dragCounter = useRef(0);
-  const uploadFilesRef = useRef<(files: FileList | File[]) => Promise<void>>(async () => {});
+  const uploadFilesRef = useRef<(files: FileList | File[]) => Promise<void>>(
+    async () => {},
+  );
   const inputId = useId();
 
   const statusText = useMemo(() => {
@@ -195,7 +217,10 @@ export default function UploadDropzone({
 
   async function clearFailedSessions() {
     const clearableIds = incompleteSessions
-      .filter((session) => session.state === "failed" || session.state === "finalizing")
+      .filter(
+        (session) =>
+          session.state === "failed" || session.state === "finalizing",
+      )
       .map((session) => session.id);
     if (clearableIds.length === 0) {
       return;
@@ -212,7 +237,10 @@ export default function UploadDropzone({
       return;
     }
     setIncompleteSessions((current) =>
-      current.filter((session) => session.state !== "failed" && session.state !== "finalizing"),
+      current.filter(
+        (session) =>
+          session.state !== "failed" && session.state !== "finalizing",
+      ),
     );
     pushMessage("Cleared stuck uploads.", "success");
     setIsClearingFailed(false);
@@ -220,7 +248,9 @@ export default function UploadDropzone({
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY);
+      const stored = window.localStorage.getItem(
+        KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
+      );
       setKeepOriginalFileName(stored === "1");
     } catch {
       // ignore storage errors
@@ -234,7 +264,10 @@ export default function UploadDropzone({
       return;
     }
     try {
-      window.localStorage.setItem(KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY, keepOriginalFileName ? "1" : "0");
+      window.localStorage.setItem(
+        KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
+        keepOriginalFileName ? "1" : "0",
+      );
     } catch {
       // ignore storage errors
     }
@@ -248,7 +281,9 @@ export default function UploadDropzone({
         fetch("/api/uploads/list", { cache: "no-store" }),
       ]);
       if (albumsResponse.ok) {
-        const payload = (await albumsResponse.json()) as { albums?: { id: string; name: string }[] };
+        const payload = (await albumsResponse.json()) as {
+          albums?: { id: string; name: string }[];
+        };
         if (isMounted && payload.albums) {
           setAlbums(payload.albums);
         }
@@ -338,49 +373,72 @@ export default function UploadDropzone({
   }, [uploadsEnabled]);
 
   useEffect(() => {
-    const pending = recentUploads.filter(
-      (item) => item.kind === "video" && item.previewStatus === "pending",
+    const pending = recentUploads.filter((item) =>
+      isPreviewPollingStatus(item.previewStatus),
     );
     if (pending.length === 0) {
       return;
     }
     let isMounted = true;
-    const interval = window.setInterval(() => {
-      const targets = pending.slice(0, 10);
-      void Promise.all(
-        targets.map(async (item) => {
-          const response = await fetch(
-            `/api/media/preview-status?kind=video&mediaId=${encodeURIComponent(item.id)}`,
-            { cache: "no-store" },
-          );
-          if (!response.ok) {
-            return;
-          }
-          const payload = (await response.json()) as {
-            previewStatus?: "pending" | "processing" | "ready" | "failed";
-          };
-          if (!payload.previewStatus || !isMounted) {
-            return;
-          }
-          setRecentUploads((current) =>
-            {
-              let changed = false;
-              const next = current.map((entry) => {
-                if (entry.id === item.id && entry.previewStatus !== payload.previewStatus) {
-                  changed = true;
-                  return { ...entry, previewStatus: payload.previewStatus };
-                }
-                return entry;
-              });
-              return changed ? next : current;
-            },
-          );
+    const startedAt = Date.now();
+    let timeoutId: number | undefined;
+    const poll = async () => {
+      const response = await fetch("/api/media/preview-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaIds: pending.slice(0, 100).map((item) => item.id),
         }),
-      );
-    }, 5000);
+        cache: "no-store",
+      });
+      if (response.ok && isMounted) {
+        const payload = (await response.json()) as {
+          media?: Array<{ mediaId: string; previewStatus?: PreviewStatus }>;
+        };
+        const statusById = new Map(
+          (payload.media ?? []).map((item) => [
+            item.mediaId,
+            item.previewStatus,
+          ]),
+        );
+        setRecentUploads((current) => {
+          let changed = false;
+          const next = current.map((entry) => {
+            const previewStatus = statusById.get(entry.id);
+            if (!previewStatus || entry.previewStatus === previewStatus) {
+              return entry;
+            }
+            changed = true;
+            return { ...entry, previewStatus };
+          });
+          return changed ? next : current;
+        });
+      }
+      if (isMounted && Date.now() - startedAt < PREVIEW_POLL_MAX_MS) {
+        const hasSlowItem = pending.some(
+          (item) => item.kind === "video" || item.kind === "document",
+        );
+        timeoutId = window.setTimeout(
+          () => {
+            void poll();
+          },
+          hasSlowItem ? 10000 : 5000,
+        );
+      }
+    };
+    timeoutId = window.setTimeout(
+      () => {
+        void poll();
+      },
+      pending.some((item) => item.kind === "video" || item.kind === "document")
+        ? 10000
+        : 5000,
+    );
     return () => {
       isMounted = false;
-      window.clearInterval(interval);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [recentUploads]);
 
@@ -417,20 +475,22 @@ export default function UploadDropzone({
               session.state !== "complete",
           )
         : undefined;
-      const fallbackResumeCandidate =
-        !resumeCandidate
-          ? incompleteSessions.find(
-              (session) =>
-                session.fileSize === file.size &&
-                session.fileName === file.name &&
-                session.state !== "complete",
-            )
-          : undefined;
-      const selectedResumeCandidate = resumeCandidate ?? fallbackResumeCandidate;
+      const fallbackResumeCandidate = !resumeCandidate
+        ? incompleteSessions.find(
+            (session) =>
+              session.fileSize === file.size &&
+              session.fileName === file.name &&
+              session.state !== "complete",
+          )
+        : undefined;
+      const selectedResumeCandidate =
+        resumeCandidate ?? fallbackResumeCandidate;
       const isResumed = Boolean(selectedResumeCandidate?.id);
       if (selectedResumeCandidate?.id) {
         setIncompleteSessions((current) =>
-          current.filter((session) => session.id !== selectedResumeCandidate.id),
+          current.filter(
+            (session) => session.id !== selectedResumeCandidate.id,
+          ),
         );
       }
       setUploadProgress((current) => ({
@@ -442,23 +502,27 @@ export default function UploadDropzone({
           resumed: isResumed,
         },
       }));
-      const result = await uploadSingleMedia(file, albumId.trim() || undefined, {
-        resumableThresholdBytes,
-        resumeFromSessionId: selectedResumeCandidate?.id,
-        checksum,
-        keepOriginalFileName,
-        onProgress: (uploaded, total) => {
-          setUploadProgress((current) => ({
-            ...current,
-            [fileKey]: {
-              name: file.name,
-              uploaded,
-              total,
-              resumed: isResumed,
-            },
-          }));
+      const result = await uploadSingleMedia(
+        file,
+        albumId.trim() || undefined,
+        {
+          resumableThresholdBytes,
+          resumeFromSessionId: selectedResumeCandidate?.id,
+          checksum,
+          keepOriginalFileName,
+          onProgress: (uploaded, total) => {
+            setUploadProgress((current) => ({
+              ...current,
+              [fileKey]: {
+                name: file.name,
+                uploaded,
+                total,
+                resumed: isResumed,
+              },
+            }));
+          },
         },
-      });
+      );
       pushMessage(result.message, result.ok ? "success" : "error");
 
       if (!result.ok) {
@@ -484,7 +548,8 @@ export default function UploadDropzone({
             kind: image.kind,
             baseName: image.baseName,
             originalFileName:
-              image.originalFileName ?? (keepOriginalFileName ? file.name : undefined),
+              image.originalFileName ??
+              (keepOriginalFileName ? file.name : undefined),
             ext: image.ext,
             mimeType: image.mimeType,
             previewStatus: image.previewStatus,
@@ -510,7 +575,9 @@ export default function UploadDropzone({
     uploadFilesRef.current = uploadFiles;
   });
 
-  async function createAlbum(name: string): Promise<{ id: string; name: string } | null> {
+  async function createAlbum(
+    name: string,
+  ): Promise<{ id: string; name: string } | null> {
     const trimmed = name.trim();
     if (!trimmed) {
       return null;
@@ -526,7 +593,9 @@ export default function UploadDropzone({
       throw new Error(payload.error ?? "Unable to create album.");
     }
 
-    const payload = (await response.json()) as { album: { id: string; name: string } };
+    const payload = (await response.json()) as {
+      album: { id: string; name: string };
+    };
     setAlbums((current) => [payload.album, ...current]);
     return payload.album;
   }
@@ -549,7 +618,9 @@ export default function UploadDropzone({
       setNewAlbumName("");
       setIsAlbumModalOpen(false);
     } catch (error) {
-      setAlbumError(error instanceof Error ? error.message : "Unable to create album.");
+      setAlbumError(
+        error instanceof Error ? error.message : "Unable to create album.",
+      );
     }
   }
 
@@ -572,7 +643,10 @@ export default function UploadDropzone({
     setIsCreatingAlbumFromPicker(false);
   }
 
-  async function addRecentUploadToAlbum(upload: UploadedImage, targetAlbumId: string) {
+  async function addRecentUploadToAlbum(
+    upload: UploadedImage,
+    targetAlbumId: string,
+  ) {
     const response = await fetch("/api/media/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -615,13 +689,17 @@ export default function UploadDropzone({
       pushMessage("added 2 album.", "success");
       closeAlbumPicker(true);
     } catch (error) {
-      setAlbumPickerError(error instanceof Error ? error.message : "Unable to add file to album.");
+      setAlbumPickerError(
+        error instanceof Error ? error.message : "Unable to add file to album.",
+      );
     } finally {
       setIsSavingAlbumPicker(false);
     }
   }
 
-  async function enableSharing(image: UploadedImage): Promise<ShareInfo | null> {
+  async function enableSharing(
+    image: UploadedImage,
+  ): Promise<ShareInfo | null> {
     const response = await fetch("/api/media-shares", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -632,8 +710,14 @@ export default function UploadDropzone({
       return null;
     }
 
-    const payload = (await response.json()) as { share: { id: string }; urls: { original: string } };
-    const nextShare = { id: payload.share.id, urls: { original: payload.urls.original } };
+    const payload = (await response.json()) as {
+      share: { id: string };
+      urls: { original: string };
+    };
+    const nextShare = {
+      id: payload.share.id,
+      urls: { original: payload.urls.original },
+    };
     setShareStates((current) => ({
       ...current,
       [image.id]: nextShare,
@@ -649,7 +733,9 @@ export default function UploadDropzone({
     if (!share) {
       return;
     }
-    await navigator.clipboard.writeText(`${window.location.origin}${share.urls.original}`);
+    await navigator.clipboard.writeText(
+      `${window.location.origin}${share.urls.original}`,
+    );
     setCopied(image.id);
     window.setTimeout(
       () => setCopied((current) => (current === image.id ? null : current)),
@@ -661,7 +747,10 @@ export default function UploadDropzone({
     const response = await fetch("/api/media/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", mediaItems: [{ id: image.id, kind: image.kind }] }),
+      body: JSON.stringify({
+        action: "delete",
+        mediaItems: [{ id: image.id, kind: image.kind }],
+      }),
     });
 
     if (!response.ok) {
@@ -670,7 +759,9 @@ export default function UploadDropzone({
       return;
     }
 
-    setRecentUploads((current) => current.filter((item) => item.id !== image.id));
+    setRecentUploads((current) =>
+      current.filter((item) => item.id !== image.id),
+    );
     setShareStates((current) => {
       if (!(image.id in current)) {
         return current;
@@ -750,7 +841,9 @@ export default function UploadDropzone({
         onDragLeave={uploadsEnabled ? onDragLeave : undefined}
         onDrop={uploadsEnabled ? onDropVisual : undefined}
         onClick={
-          uploadsEnabled ? () => document.getElementById(`${inputId}-file`)?.click() : undefined
+          uploadsEnabled
+            ? () => document.getElementById(`${inputId}-file`)?.click()
+            : undefined
         }
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -807,7 +900,9 @@ export default function UploadDropzone({
 
       {recentUploads.length > 0 ? (
         <div className="space-y-2">
-          <h3 className="text-xs font-medium text-neutral-600">ur recent uploads</h3>
+          <h3 className="text-xs font-medium text-neutral-600">
+            ur recent uploads
+          </h3>
           <div className="space-y-2">
             {recentUploads.map((image) => {
               const thumbUrl =
@@ -820,22 +915,27 @@ export default function UploadDropzone({
                   className="flex items-center justify-between gap-3 rounded border border-neutral-200 px-3 py-2 text-xs"
                 >
                   <div className="flex items-center gap-3">
-                    {image.kind === "video" && image.previewStatus !== "ready" ? (
+                    {image.previewStatus === "pending" ? (
                       <div className="flex h-8 w-8 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
                         <LightClock className="h-4 w-4" fill="currentColor" />
                       </div>
-                    ) : image.kind === "document" && image.previewStatus !== "ready" ? (
+                    ) : image.previewStatus !== "complete" &&
+                      image.kind !== "other" ? (
                       <div className="flex h-8 w-8 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
                         {(() => {
                           const Icon = getFileIconForExtension(image.ext);
-                          return <Icon className="h-4 w-4" fill="currentColor" />;
+                          return (
+                            <Icon className="h-4 w-4" fill="currentColor" />
+                          );
                         })()}
                       </div>
                     ) : image.kind === "other" ? (
                       <div className="flex h-8 w-8 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
                         {(() => {
                           const Icon = getFileIconForExtension(image.ext);
-                          return <Icon className="h-4 w-4" fill="currentColor" />;
+                          return (
+                            <Icon className="h-4 w-4" fill="currentColor" />
+                          );
                         })()}
                       </div>
                     ) : (
@@ -846,7 +946,9 @@ export default function UploadDropzone({
                         className="h-8 w-8 rounded object-cover"
                       />
                     )}
-                    <span className="max-w-[160px] truncate">{image.originalFileName || image.baseName}</span>
+                    <span className="max-w-[160px] truncate">
+                      {image.originalFileName || image.baseName}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -872,7 +974,11 @@ export default function UploadDropzone({
                       aria-label="Delete image"
                       title="Delete image"
                     >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
                         <path
                           d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Zm-1 11h12a2 2 0 0 0 2-2V7H4v11a2 2 0 0 0 2 2Z"
                           fill="currentColor"
@@ -889,12 +995,15 @@ export default function UploadDropzone({
 
       {Object.keys(uploadProgress).length > 0 ? (
         <div className="space-y-2 rounded border border-neutral-200 p-3">
-          <h3 className="text-xs font-medium text-neutral-600">upload progress</h3>
+          <h3 className="text-xs font-medium text-neutral-600">
+            upload progress
+          </h3>
           <div className="space-y-1">
             {Object.entries(uploadProgress).map(([key, progress]) => (
               <div key={key} className="text-xs text-neutral-600">
-                {progress.resumed ? `Resumed: ${progress.name}` : progress.name}:{" "}
-                {formatBytes(progress.uploaded)} / {formatBytes(progress.total)}
+                {progress.resumed ? `Resumed: ${progress.name}` : progress.name}
+                : {formatBytes(progress.uploaded)} /{" "}
+                {formatBytes(progress.total)}
               </div>
             ))}
           </div>
@@ -904,14 +1013,18 @@ export default function UploadDropzone({
       {incompleteSessions.length > 0 ? (
         <div className="space-y-2 rounded border border-neutral-200 p-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-medium text-neutral-600">failed / interrupted uploads</h3>
+            <h3 className="text-xs font-medium text-neutral-600">
+              failed / interrupted uploads
+            </h3>
             <button
               type="button"
               onClick={() => void clearFailedSessions()}
               disabled={
                 isClearingFailed ||
                 !incompleteSessions.some(
-                  (session) => session.state === "failed" || session.state === "finalizing",
+                  (session) =>
+                    session.state === "failed" ||
+                    session.state === "finalizing",
                 )
               }
               className="rounded border border-neutral-200 px-2 py-1 text-[11px] disabled:opacity-50"
@@ -922,7 +1035,8 @@ export default function UploadDropzone({
           <div className="space-y-1">
             {incompleteSessions.slice(0, 20).map((session) => (
               <div key={session.id} className="text-xs text-neutral-600">
-                {session.fileName} - {session.state} ({session.uploadedPartsCount}/{session.totalParts} parts,{" "}
+                {session.fileName} - {session.state} (
+                {session.uploadedPartsCount}/{session.totalParts} parts,{" "}
                 {formatBytes(session.fileSize)})
               </div>
             ))}
@@ -935,7 +1049,8 @@ export default function UploadDropzone({
           <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
             <h3 className="text-lg font-semibold">create album</h3>
             <p className="mt-1 text-xs text-neutral-500">
-              give the album a nice name so u can find it later. like Sir Pooty Pants
+              give the album a nice name so u can find it later. like Sir Pooty
+              Pants
             </p>
             <input
               className="mt-4 w-full rounded border px-3 py-2"
@@ -1011,7 +1126,9 @@ export default function UploadDropzone({
                 className="mt-3 w-full rounded border px-3 py-2"
                 placeholder="album name"
                 value={albumPickerNewAlbumName}
-                onChange={(event) => setAlbumPickerNewAlbumName(event.target.value)}
+                onChange={(event) =>
+                  setAlbumPickerNewAlbumName(event.target.value)
+                }
               />
             ) : null}
             {albumPickerError ? (
@@ -1040,4 +1157,3 @@ export default function UploadDropzone({
     </section>
   );
 }
-

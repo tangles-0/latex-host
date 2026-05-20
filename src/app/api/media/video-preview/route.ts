@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { getMediaForUser, updateVideoPreviewForUser } from "@/lib/media-store";
-import { generateVideoPreviewFromStoredMedia } from "@/lib/media-storage";
+import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   const payload = (await request.json()) as { mediaId?: string };
   const mediaId = payload.mediaId?.trim() ?? "";
   if (!mediaId) {
-    return NextResponse.json({ error: "mediaId is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "mediaId is required." },
+      { status: 400 },
+    );
   }
 
   const media = await getMediaForUser("video", mediaId, userId);
@@ -29,33 +32,30 @@ export async function POST(request: Request): Promise<NextResponse> {
       previewStatus: "pending",
       previewError: null,
     });
-    const generated = await generateVideoPreviewFromStoredMedia({
-      baseName: media.baseName,
-      ext: media.ext,
-      uploadedAt: new Date(media.uploadedAt),
-    });
-    const updated = await updateVideoPreviewForUser({
-      userId,
+    const queued = await requestPreviewGeneration({
       mediaId,
-      previewStatus: "ready",
-      previewError: null,
-      sizeSm: generated.sizeSm,
-      sizeLg: generated.sizeLg,
-      width: generated.width,
-      height: generated.height,
+      kind: "video",
+      ext: media.ext,
+      mimeType: media.mimeType,
+      fileSizeBytes: media.sizeOriginal,
+      downloadUrl: buildAppUrl(request, `/api/thumbnails/${mediaId}/source`),
     });
+    if (!queued.ok) {
+      throw new Error(queued.error);
+    }
     return NextResponse.json({
       ok: true,
-      previewStatus: updated?.previewStatus ?? "ready",
-      sizeSm: generated.sizeSm,
-      sizeLg: generated.sizeLg,
+      previewStatus: "pending",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to generate video preview.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to generate video preview.";
     await updateVideoPreviewForUser({
       userId,
       mediaId,
-      previewStatus: "failed",
+      previewStatus: "error",
       previewError: message,
     });
     return NextResponse.json({ error: message }, { status: 500 });

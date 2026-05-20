@@ -13,7 +13,7 @@ type AlbumMedia = {
   mimeType: string;
   width?: number;
   height?: number;
-  previewStatus?: "pending" | "processing" | "ready" | "failed";
+  previewStatus?: "pending" | "started" | "complete" | "error";
   albumCaption?: string;
   uploadedAt: string;
   content?: string;
@@ -46,7 +46,10 @@ export default function AlbumShareView({
           const fullUrl = `/share/album/${shareId}/media/${item.kind}/${item.id}/${item.baseName}.${item.ext}`;
           const previewUrl = `/share/album/${shareId}/media/${item.kind}/${item.id}/${item.baseName}-lg.${previewExt}`;
           return (
-            <div key={item.id} className="rounded-md border border-neutral-200 p-4">
+            <div
+              key={item.id}
+              className="rounded-md border border-neutral-200 p-4"
+            >
               {item.kind === "image" ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -69,12 +72,18 @@ export default function AlbumShareView({
                 />
               )}
               <div className="mt-3 text-xs text-neutral-500">
-                {item.width && item.height ? `${item.width}×${item.height} • ` : ""}
+                {item.width && item.height
+                  ? `${item.width}×${item.height} • `
+                  : ""}
                 {formatTimestamp(item.uploadedAt)}
               </div>
-              <div className="mt-1 text-xs text-neutral-700">{item.originalFileName || item.baseName}</div>
+              <div className="mt-1 text-xs text-neutral-700">
+                {item.originalFileName || item.baseName}
+              </div>
               {item.albumCaption ? (
-                <p className="mt-2 text-xs text-neutral-700">{item.albumCaption}</p>
+                <p className="mt-2 text-xs text-neutral-700">
+                  {item.albumCaption}
+                </p>
               ) : null}
             </div>
           );
@@ -83,4 +92,3 @@ export default function AlbumShareView({
     </main>
   );
 }
-

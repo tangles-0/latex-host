@@ -9,9 +9,18 @@ import {
   isAdminUser,
 } from "@/lib/metadata-store";
 import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
-import { extFromFileName, mediaKindFromType } from "@/lib/media-types";
-import { storeGenericMediaFromBuffer, storeImageMediaFromBuffer } from "@/lib/media-storage";
-import { requestPreviewGeneration } from "@/lib/preview-worker";
+import {
+  extFromFileName,
+  isLocalTextPreviewDocument,
+  isThumbnailServiceSupported,
+  mediaKindFromType,
+} from "@/lib/media-types";
+import {
+  storeGenericMediaFromBuffer,
+  storeImageMediaFromBuffer,
+  storeImageOriginalFromBuffer,
+} from "@/lib/media-storage";
+import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
 
@@ -34,7 +43,10 @@ function isAllowedType(allowed: string[], mime: string): boolean {
   });
 }
 
-function checkRateLimit(userId: string, limitPerMinute: number): { allowed: boolean; count: number } {
+function checkRateLimit(
+  userId: string,
+  limitPerMinute: number,
+): { allowed: boolean; count: number } {
   if (limitPerMinute <= 0) {
     return { allowed: true, count: 0 };
   }
@@ -62,7 +74,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     getAppSettings(),
   ]);
   if (!settings.uploadsEnabled) {
-    return NextResponse.json({ error: "Uploads are currently disabled." }, { status: 403 });
+    return NextResponse.json(
+      { error: "Uploads are currently disabled." },
+      { status: 403 },
+    );
   }
   const [groupLimits, defaultLimits] = await Promise.all([
     getGroupLimits(groupInfo.groupId),
@@ -71,34 +86,58 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const formData = await request.formData();
   const file = formData.get("file");
-  const albumId = formData.get("albumId")?.toString().trim() || undefined;
-  const keepOriginalFileName = formData.get("keepOriginalFileName")?.toString() === "1";
+  const albumIdValue = formData.get("albumId");
+  const keepOriginalFileNameValue = formData.get("keepOriginalFileName");
+  const albumId =
+    typeof albumIdValue === "string"
+      ? albumIdValue.trim() || undefined
+      : undefined;
+  const keepOriginalFileName =
+    typeof keepOriginalFileNameValue === "string" &&
+    keepOriginalFileNameValue === "1";
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "File is required." }, { status: 400 });
   }
   if (!file.type) {
-    return NextResponse.json({ error: "File type is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "File type is required." },
+      { status: 400 },
+    );
   }
   const ext = extFromFileName(file.name);
   if (!ext) {
-    return NextResponse.json({ error: "File extension is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "File extension is required." },
+      { status: 400 },
+    );
   }
   const kind = mediaKindFromType(file.type, ext);
   if (!isAllowedType(groupLimits.allowedTypes, file.type)) {
-    return NextResponse.json({ error: "File type is not allowed." }, { status: 415 });
+    return NextResponse.json(
+      { error: "File type is not allowed." },
+      { status: 415 },
+    );
   }
   const maxAllowedBytes = getMaxAllowedBytesForKind(groupLimits, kind);
   if (file.size > maxAllowedBytes) {
-    return NextResponse.json({ error: "File exceeds size limit." }, { status: 413 });
+    return NextResponse.json(
+      { error: "File exceeds size limit." },
+      { status: 413 },
+    );
   }
   const rateResult = checkRateLimit(userId, groupLimits.rateLimitPerMinute);
   if (!rateResult.allowed && !isAdmin) {
-    return NextResponse.json({ error: "Rate limit exceeded." }, { status: 429 });
+    return NextResponse.json(
+      { error: "Rate limit exceeded." },
+      { status: 429 },
+    );
   }
   if (isAdmin && defaultLimits.rateLimitPerMinute > 0) {
-    const adminRate = checkRateLimit(`admin:${userId}`, defaultLimits.rateLimitPerMinute);
+    const adminRate = checkRateLimit(
+      `admin:${userId}`,
+      defaultLimits.rateLimitPerMinute,
+    );
     if (!adminRate.allowed) {
-      // eslint-disable-next-line no-console
       console.warn(`Admin user ${userId} exceeded default rate limit.`);
     }
   }
@@ -113,21 +152,43 @@ export async function POST(request: Request): Promise<NextResponse> {
   const uploadedAt = new Date();
   const buffer = Buffer.from(await file.arrayBuffer());
 
+  const canUseThumbnailService = isThumbnailServiceSupported({
+    kind,
+    mimeType: file.type,
+    ext,
+    fileSizeBytes: file.size,
+  });
+  const thumbnailKind =
+    canUseThumbnailService && kind !== "other" ? kind : null;
   const stored =
     kind === "image"
-      ? await storeImageMediaFromBuffer({
-          buffer,
-          ext,
-          mimeType: file.type,
-          uploadedAt,
-        })
+      ? canUseThumbnailService
+        ? await storeImageOriginalFromBuffer({
+            buffer,
+            ext,
+            mimeType: file.type,
+            uploadedAt,
+          })
+        : await storeImageMediaFromBuffer({
+            buffer,
+            ext,
+            mimeType: file.type,
+            uploadedAt,
+          })
       : await storeGenericMediaFromBuffer({
-          kind: kind === "video" ? "video" : kind === "document" ? "document" : "other",
+          kind:
+            kind === "video"
+              ? "video"
+              : kind === "document"
+                ? "document"
+                : "other",
           buffer,
           ext,
           mimeType: file.type,
           uploadedAt,
-          deferPreview: kind === "video" || kind === "document",
+          deferPreview:
+            canUseThumbnailService &&
+            !isLocalTextPreviewDocument(file.type, ext),
         });
 
   const media = await addMediaForUser({
@@ -147,28 +208,21 @@ export async function POST(request: Request): Promise<NextResponse> {
     uploadedAt: uploadedAt.toISOString(),
   });
 
-  if (
-    (media.kind === "video" || media.kind === "document" || media.kind === "other") &&
-    media.previewStatus === "pending"
-  ) {
+  if (thumbnailKind && media.previewStatus === "pending") {
     const queued = await requestPreviewGeneration({
       mediaId: media.id,
-      kind: media.kind,
+      kind: thumbnailKind,
+      ext: media.ext,
+      mimeType: media.mimeType,
+      fileSizeBytes: media.sizeOriginal,
+      downloadUrl: buildAppUrl(request, `/api/thumbnails/${media.id}/source`),
     });
-    if (queued.ok) {
+    if (!queued.ok) {
       await updateMediaPreviewForUser({
         userId,
-        kind: media.kind,
+        kind,
         mediaId: media.id,
-        previewStatus: "processing",
-        previewError: null,
-      });
-    } else {
-      await updateMediaPreviewForUser({
-        userId,
-        kind: media.kind,
-        mediaId: media.id,
-        previewStatus: "failed",
+        previewStatus: "error",
         previewError: queued.error,
       });
     }
@@ -176,4 +230,3 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   return NextResponse.json({ media });
 }
-

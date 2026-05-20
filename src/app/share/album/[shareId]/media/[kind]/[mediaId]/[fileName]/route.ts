@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 import { getAlbumShareById } from "@/lib/metadata-store";
 import { getMedia, mediaIsInAlbum } from "@/lib/media-store";
-import { contentTypeForExt, isBlobMediaKind, type BlobMediaKind } from "@/lib/media-types";
+import {
+  contentTypeForExt,
+  isBlobMediaKind,
+  type BlobMediaKind,
+} from "@/lib/media-types";
 import {
   getMediaBufferSize,
   getMediaSignedUrl,
@@ -22,7 +26,9 @@ function parseKind(kind: string): BlobMediaKind | null {
   return isBlobMediaKind(kind) ? kind : null;
 }
 
-function parseFileName(fileName: string): { baseName: string; size: "original" | "sm" | "lg"; ext: string } | null {
+function parseFileName(
+  fileName: string,
+): { baseName: string; size: "original" | "sm" | "lg"; ext: string } | null {
   const match = /^(.*?)(-sm|-lg)?\.([a-zA-Z0-9]+)$/.exec(fileName);
   if (!match) {
     return null;
@@ -32,7 +38,10 @@ function parseFileName(fileName: string): { baseName: string; size: "original" |
   return { baseName: match[1], size, ext: match[3].toLowerCase() };
 }
 
-function parseByteRange(rangeHeader: string, total: number): { start: number; end: number } | null {
+function parseByteRange(
+  rangeHeader: string,
+  total: number,
+): { start: number; end: number } | null {
   const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
   if (!match) {
     return null;
@@ -52,7 +61,13 @@ function parseByteRange(rangeHeader: string, total: number): { start: number; en
   }
   const start = Number(startRaw);
   let end = endRaw ? Number(endRaw) : total - 1;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= total) {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end < start ||
+    start >= total
+  ) {
     return null;
   }
   end = Math.min(end, total - 1);
@@ -63,7 +78,10 @@ function withPublicCors(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Range",
+  );
   headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   return new Response(response.body, {
     status: response.status,
@@ -84,7 +102,14 @@ export async function GET(
   request: NextRequest,
   {
     params,
-  }: { params: Promise<{ shareId: string; kind: string; mediaId: string; fileName: string }> },
+  }: {
+    params: Promise<{
+      shareId: string;
+      kind: string;
+      mediaId: string;
+      fileName: string;
+    }>;
+  },
 ): Promise<Response> {
   const { shareId, kind, mediaId, fileName } = await params;
   const rate = await consumeRequestRateLimit({
@@ -123,22 +148,33 @@ export async function GET(
       return withPublicCors(await unavailableImageResponse(parsed.ext));
     }
 
-    if (parsedKind === "video" && media.previewStatus !== "ready" && parsed.size !== "original") {
+    if (
+      parsedKind === "video" &&
+      media.previewStatus !== "complete" &&
+      parsed.size !== "original"
+    ) {
       return withPublicCors(new Response("Not found", { status: 404 }));
     }
 
     const requestedSize =
-      parsedKind === "image" && media.ext.toLowerCase() === "svg" && parsed.size !== "original"
+      parsedKind === "image" &&
+      media.ext.toLowerCase() === "svg" &&
+      parsed.size !== "original"
         ? "original"
         : parsed.size;
 
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (parsedKind === "video" ||
-        (parsedKind === "other" && (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
+        (parsedKind === "other" &&
+          (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
     if (usesS3StorageBackend()) {
       const responseExt =
-        requestedSize === "original" ? media.ext : parsedKind === "image" ? media.ext : "png";
+        requestedSize === "original"
+          ? media.ext
+          : parsedKind === "image"
+            ? media.ext
+            : "png";
       const signedUrl = await getMediaSignedUrl({
         kind: parsedKind,
         baseName: media.baseName,
@@ -191,8 +227,14 @@ export async function GET(
           end: byteRange.end,
         });
         const headers = publicCacheHeaders(media.ext);
-        headers.set("Content-Range", `bytes ${byteRange.start}-${byteRange.end}/${total}`);
-        headers.set("Content-Length", String(byteRange.end - byteRange.start + 1));
+        headers.set(
+          "Content-Range",
+          `bytes ${byteRange.start}-${byteRange.end}/${total}`,
+        );
+        headers.set(
+          "Content-Length",
+          String(byteRange.end - byteRange.start + 1),
+        );
         headers.set("Accept-Ranges", "bytes");
         return withPublicCors(new Response(stream, { status: 206, headers }));
       }
@@ -206,7 +248,11 @@ export async function GET(
       uploadedAt: new Date(media.uploadedAt),
     });
     const responseExt =
-      requestedSize === "original" ? media.ext : parsedKind === "image" ? media.ext : "png";
+      requestedSize === "original"
+        ? media.ext
+        : parsedKind === "image"
+          ? media.ext
+          : "png";
     const headers = publicCacheHeaders(responseExt);
     if (isRangeStreamableOriginal) {
       headers.set("Accept-Ranges", "bytes");

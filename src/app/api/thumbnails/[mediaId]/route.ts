@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
 import {
-  getMediaWithOwner,
+  getBlobMediaWithOwnerById,
   updateMediaPreviewForUser,
 } from "@/lib/media-store";
 import { storeGeneratedPreviewForMedia } from "@/lib/media-storage";
-import {
-  isAsyncPreviewKind,
-  isWorkerIngestAuthorized,
-} from "@/lib/preview-worker";
+import { isWorkerIngestAuthorized } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
 
-type PreviewIngestPayload = {
-  kind?: string;
+type ThumbnailUploadPayload = {
   mediaId?: string;
-  previewBase64?: string;
-  error?: string;
+  thumbnailBase64?: string;
+  contentType?: string;
+  generationDurationMs?: number;
 };
 
 function decodeBase64Image(input: string): Buffer {
@@ -26,59 +23,58 @@ function decodeBase64Image(input: string): Buffer {
   return Buffer.from(withoutDataPrefix, "base64");
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ mediaId: string }> },
+): Promise<NextResponse> {
   if (!isWorkerIngestAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const payload = (await request.json()) as PreviewIngestPayload;
-  const kindValue = payload.kind?.trim() ?? "";
-  const mediaId = payload.mediaId?.trim() ?? "";
-  if (!mediaId || !isAsyncPreviewKind(kindValue)) {
+  const { mediaId: mediaIdParam } = await params;
+  const payload = (await request.json()) as ThumbnailUploadPayload;
+  const mediaId = mediaIdParam.trim();
+  if (!mediaId || payload.mediaId?.trim() !== mediaId) {
     return NextResponse.json(
-      { error: "kind and mediaId are required." },
+      { error: "mediaId does not match the route." },
       { status: 400 },
     );
   }
+  if (!payload.thumbnailBase64?.trim()) {
+    return NextResponse.json(
+      { error: "thumbnailBase64 is required." },
+      { status: 400 },
+    );
+  }
+  if (!payload.contentType?.toLowerCase().startsWith("image/")) {
+    return NextResponse.json(
+      { error: "contentType must be an image type." },
+      { status: 415 },
+    );
+  }
 
-  const media = await getMediaWithOwner(kindValue, mediaId);
+  const media = await getBlobMediaWithOwnerById(mediaId);
   if (!media) {
     return NextResponse.json({ error: "Media not found." }, { status: 404 });
   }
-
-  if (payload.error?.trim()) {
-    const updated = await updateMediaPreviewForUser({
-      userId: media.userId,
-      kind: kindValue,
-      mediaId,
-      previewStatus: "error",
-      previewError: payload.error.trim().slice(0, 500),
-    });
-    return NextResponse.json({
-      ok: true,
-      previewStatus: updated?.previewStatus ?? "error",
-    });
-  }
-
-  const previewBase64 = payload.previewBase64?.trim() ?? "";
-  if (!previewBase64) {
+  if (media.previewStatus === "complete") {
     return NextResponse.json(
-      { error: "previewBase64 is required when error is not provided." },
-      { status: 400 },
+      { error: "Thumbnail is already complete." },
+      { status: 409 },
     );
   }
 
   try {
     const generated = await storeGeneratedPreviewForMedia({
-      kind: kindValue,
+      kind: media.kind,
       baseName: media.baseName,
       ext: media.ext,
       uploadedAt: new Date(media.uploadedAt),
-      previewImageBuffer: decodeBase64Image(previewBase64),
+      previewImageBuffer: decodeBase64Image(payload.thumbnailBase64),
     });
     const updated = await updateMediaPreviewForUser({
       userId: media.userId,
-      kind: kindValue,
+      kind: media.kind,
       mediaId,
       previewStatus: "complete",
       previewError: null,
@@ -87,16 +83,19 @@ export async function POST(request: Request): Promise<NextResponse> {
       width: generated.width,
       height: generated.height,
     });
+
     return NextResponse.json({
       ok: true,
+      mediaId,
       previewStatus: updated?.previewStatus ?? "complete",
+      generationDurationMs: payload.generationDurationMs,
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unable to ingest preview.";
+      error instanceof Error ? error.message : "Unable to save thumbnail.";
     await updateMediaPreviewForUser({
       userId: media.userId,
-      kind: kindValue,
+      kind: media.kind,
       mediaId,
       previewStatus: "error",
       previewError: message.slice(0, 500),

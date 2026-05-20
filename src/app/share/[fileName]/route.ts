@@ -1,5 +1,10 @@
 import type { NextRequest } from "next/server";
-import { getAlbumShareByCode, getAppSettings, getImage, getShareByCode } from "@/lib/metadata-store";
+import {
+  getAlbumShareByCode,
+  getAppSettings,
+  getImage,
+  getShareByCode,
+} from "@/lib/metadata-store";
 import {
   getMediaBufferSize,
   getMediaSignedUrl,
@@ -16,7 +21,10 @@ import {
 import { contentTypeForExt, isBlobMediaKind } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
-import { parseByteRange, parseShareFileName } from "@/app/share/share-route-utils";
+import {
+  parseByteRange,
+  parseShareFileName,
+} from "@/app/share/share-route-utils";
 
 export const runtime = "nodejs";
 const PUBLIC_SHARE_CACHE_SECONDS = Math.max(
@@ -58,22 +66,32 @@ function isDownloadRequested(request: NextRequest): boolean {
 }
 
 function sanitizeDownloadFileName(fileName: string): string {
-  const sanitized = fileName.replace(/[/\\]/g, "-").replace(/[\r\n]+/g, " ").trim();
+  const sanitized = fileName
+    .replace(/[/\\]/g, "-")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
   return sanitized || "download";
 }
 
 function ensureFileExtension(fileName: string, ext: string): string {
   const normalizedExt = ext.toLowerCase();
-  return fileName.toLowerCase().endsWith(`.${normalizedExt}`) ? fileName : `${fileName}.${normalizedExt}`;
+  return fileName.toLowerCase().endsWith(`.${normalizedExt}`)
+    ? fileName
+    : `${fileName}.${normalizedExt}`;
 }
 
 function buildAttachmentDisposition(fileName: string): string {
   const safeFileName = sanitizeDownloadFileName(fileName);
-  const asciiFallback = safeFileName.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  const asciiFallback = safeFileName
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/["\\]/g, "_");
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`;
 }
 
-function applyAttachmentDisposition(headers: Headers, fileName: string): Headers {
+function applyAttachmentDisposition(
+  headers: Headers,
+  fileName: string,
+): Headers {
   headers.set("Content-Disposition", buildAttachmentDisposition(fileName));
   return headers;
 }
@@ -91,14 +109,20 @@ function resolveDownloadFileName(input: {
   if (!preferred) {
     return sanitizeDownloadFileName(input.requestedFileName);
   }
-  return sanitizeDownloadFileName(ensureFileExtension(preferred, input.responseExt));
+  return sanitizeDownloadFileName(
+    ensureFileExtension(preferred, input.responseExt),
+  );
 }
 
 function isDocumentNavigation(request: NextRequest): boolean {
   const destination = request.headers.get("sec-fetch-dest");
   const mode = request.headers.get("sec-fetch-mode");
   const accept = request.headers.get("accept") ?? "";
-  return destination === "document" || mode === "navigate" || accept.includes("text/html");
+  return (
+    destination === "document" ||
+    mode === "navigate" ||
+    accept.includes("text/html")
+  );
 }
 
 function escapeHtml(value: string): string {
@@ -110,7 +134,11 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function signedMediaViewerHtml(input: { src: string; mimeType: string; fileName: string }): string {
+function signedMediaViewerHtml(input: {
+  src: string;
+  mimeType: string;
+  fileName: string;
+}): string {
   const safeSrc = escapeHtml(input.src);
   const safeName = escapeHtml(input.fileName);
   const type = input.mimeType.toLowerCase();
@@ -180,12 +208,18 @@ export async function GET(
       const albumShare = await getAlbumShareByCode(fileName);
       if (albumShare) {
         // Proxy internally so `/share/<code>` stays in the browser URL.
-        const upstream = await fetch(new URL(`/share/internal-album/${albumShare.id}`, getInternalAppOrigin()), {
-          headers: {
-            accept: request.headers.get("accept") ?? "text/html,*/*",
+        const upstream = await fetch(
+          new URL(
+            `/share/internal-album/${albumShare.id}`,
+            getInternalAppOrigin(),
+          ),
+          {
+            headers: {
+              accept: request.headers.get("accept") ?? "text/html,*/*",
+            },
+            cache: "no-store",
           },
-          cache: "no-store",
-        });
+        );
         const headers = new Headers(upstream.headers);
         headers.delete("content-encoding");
         headers.delete("content-length");
@@ -201,7 +235,9 @@ export async function GET(
         if (downloadRequested) {
           const note = await getNote(noteShare.mediaId);
           if (!note) {
-            return withPublicImageCors(new Response("Not found", { status: 404 }));
+            return withPublicImageCors(
+              new Response("Not found", { status: 404 }),
+            );
           }
           const headers = new Headers({
             "Content-Type": "text/markdown; charset=utf-8",
@@ -209,16 +245,25 @@ export async function GET(
           });
           applyAttachmentDisposition(
             headers,
-            ensureFileExtension(note.originalFileName?.trim() || note.baseName, "md"),
+            ensureFileExtension(
+              note.originalFileName?.trim() || note.baseName,
+              "md",
+            ),
           );
           return withPublicImageCors(new Response(note.content, { headers }));
         }
-        const upstream = await fetch(new URL(`/share/internal-note/${noteShare.code ?? fileName}`, getInternalAppOrigin()), {
-          headers: {
-            accept: request.headers.get("accept") ?? "text/html,*/*",
+        const upstream = await fetch(
+          new URL(
+            `/share/internal-note/${noteShare.code ?? fileName}`,
+            getInternalAppOrigin(),
+          ),
+          {
+            headers: {
+              accept: request.headers.get("accept") ?? "text/html,*/*",
+            },
+            cache: "no-store",
           },
-          cache: "no-store",
-        });
+        );
         const headers = new Headers(upstream.headers);
         headers.delete("content-encoding");
         headers.delete("content-length");
@@ -251,7 +296,8 @@ export async function GET(
           responseExt: image.ext,
         });
         if (usesS3StorageBackend() && !downloadRequested) {
-          const responseExt = imageRequestedSize === "original" ? image.ext : "png";
+          const responseExt =
+            imageRequestedSize === "original" ? image.ext : "png";
           const mimeType = contentTypeForExt(responseExt);
           const signedUrl = await getMediaSignedUrl({
             kind: "image",
@@ -311,17 +357,27 @@ export async function GET(
     if (!isBlobMediaKind(media.kind)) {
       return withPublicImageCors(new Response("Not found", { status: 404 }));
     }
-    if (media.kind === "video" && media.previewStatus !== "ready" && parsed.size !== "original") {
+    if (
+      media.kind === "video" &&
+      media.previewStatus !== "complete" &&
+      parsed.size !== "original"
+    ) {
       return withPublicImageCors(new Response("Not found", { status: 404 }));
     }
     const requestedSize =
-      media.kind === "image" && media.ext.toLowerCase() === "svg" && parsed.size !== "original"
+      media.kind === "image" &&
+      media.ext.toLowerCase() === "svg" &&
+      parsed.size !== "original"
         ? "original"
         : parsed.size === "x640"
           ? "lg"
           : parsed.size;
     const responseExt =
-      requestedSize === "original" ? media.ext : media.kind === "image" ? media.ext : "png";
+      requestedSize === "original"
+        ? media.ext
+        : media.kind === "image"
+          ? media.ext
+          : "png";
     const downloadFileName = resolveDownloadFileName({
       requestedFileName: fileName,
       preferredFileName: media.originalFileName,
@@ -331,7 +387,8 @@ export async function GET(
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (media.kind === "video" ||
-        (media.kind === "other" && (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
+        (media.kind === "other" &&
+          (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
     if (usesS3StorageBackend() && !downloadRequested) {
       const mimeType = contentTypeForExt(responseExt);
       const signedUrl = await getMediaSignedUrl({
@@ -400,13 +457,21 @@ export async function GET(
           end: byteRange.end,
         });
         const headers = publicCacheHeaders(media.ext);
-        headers.set("Content-Range", `bytes ${byteRange.start}-${byteRange.end}/${total}`);
-        headers.set("Content-Length", String(byteRange.end - byteRange.start + 1));
+        headers.set(
+          "Content-Range",
+          `bytes ${byteRange.start}-${byteRange.end}/${total}`,
+        );
+        headers.set(
+          "Content-Length",
+          String(byteRange.end - byteRange.start + 1),
+        );
         headers.set("Accept-Ranges", "bytes");
         if (downloadRequested) {
           applyAttachmentDisposition(headers, downloadFileName);
         }
-        return withPublicImageCors(new Response(stream, { status: 206, headers }));
+        return withPublicImageCors(
+          new Response(stream, { status: 206, headers }),
+        );
       }
     }
 
@@ -427,9 +492,10 @@ export async function GET(
     return withPublicImageCors(new Response(stream, { headers }));
   } catch {
     if (!parsed) {
-      return withPublicImageCors(new Response("Service temporarily unavailable.", { status: 503 }));
+      return withPublicImageCors(
+        new Response("Service temporarily unavailable.", { status: 503 }),
+      );
     }
     return withPublicImageCors(await unavailableImageResponse(parsed.ext));
   }
 }
-

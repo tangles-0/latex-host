@@ -31,7 +31,7 @@ import {
 } from "@/lib/album-membership-store";
 import { deleteImageFiles } from "@/lib/storage";
 export type { MediaKind } from "@/lib/media-types";
-export type PreviewStatus = "pending" | "processing" | "ready" | "failed";
+export type PreviewStatus = "pending" | "started" | "complete" | "error";
 
 export type MediaEntry = {
   id: string;
@@ -60,7 +60,32 @@ export type MediaEntry = {
   shared?: boolean;
 };
 
+type BlobMediaEntry = Omit<MediaEntry, "kind"> & { kind: BlobMediaKind };
+
 const SHARE_CODE_LENGTH = 8;
+
+function normalizePreviewStatus(
+  value: string | null | undefined,
+): PreviewStatus {
+  if (value === "processing") {
+    return "started";
+  }
+  if (value === "ready") {
+    return "complete";
+  }
+  if (value === "failed") {
+    return "error";
+  }
+  if (
+    value === "pending" ||
+    value === "started" ||
+    value === "complete" ||
+    value === "error"
+  ) {
+    return value;
+  }
+  return "pending";
+}
 
 function mapImageRow(row: typeof images.$inferSelect): MediaEntry {
   return {
@@ -77,7 +102,8 @@ function mapImageRow(row: typeof images.$inferSelect): MediaEntry {
     sizeOriginal: row.sizeOriginal,
     sizeSm: row.sizeSm,
     sizeLg: row.sizeLg,
-    previewStatus: "ready",
+    previewStatus: normalizePreviewStatus(row.previewStatus),
+    previewError: row.previewError ?? undefined,
   };
 }
 
@@ -97,7 +123,7 @@ function mapVideoRow(row: typeof videos.$inferSelect): MediaEntry {
     sizeOriginal: row.sizeOriginal,
     sizeSm: row.sizeSm,
     sizeLg: row.sizeLg,
-    previewStatus: (row.previewStatus as PreviewStatus) ?? "pending",
+    previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
   };
 }
@@ -116,7 +142,7 @@ function mapDocumentRow(row: typeof documents.$inferSelect): MediaEntry {
     sizeOriginal: row.sizeOriginal,
     sizeSm: row.sizeSm,
     sizeLg: row.sizeLg,
-    previewStatus: (row.previewStatus as PreviewStatus) ?? "pending",
+    previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
   };
 }
@@ -134,7 +160,7 @@ function mapFileRow(row: typeof files.$inferSelect): MediaEntry {
     sizeOriginal: row.sizeOriginal,
     sizeSm: row.sizeSm,
     sizeLg: row.sizeLg,
-    previewStatus: (row.previewStatus as PreviewStatus) ?? "pending",
+    previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
   };
 }
@@ -145,7 +171,10 @@ function stripMarkdownToText(input: string): string {
       .replace(/\s+/g, " ")
       .trim();
   } catch {
-    return input.replace(/[*_`#[\]()>!-]/g, "").replace(/\s+/g, " ").trim();
+    return input
+      .replace(/[*_`#[\]()>!-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 }
 
@@ -175,14 +204,17 @@ function mapNoteRow(row: typeof notes.$inferSelect): MediaEntry {
     sizeOriginal: row.sizeOriginal,
     sizeSm: 0,
     sizeLg: 0,
-    previewStatus: "ready",
+    previewStatus: "complete",
     previewText: notePreviewText(row.content),
   };
 }
 
 function withMembership(
   entry: MediaEntry,
-  membership?: Pick<AlbumMembershipItem, "albumId" | "albumCaption" | "albumOrder">,
+  membership?: Pick<
+    AlbumMembershipItem,
+    "albumId" | "albumCaption" | "albumOrder"
+  >,
 ): MediaEntry {
   if (!membership) {
     return entry;
@@ -198,7 +230,10 @@ function withMembership(
 
 function noteEntryFromRow(
   row: typeof notes.$inferSelect,
-  membership?: Pick<AlbumMembershipItem, "albumId" | "albumCaption" | "albumOrder">,
+  membership?: Pick<
+    AlbumMembershipItem,
+    "albumId" | "albumCaption" | "albumOrder"
+  >,
 ): NoteEntry {
   return {
     ...withMembership(mapNoteRow(row), membership),
@@ -216,7 +251,11 @@ async function generateShareCode(kind: MediaKind): Promise<string> {
       .slice(0, SHARE_CODE_LENGTH);
     const existing =
       kind === "image"
-        ? await db.select({ id: shares.id }).from(shares).where(eq(shares.code, code)).limit(1)
+        ? await db
+            .select({ id: shares.id })
+            .from(shares)
+            .where(eq(shares.code, code))
+            .limit(1)
         : kind === "video"
           ? await db
               .select({ id: videoShares.id })
@@ -242,7 +281,11 @@ async function generateShareCode(kind: MediaKind): Promise<string> {
                   .limit(1);
     const [albumCollision] =
       kind === "note"
-        ? await db.select({ id: albumShares.id }).from(albumShares).where(eq(albumShares.code, code)).limit(1)
+        ? await db
+            .select({ id: albumShares.id })
+            .from(albumShares)
+            .where(eq(albumShares.code, code))
+            .limit(1)
         : [undefined];
     if (!existing[0] && !albumCollision) {
       return code;
@@ -286,10 +329,14 @@ export async function addMediaForUser(input: {
       sizeOriginal: input.sizeOriginal,
       sizeSm: input.sizeSm,
       sizeLg: input.sizeLg,
+      previewStatus: input.previewStatus,
+      previewError: input.previewError ?? null,
       uploadedAt,
     });
     if (input.albumId) {
-      await addMediaItemsToAlbum(input.userId, input.albumId, [{ id, kind: "image" }]);
+      await addMediaItemsToAlbum(input.userId, input.albumId, [
+        { id, kind: "image" },
+      ]);
       if (input.albumCaption?.trim()) {
         await updateAlbumMembershipCaptionForUser(
           input.userId,
@@ -318,7 +365,8 @@ export async function addMediaForUser(input: {
       sizeOriginal: input.sizeOriginal,
       sizeSm: input.sizeSm,
       sizeLg: input.sizeLg,
-      previewStatus: "ready",
+      previewStatus: input.previewStatus,
+      previewError: input.previewError,
     };
   }
 
@@ -385,7 +433,9 @@ export async function addMediaForUser(input: {
   }
 
   if (input.albumId) {
-    await addMediaItemsToAlbum(input.userId, input.albumId, [{ id, kind: input.kind }]);
+    await addMediaItemsToAlbum(input.userId, input.albumId, [
+      { id, kind: input.kind },
+    ]);
     if (input.albumCaption?.trim()) {
       await updateAlbumMembershipCaptionForUser(
         input.userId,
@@ -448,7 +498,12 @@ export async function updateOriginalFileNameForUser(input: {
     const [row] = await db
       .update(documents)
       .set({ originalFileName: input.originalFileName })
-      .where(and(eq(documents.userId, input.userId), eq(documents.id, input.mediaId)))
+      .where(
+        and(
+          eq(documents.userId, input.userId),
+          eq(documents.id, input.mediaId),
+        ),
+      )
       .returning();
     return row ? mapDocumentRow(row) : undefined;
   }
@@ -493,27 +548,35 @@ export async function createNoteForUser(input: {
     updatedAt: now,
   });
   if (input.albumId) {
-    await addMediaItemsToAlbum(input.userId, input.albumId, [{ id, kind: "note" }]);
+    await addMediaItemsToAlbum(input.userId, input.albumId, [
+      { id, kind: "note" },
+    ]);
   }
   const membership = input.albumId
     ? await getFirstAlbumMembershipForMedia("note", id, input.userId)
     : undefined;
-  return noteEntryFromRow({
-    id,
-    userId: input.userId,
-    albumId: membership?.albumId ?? null,
-    albumCaption: membership?.albumCaption ?? null,
-    albumOrder: membership?.albumOrder ?? 0,
-    baseName: `note-${id.slice(0, 8)}`,
-    originalFileName: input.originalFileName ?? "Untitled note",
-    content,
-    sizeOriginal: noteSizeBytes(content),
-    uploadedAt: now,
-    updatedAt: now,
-  }, membership);
+  return noteEntryFromRow(
+    {
+      id,
+      userId: input.userId,
+      albumId: membership?.albumId ?? null,
+      albumCaption: membership?.albumCaption ?? null,
+      albumOrder: membership?.albumOrder ?? 0,
+      baseName: `note-${id.slice(0, 8)}`,
+      originalFileName: input.originalFileName ?? "Untitled note",
+      content,
+      sizeOriginal: noteSizeBytes(content),
+      uploadedAt: now,
+      updatedAt: now,
+    },
+    membership,
+  );
 }
 
-export async function getNoteForUser(noteId: string, userId: string): Promise<NoteEntry | undefined> {
+export async function getNoteForUser(
+  noteId: string,
+  userId: string,
+): Promise<NoteEntry | undefined> {
   const [row] = await db
     .select()
     .from(notes)
@@ -523,7 +586,11 @@ export async function getNoteForUser(noteId: string, userId: string): Promise<No
 }
 
 export async function getNote(noteId: string): Promise<NoteEntry | undefined> {
-  const [row] = await db.select().from(notes).where(eq(notes.id, noteId)).limit(1);
+  const [row] = await db
+    .select()
+    .from(notes)
+    .where(eq(notes.id, noteId))
+    .limit(1);
   return row ? noteEntryFromRow(row) : undefined;
 }
 
@@ -548,36 +615,54 @@ export async function updateNoteForUser(input: {
 export async function listMediaForUser(userId: string): Promise<MediaEntry[]> {
   const [imageRows, videoRows, documentRows, fileRows, noteRows, memberships] =
     await Promise.all([
-    db
-      .select({ image: images, shareId: shares.id })
-      .from(images)
-      .leftJoin(shares, and(eq(shares.imageId, images.id), eq(shares.userId, userId)))
-      .where(eq(images.userId, userId)),
-    db
-      .select({ video: videos, shareId: videoShares.id })
-      .from(videos)
-      .leftJoin(videoShares, and(eq(videoShares.videoId, videos.id), eq(videoShares.userId, userId)))
-      .where(eq(videos.userId, userId)),
-    db
-      .select({ document: documents, shareId: documentShares.id })
-      .from(documents)
-      .leftJoin(
-        documentShares,
-        and(eq(documentShares.documentId, documents.id), eq(documentShares.userId, userId)),
-      )
-      .where(eq(documents.userId, userId)),
-    db
-      .select({ file: files, shareId: fileShares.id })
-      .from(files)
-      .leftJoin(fileShares, and(eq(fileShares.fileId, files.id), eq(fileShares.userId, userId)))
-      .where(eq(files.userId, userId)),
-    db
-      .select({ note: notes, shareId: noteShares.id })
-      .from(notes)
-      .leftJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
-      .where(eq(notes.userId, userId)),
-    listAlbumMembershipsForUser(userId),
-  ]);
+      db
+        .select({ image: images, shareId: shares.id })
+        .from(images)
+        .leftJoin(
+          shares,
+          and(eq(shares.imageId, images.id), eq(shares.userId, userId)),
+        )
+        .where(eq(images.userId, userId)),
+      db
+        .select({ video: videos, shareId: videoShares.id })
+        .from(videos)
+        .leftJoin(
+          videoShares,
+          and(
+            eq(videoShares.videoId, videos.id),
+            eq(videoShares.userId, userId),
+          ),
+        )
+        .where(eq(videos.userId, userId)),
+      db
+        .select({ document: documents, shareId: documentShares.id })
+        .from(documents)
+        .leftJoin(
+          documentShares,
+          and(
+            eq(documentShares.documentId, documents.id),
+            eq(documentShares.userId, userId),
+          ),
+        )
+        .where(eq(documents.userId, userId)),
+      db
+        .select({ file: files, shareId: fileShares.id })
+        .from(files)
+        .leftJoin(
+          fileShares,
+          and(eq(fileShares.fileId, files.id), eq(fileShares.userId, userId)),
+        )
+        .where(eq(files.userId, userId)),
+      db
+        .select({ note: notes, shareId: noteShares.id })
+        .from(notes)
+        .leftJoin(
+          noteShares,
+          and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)),
+        )
+        .where(eq(notes.userId, userId)),
+      listAlbumMembershipsForUser(userId),
+    ]);
   const membershipByMedia = new Map<string, AlbumMembershipItem>();
   const albumIdsByMedia = new Map<string, string[]>();
   for (const membership of memberships) {
@@ -592,93 +677,168 @@ export async function listMediaForUser(userId: string): Promise<MediaEntry[]> {
 
   const flattened = [
     ...imageRows.map((row) => ({
-      ...withMembership(mapImageRow(row.image), membershipByMedia.get(`image:${row.image.id}`)),
+      ...withMembership(
+        mapImageRow(row.image),
+        membershipByMedia.get(`image:${row.image.id}`),
+      ),
       albumIds: albumIdsByMedia.get(`image:${row.image.id}`) ?? [],
       shared: Boolean(row.shareId),
     })),
     ...videoRows.map((row) => ({
-      ...withMembership(mapVideoRow(row.video), membershipByMedia.get(`video:${row.video.id}`)),
+      ...withMembership(
+        mapVideoRow(row.video),
+        membershipByMedia.get(`video:${row.video.id}`),
+      ),
       albumIds: albumIdsByMedia.get(`video:${row.video.id}`) ?? [],
       shared: Boolean(row.shareId),
     })),
     ...documentRows.map((row) => ({
-      ...withMembership(mapDocumentRow(row.document), membershipByMedia.get(`document:${row.document.id}`)),
+      ...withMembership(
+        mapDocumentRow(row.document),
+        membershipByMedia.get(`document:${row.document.id}`),
+      ),
       albumIds: albumIdsByMedia.get(`document:${row.document.id}`) ?? [],
       shared: Boolean(row.shareId),
     })),
     ...fileRows.map((row) => ({
-      ...withMembership(mapFileRow(row.file), membershipByMedia.get(`other:${row.file.id}`)),
+      ...withMembership(
+        mapFileRow(row.file),
+        membershipByMedia.get(`other:${row.file.id}`),
+      ),
       albumIds: albumIdsByMedia.get(`other:${row.file.id}`) ?? [],
       shared: Boolean(row.shareId),
     })),
     ...noteRows.map((row) => ({
-      ...withMembership(mapNoteRow(row.note), membershipByMedia.get(`note:${row.note.id}`)),
+      ...withMembership(
+        mapNoteRow(row.note),
+        membershipByMedia.get(`note:${row.note.id}`),
+      ),
       albumIds: albumIdsByMedia.get(`note:${row.note.id}`) ?? [],
       shared: Boolean(row.shareId),
     })),
   ];
-  return flattened.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+  return flattened.sort(
+    (a, b) =>
+      new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  );
 }
 
-export async function listMediaForAlbum(userId: string, albumId: string): Promise<MediaEntry[]> {
+export async function listMediaForAlbum(
+  userId: string,
+  albumId: string,
+): Promise<MediaEntry[]> {
   const memberships = await listAlbumMembershipsForUser(userId, albumId);
   if (memberships.length === 0) {
     return [];
   }
   const grouped = {
-    image: memberships.filter((item) => item.mediaType === "image").map((item) => item.mediaId),
-    video: memberships.filter((item) => item.mediaType === "video").map((item) => item.mediaId),
-    document: memberships.filter((item) => item.mediaType === "document").map((item) => item.mediaId),
-    other: memberships.filter((item) => item.mediaType === "other").map((item) => item.mediaId),
-    note: memberships.filter((item) => item.mediaType === "note").map((item) => item.mediaId),
+    image: memberships
+      .filter((item) => item.mediaType === "image")
+      .map((item) => item.mediaId),
+    video: memberships
+      .filter((item) => item.mediaType === "video")
+      .map((item) => item.mediaId),
+    document: memberships
+      .filter((item) => item.mediaType === "document")
+      .map((item) => item.mediaId),
+    other: memberships
+      .filter((item) => item.mediaType === "other")
+      .map((item) => item.mediaId),
+    note: memberships
+      .filter((item) => item.mediaType === "note")
+      .map((item) => item.mediaId),
   };
-  const [imageRows, videoRows, documentRows, fileRows, noteRows] = await Promise.all([
-    grouped.image.length > 0
-      ? db
-          .select({ media: images, shareId: shares.id })
-          .from(images)
-          .leftJoin(shares, and(eq(shares.imageId, images.id), eq(shares.userId, userId)))
-          .where(and(eq(images.userId, userId), inArray(images.id, grouped.image)))
-      : Promise.resolve([]),
-    grouped.video.length > 0
-      ? db
-          .select({ media: videos, shareId: videoShares.id })
-          .from(videos)
-          .leftJoin(videoShares, and(eq(videoShares.videoId, videos.id), eq(videoShares.userId, userId)))
-          .where(and(eq(videos.userId, userId), inArray(videos.id, grouped.video)))
-      : Promise.resolve([]),
-    grouped.document.length > 0
-      ? db
-          .select({ media: documents, shareId: documentShares.id })
-          .from(documents)
-          .leftJoin(
-            documentShares,
-            and(eq(documentShares.documentId, documents.id), eq(documentShares.userId, userId)),
-          )
-          .where(and(eq(documents.userId, userId), inArray(documents.id, grouped.document)))
-      : Promise.resolve([]),
-    grouped.other.length > 0
-      ? db
-          .select({ media: files, shareId: fileShares.id })
-          .from(files)
-          .leftJoin(fileShares, and(eq(fileShares.fileId, files.id), eq(fileShares.userId, userId)))
-          .where(and(eq(files.userId, userId), inArray(files.id, grouped.other)))
-      : Promise.resolve([]),
-    grouped.note.length > 0
-      ? db
-          .select({ media: notes, shareId: noteShares.id })
-          .from(notes)
-          .leftJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
-          .where(and(eq(notes.userId, userId), inArray(notes.id, grouped.note)))
-      : Promise.resolve([]),
-  ]);
+  const [imageRows, videoRows, documentRows, fileRows, noteRows] =
+    await Promise.all([
+      grouped.image.length > 0
+        ? db
+            .select({ media: images, shareId: shares.id })
+            .from(images)
+            .leftJoin(
+              shares,
+              and(eq(shares.imageId, images.id), eq(shares.userId, userId)),
+            )
+            .where(
+              and(eq(images.userId, userId), inArray(images.id, grouped.image)),
+            )
+        : Promise.resolve([]),
+      grouped.video.length > 0
+        ? db
+            .select({ media: videos, shareId: videoShares.id })
+            .from(videos)
+            .leftJoin(
+              videoShares,
+              and(
+                eq(videoShares.videoId, videos.id),
+                eq(videoShares.userId, userId),
+              ),
+            )
+            .where(
+              and(eq(videos.userId, userId), inArray(videos.id, grouped.video)),
+            )
+        : Promise.resolve([]),
+      grouped.document.length > 0
+        ? db
+            .select({ media: documents, shareId: documentShares.id })
+            .from(documents)
+            .leftJoin(
+              documentShares,
+              and(
+                eq(documentShares.documentId, documents.id),
+                eq(documentShares.userId, userId),
+              ),
+            )
+            .where(
+              and(
+                eq(documents.userId, userId),
+                inArray(documents.id, grouped.document),
+              ),
+            )
+        : Promise.resolve([]),
+      grouped.other.length > 0
+        ? db
+            .select({ media: files, shareId: fileShares.id })
+            .from(files)
+            .leftJoin(
+              fileShares,
+              and(
+                eq(fileShares.fileId, files.id),
+                eq(fileShares.userId, userId),
+              ),
+            )
+            .where(
+              and(eq(files.userId, userId), inArray(files.id, grouped.other)),
+            )
+        : Promise.resolve([]),
+      grouped.note.length > 0
+        ? db
+            .select({ media: notes, shareId: noteShares.id })
+            .from(notes)
+            .leftJoin(
+              noteShares,
+              and(
+                eq(noteShares.noteId, notes.id),
+                eq(noteShares.userId, userId),
+              ),
+            )
+            .where(
+              and(eq(notes.userId, userId), inArray(notes.id, grouped.note)),
+            )
+        : Promise.resolve([]),
+    ]);
 
   const mediaByKey = new Map<string, MediaEntry>();
   for (const row of imageRows) {
-    mediaByKey.set(`image:${row.media.id}`, { ...mapImageRow(row.media), shared: Boolean(row.shareId) });
+    mediaByKey.set(`image:${row.media.id}`, {
+      ...mapImageRow(row.media),
+      shared: Boolean(row.shareId),
+    });
   }
   for (const row of videoRows) {
-    mediaByKey.set(`video:${row.media.id}`, { ...mapVideoRow(row.media), shared: Boolean(row.shareId) });
+    mediaByKey.set(`video:${row.media.id}`, {
+      ...mapVideoRow(row.media),
+      shared: Boolean(row.shareId),
+    });
   }
   for (const row of documentRows) {
     mediaByKey.set(`document:${row.media.id}`, {
@@ -687,10 +847,16 @@ export async function listMediaForAlbum(userId: string, albumId: string): Promis
     });
   }
   for (const row of fileRows) {
-    mediaByKey.set(`other:${row.media.id}`, { ...mapFileRow(row.media), shared: Boolean(row.shareId) });
+    mediaByKey.set(`other:${row.media.id}`, {
+      ...mapFileRow(row.media),
+      shared: Boolean(row.shareId),
+    });
   }
   for (const row of noteRows) {
-    mediaByKey.set(`note:${row.media.id}`, { ...mapNoteRow(row.media), shared: Boolean(row.shareId) });
+    mediaByKey.set(`note:${row.media.id}`, {
+      ...mapNoteRow(row.media),
+      shared: Boolean(row.shareId),
+    });
   }
 
   return memberships
@@ -705,35 +871,51 @@ export async function listMediaForAlbum(userId: string, albumId: string): Promis
     .filter(Boolean) as MediaEntry[];
 }
 
-export async function listMediaForAlbumPublic(albumId: string): Promise<MediaEntry[]> {
+export async function listMediaForAlbumPublic(
+  albumId: string,
+): Promise<MediaEntry[]> {
   const memberships = await listAlbumMembershipsPublic(albumId);
   if (memberships.length === 0) {
     return [];
   }
   const grouped = {
-    image: memberships.filter((item) => item.mediaType === "image").map((item) => item.mediaId),
-    video: memberships.filter((item) => item.mediaType === "video").map((item) => item.mediaId),
-    document: memberships.filter((item) => item.mediaType === "document").map((item) => item.mediaId),
-    other: memberships.filter((item) => item.mediaType === "other").map((item) => item.mediaId),
-    note: memberships.filter((item) => item.mediaType === "note").map((item) => item.mediaId),
+    image: memberships
+      .filter((item) => item.mediaType === "image")
+      .map((item) => item.mediaId),
+    video: memberships
+      .filter((item) => item.mediaType === "video")
+      .map((item) => item.mediaId),
+    document: memberships
+      .filter((item) => item.mediaType === "document")
+      .map((item) => item.mediaId),
+    other: memberships
+      .filter((item) => item.mediaType === "other")
+      .map((item) => item.mediaId),
+    note: memberships
+      .filter((item) => item.mediaType === "note")
+      .map((item) => item.mediaId),
   };
-  const [imageRows, videoRows, documentRows, fileRows, noteRows] = await Promise.all([
-    grouped.image.length > 0
-      ? db.select().from(images).where(inArray(images.id, grouped.image))
-      : Promise.resolve([]),
-    grouped.video.length > 0
-      ? db.select().from(videos).where(inArray(videos.id, grouped.video))
-      : Promise.resolve([]),
-    grouped.document.length > 0
-      ? db.select().from(documents).where(inArray(documents.id, grouped.document))
-      : Promise.resolve([]),
-    grouped.other.length > 0
-      ? db.select().from(files).where(inArray(files.id, grouped.other))
-      : Promise.resolve([]),
-    grouped.note.length > 0
-      ? db.select().from(notes).where(inArray(notes.id, grouped.note))
-      : Promise.resolve([]),
-  ]);
+  const [imageRows, videoRows, documentRows, fileRows, noteRows] =
+    await Promise.all([
+      grouped.image.length > 0
+        ? db.select().from(images).where(inArray(images.id, grouped.image))
+        : Promise.resolve([]),
+      grouped.video.length > 0
+        ? db.select().from(videos).where(inArray(videos.id, grouped.video))
+        : Promise.resolve([]),
+      grouped.document.length > 0
+        ? db
+            .select()
+            .from(documents)
+            .where(inArray(documents.id, grouped.document))
+        : Promise.resolve([]),
+      grouped.other.length > 0
+        ? db.select().from(files).where(inArray(files.id, grouped.other))
+        : Promise.resolve([]),
+      grouped.note.length > 0
+        ? db.select().from(notes).where(inArray(notes.id, grouped.note))
+        : Promise.resolve([]),
+    ]);
 
   const mediaByKey = new Map<string, MediaEntry>();
   for (const row of imageRows) {
@@ -749,7 +931,10 @@ export async function listMediaForAlbumPublic(albumId: string): Promise<MediaEnt
     mediaByKey.set(`other:${row.id}`, mapFileRow(row));
   }
   for (const row of noteRows) {
-    mediaByKey.set(`note:${row.id}`, { ...mapNoteRow(row), content: row.content });
+    mediaByKey.set(`note:${row.id}`, {
+      ...mapNoteRow(row),
+      content: row.content,
+    });
   }
 
   return memberships
@@ -778,7 +963,11 @@ export async function getMediaForUser(
     if (!row) {
       return undefined;
     }
-    const membership = await getFirstAlbumMembershipForMedia("image", row.id, userId);
+    const membership = await getFirstAlbumMembershipForMedia(
+      "image",
+      row.id,
+      userId,
+    );
     return withMembership(mapImageRow(row), membership);
   }
   if (kind === "video") {
@@ -790,7 +979,11 @@ export async function getMediaForUser(
     if (!row) {
       return undefined;
     }
-    const membership = await getFirstAlbumMembershipForMedia("video", row.id, userId);
+    const membership = await getFirstAlbumMembershipForMedia(
+      "video",
+      row.id,
+      userId,
+    );
     return withMembership(mapVideoRow(row), membership);
   }
   if (kind === "document") {
@@ -802,7 +995,11 @@ export async function getMediaForUser(
     if (!row) {
       return undefined;
     }
-    const membership = await getFirstAlbumMembershipForMedia("document", row.id, userId);
+    const membership = await getFirstAlbumMembershipForMedia(
+      "document",
+      row.id,
+      userId,
+    );
     return withMembership(mapDocumentRow(row), membership);
   }
   if (kind === "other") {
@@ -814,7 +1011,11 @@ export async function getMediaForUser(
     if (!row) {
       return undefined;
     }
-    const membership = await getFirstAlbumMembershipForMedia("other", row.id, userId);
+    const membership = await getFirstAlbumMembershipForMedia(
+      "other",
+      row.id,
+      userId,
+    );
     return withMembership(mapFileRow(row), membership);
   }
   const [row] = await db
@@ -825,13 +1026,24 @@ export async function getMediaForUser(
   if (!row) {
     return undefined;
   }
-  const membership = await getFirstAlbumMembershipForMedia("note", row.id, userId);
+  const membership = await getFirstAlbumMembershipForMedia(
+    "note",
+    row.id,
+    userId,
+  );
   return withMembership(mapNoteRow(row), membership);
 }
 
-export async function getMedia(kind: MediaKind, id: string): Promise<MediaEntry | undefined> {
+export async function getMedia(
+  kind: MediaKind,
+  id: string,
+): Promise<MediaEntry | undefined> {
   if (kind === "image") {
-    const [row] = await db.select().from(images).where(eq(images.id, id)).limit(1);
+    const [row] = await db
+      .select()
+      .from(images)
+      .where(eq(images.id, id))
+      .limit(1);
     if (!row) {
       return undefined;
     }
@@ -839,7 +1051,11 @@ export async function getMedia(kind: MediaKind, id: string): Promise<MediaEntry 
     return withMembership(mapImageRow(row), membership);
   }
   if (kind === "video") {
-    const [row] = await db.select().from(videos).where(eq(videos.id, id)).limit(1);
+    const [row] = await db
+      .select()
+      .from(videos)
+      .where(eq(videos.id, id))
+      .limit(1);
     if (!row) {
       return undefined;
     }
@@ -847,15 +1063,26 @@ export async function getMedia(kind: MediaKind, id: string): Promise<MediaEntry 
     return withMembership(mapVideoRow(row), membership);
   }
   if (kind === "document") {
-    const [row] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+    const [row] = await db
+      .select()
+      .from(documents)
+      .where(eq(documents.id, id))
+      .limit(1);
     if (!row) {
       return undefined;
     }
-    const membership = await getFirstAlbumMembershipForMedia("document", row.id);
+    const membership = await getFirstAlbumMembershipForMedia(
+      "document",
+      row.id,
+    );
     return withMembership(mapDocumentRow(row), membership);
   }
   if (kind === "other") {
-    const [row] = await db.select().from(files).where(eq(files.id, id)).limit(1);
+    const [row] = await db
+      .select()
+      .from(files)
+      .where(eq(files.id, id))
+      .limit(1);
     if (!row) {
       return undefined;
     }
@@ -871,23 +1098,90 @@ export async function getMedia(kind: MediaKind, id: string): Promise<MediaEntry 
 }
 
 export async function getMediaWithOwner(
-  kind: Exclude<BlobMediaKind, "image">,
+  kind: BlobMediaKind,
   id: string,
-): Promise<(MediaEntry & { userId: string }) | undefined> {
+): Promise<(BlobMediaEntry & { userId: string }) | undefined> {
+  if (kind === "image") {
+    const [row] = await db
+      .select()
+      .from(images)
+      .where(eq(images.id, id))
+      .limit(1);
+    return row
+      ? { ...mapImageRow(row), kind: "image", userId: row.userId }
+      : undefined;
+  }
   if (kind === "video") {
-    const [row] = await db.select().from(videos).where(eq(videos.id, id)).limit(1);
-    return row ? { ...mapVideoRow(row), userId: row.userId } : undefined;
+    const [row] = await db
+      .select()
+      .from(videos)
+      .where(eq(videos.id, id))
+      .limit(1);
+    return row
+      ? { ...mapVideoRow(row), kind: "video", userId: row.userId }
+      : undefined;
   }
   if (kind === "document") {
-    const [row] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
-    return row ? { ...mapDocumentRow(row), userId: row.userId } : undefined;
+    const [row] = await db
+      .select()
+      .from(documents)
+      .where(eq(documents.id, id))
+      .limit(1);
+    return row
+      ? { ...mapDocumentRow(row), kind: "document", userId: row.userId }
+      : undefined;
   }
   if (kind === "other") {
-    const [row] = await db.select().from(files).where(eq(files.id, id)).limit(1);
-    return row ? { ...mapFileRow(row), userId: row.userId } : undefined;
+    const [row] = await db
+      .select()
+      .from(files)
+      .where(eq(files.id, id))
+      .limit(1);
+    return row
+      ? { ...mapFileRow(row), kind: "other", userId: row.userId }
+      : undefined;
   }
-  const [row] = await db.select().from(notes).where(eq(notes.id, id)).limit(1);
-  return row ? { ...mapNoteRow(row), userId: row.userId } : undefined;
+  return undefined;
+}
+
+export async function getBlobMediaWithOwnerById(
+  id: string,
+): Promise<(BlobMediaEntry & { userId: string }) | undefined> {
+  const [imageRow, videoRow, documentRow, fileRow] = await Promise.all([
+    db.select().from(images).where(eq(images.id, id)).limit(1),
+    db.select().from(videos).where(eq(videos.id, id)).limit(1),
+    db.select().from(documents).where(eq(documents.id, id)).limit(1),
+    db.select().from(files).where(eq(files.id, id)).limit(1),
+  ]);
+  if (imageRow[0]) {
+    return {
+      ...mapImageRow(imageRow[0]),
+      kind: "image",
+      userId: imageRow[0].userId,
+    };
+  }
+  if (videoRow[0]) {
+    return {
+      ...mapVideoRow(videoRow[0]),
+      kind: "video",
+      userId: videoRow[0].userId,
+    };
+  }
+  if (documentRow[0]) {
+    return {
+      ...mapDocumentRow(documentRow[0]),
+      kind: "document",
+      userId: documentRow[0].userId,
+    };
+  }
+  if (fileRow[0]) {
+    return {
+      ...mapFileRow(fileRow[0]),
+      kind: "other",
+      userId: fileRow[0].userId,
+    };
+  }
+  return undefined;
 }
 
 export async function getShareForUserByMedia(
@@ -907,7 +1201,9 @@ export async function getShareForUserByMedia(
     const [row] = await db
       .select({ id: videoShares.id, code: videoShares.code })
       .from(videoShares)
-      .where(and(eq(videoShares.videoId, mediaId), eq(videoShares.userId, userId)))
+      .where(
+        and(eq(videoShares.videoId, mediaId), eq(videoShares.userId, userId)),
+      )
       .limit(1);
     return row;
   }
@@ -915,7 +1211,12 @@ export async function getShareForUserByMedia(
     const [row] = await db
       .select({ id: documentShares.id, code: documentShares.code })
       .from(documentShares)
-      .where(and(eq(documentShares.documentId, mediaId), eq(documentShares.userId, userId)))
+      .where(
+        and(
+          eq(documentShares.documentId, mediaId),
+          eq(documentShares.userId, userId),
+        ),
+      )
       .limit(1);
     return row;
   }
@@ -949,7 +1250,11 @@ export async function getShareByCode(
   }
   if (kind === "video") {
     const [row] = await db
-      .select({ id: videoShares.id, mediaId: videoShares.videoId, code: videoShares.code })
+      .select({
+        id: videoShares.id,
+        mediaId: videoShares.videoId,
+        code: videoShares.code,
+      })
       .from(videoShares)
       .where(eq(videoShares.code, code))
       .limit(1);
@@ -957,7 +1262,11 @@ export async function getShareByCode(
   }
   if (kind === "document") {
     const [row] = await db
-      .select({ id: documentShares.id, mediaId: documentShares.documentId, code: documentShares.code })
+      .select({
+        id: documentShares.id,
+        mediaId: documentShares.documentId,
+        code: documentShares.code,
+      })
       .from(documentShares)
       .where(eq(documentShares.code, code))
       .limit(1);
@@ -965,21 +1274,32 @@ export async function getShareByCode(
   }
   if (kind === "other") {
     const [row] = await db
-      .select({ id: fileShares.id, mediaId: fileShares.fileId, code: fileShares.code })
+      .select({
+        id: fileShares.id,
+        mediaId: fileShares.fileId,
+        code: fileShares.code,
+      })
       .from(fileShares)
       .where(eq(fileShares.code, code))
       .limit(1);
     return row;
   }
   const [row] = await db
-    .select({ id: noteShares.id, mediaId: noteShares.noteId, code: noteShares.code })
+    .select({
+      id: noteShares.id,
+      mediaId: noteShares.noteId,
+      code: noteShares.code,
+    })
     .from(noteShares)
     .where(eq(noteShares.code, code))
     .limit(1);
   return row;
 }
 
-export async function getSharedMediaByCodeAndExt(code: string, ext: string): Promise<MediaEntry | undefined> {
+export async function getSharedMediaByCodeAndExt(
+  code: string,
+  ext: string,
+): Promise<MediaEntry | undefined> {
   const loweredExt = ext.toLowerCase();
 
   const [imageShare] = await db
@@ -1036,7 +1356,9 @@ export async function getSharedMediaByCodeAndExt(code: string, ext: string): Pro
   return undefined;
 }
 
-export async function getSharedMediaByCode(code: string): Promise<MediaEntry | undefined> {
+export async function getSharedMediaByCode(
+  code: string,
+): Promise<MediaEntry | undefined> {
   const [imageShare] = await db
     .select({ mediaId: shares.imageId })
     .from(shares)
@@ -1209,14 +1531,21 @@ export async function deleteShareForMedia(
   if (kind === "video") {
     const rows = await db
       .delete(videoShares)
-      .where(and(eq(videoShares.userId, userId), eq(videoShares.videoId, mediaId)))
+      .where(
+        and(eq(videoShares.userId, userId), eq(videoShares.videoId, mediaId)),
+      )
       .returning({ id: videoShares.id });
     return rows.length > 0;
   }
   if (kind === "document") {
     const rows = await db
       .delete(documentShares)
-      .where(and(eq(documentShares.userId, userId), eq(documentShares.documentId, mediaId)))
+      .where(
+        and(
+          eq(documentShares.userId, userId),
+          eq(documentShares.documentId, mediaId),
+        ),
+      )
       .returning({ id: documentShares.id });
     return rows.length > 0;
   }
@@ -1238,7 +1567,9 @@ export async function getMediaPreviewStatusForUser(
   userId: string,
   kind: MediaKind,
   mediaId: string,
-): Promise<{ previewStatus: PreviewStatus; previewError?: string } | undefined> {
+): Promise<
+  { previewStatus: PreviewStatus; previewError?: string } | undefined
+> {
   const media = await getMediaForUser(kind, mediaId, userId);
   if (!media) {
     return undefined;
@@ -1247,6 +1578,58 @@ export async function getMediaPreviewStatusForUser(
     previewStatus: media.previewStatus,
     previewError: media.previewError,
   };
+}
+
+export async function getMediaPreviewStatusesForUser(
+  userId: string,
+  mediaIds: string[],
+): Promise<
+  Array<
+    Pick<
+      MediaEntry,
+      | "id"
+      | "kind"
+      | "baseName"
+      | "ext"
+      | "uploadedAt"
+      | "previewStatus"
+      | "previewError"
+      | "sizeOriginal"
+    >
+  >
+> {
+  const uniqueIds = Array.from(
+    new Set(mediaIds.map((id) => id.trim()).filter(Boolean)),
+  ).slice(0, 100);
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+  const [imageRows, videoRows, documentRows, fileRows] = await Promise.all([
+    db
+      .select()
+      .from(images)
+      .where(and(eq(images.userId, userId), inArray(images.id, uniqueIds))),
+    db
+      .select()
+      .from(videos)
+      .where(and(eq(videos.userId, userId), inArray(videos.id, uniqueIds))),
+    db
+      .select()
+      .from(documents)
+      .where(
+        and(eq(documents.userId, userId), inArray(documents.id, uniqueIds)),
+      ),
+    db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), inArray(files.id, uniqueIds))),
+  ]);
+  return [
+    ...imageRows.map(mapImageRow),
+    ...videoRows.map(mapVideoRow),
+    ...documentRows.map(mapDocumentRow),
+    ...fileRows.map(mapFileRow),
+  ];
 }
 
 export async function updateVideoPreviewForUser(input: {
@@ -1280,7 +1663,7 @@ export async function updateVideoPreviewForUser(input: {
 
 export async function updateMediaPreviewForUser(input: {
   userId: string;
-  kind: Exclude<MediaKind, "image" | "note">;
+  kind: Exclude<MediaKind, "note">;
   mediaId: string;
   previewStatus: PreviewStatus;
   previewError?: string | null;
@@ -1289,6 +1672,22 @@ export async function updateMediaPreviewForUser(input: {
   width?: number;
   height?: number;
 }): Promise<MediaEntry | undefined> {
+  if (input.kind === "image") {
+    const [row] = await db
+      .update(images)
+      .set({
+        previewStatus: input.previewStatus,
+        previewError: input.previewError ?? null,
+        sizeSm: input.sizeSm,
+        sizeLg: input.sizeLg,
+        width: input.width,
+        height: input.height,
+      })
+      .where(and(eq(images.userId, input.userId), eq(images.id, input.mediaId)))
+      .returning();
+    return row ? mapImageRow(row) : undefined;
+  }
+
   if (input.kind === "video") {
     return updateVideoPreviewForUser(input);
   }
@@ -1302,7 +1701,12 @@ export async function updateMediaPreviewForUser(input: {
         sizeSm: input.sizeSm,
         sizeLg: input.sizeLg,
       })
-      .where(and(eq(documents.userId, input.userId), eq(documents.id, input.mediaId)))
+      .where(
+        and(
+          eq(documents.userId, input.userId),
+          eq(documents.id, input.mediaId),
+        ),
+      )
       .returning();
     return row ? mapDocumentRow(row) : undefined;
   }
@@ -1399,17 +1803,30 @@ export async function deleteMediaForUser(
     }
     await deleteShareForMedia(item.kind, item.id, userId);
     if (item.kind === "image") {
-      await deleteImageFiles(media.baseName, media.ext, new Date(media.uploadedAt));
-      await db.delete(images).where(and(eq(images.userId, userId), eq(images.id, item.id)));
+      await deleteImageFiles(
+        media.baseName,
+        media.ext,
+        new Date(media.uploadedAt),
+      );
+      await db
+        .delete(images)
+        .where(and(eq(images.userId, userId), eq(images.id, item.id)));
     } else if (item.kind === "video") {
-      await db.delete(videos).where(and(eq(videos.userId, userId), eq(videos.id, item.id)));
+      await db
+        .delete(videos)
+        .where(and(eq(videos.userId, userId), eq(videos.id, item.id)));
     } else if (item.kind === "document") {
-      await db.delete(documents).where(and(eq(documents.userId, userId), eq(documents.id, item.id)));
+      await db
+        .delete(documents)
+        .where(and(eq(documents.userId, userId), eq(documents.id, item.id)));
     } else if (item.kind === "other") {
-      await db.delete(files).where(and(eq(files.userId, userId), eq(files.id, item.id)));
+      await db
+        .delete(files)
+        .where(and(eq(files.userId, userId), eq(files.id, item.id)));
     } else {
-      await db.delete(notes).where(and(eq(notes.userId, userId), eq(notes.id, item.id)));
+      await db
+        .delete(notes)
+        .where(and(eq(notes.userId, userId), eq(notes.id, item.id)));
     }
   }
 }
-

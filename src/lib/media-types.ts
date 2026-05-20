@@ -1,22 +1,41 @@
-export const MEDIA_KINDS = ["image", "video", "document", "other", "note"] as const;
+export const MEDIA_KINDS = [
+  "image",
+  "video",
+  "document",
+  "other",
+  "note",
+] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
-export const BLOB_MEDIA_KINDS = ["image", "video", "document", "other"] as const;
+export const BLOB_MEDIA_KINDS = [
+  "image",
+  "video",
+  "document",
+  "other",
+] as const;
 export type BlobMediaKind = (typeof BLOB_MEDIA_KINDS)[number];
 
-export const PREVIEWABLE_MEDIA_KINDS = ["video", "document", "other"] as const;
+export const PREVIEWABLE_MEDIA_KINDS = ["image", "video", "document"] as const;
 export type AsyncPreviewKind = (typeof PREVIEWABLE_MEDIA_KINDS)[number];
 
-export function isMediaKind(value: string | null | undefined): value is MediaKind {
+export function isMediaKind(
+  value: string | null | undefined,
+): value is MediaKind {
   return Boolean(value && MEDIA_KINDS.includes(value as MediaKind));
 }
 
-export function isBlobMediaKind(value: string | null | undefined): value is BlobMediaKind {
+export function isBlobMediaKind(
+  value: string | null | undefined,
+): value is BlobMediaKind {
   return Boolean(value && BLOB_MEDIA_KINDS.includes(value as BlobMediaKind));
 }
 
-export function isAsyncPreviewKind(value: string | null | undefined): value is AsyncPreviewKind {
-  return Boolean(value && PREVIEWABLE_MEDIA_KINDS.includes(value as AsyncPreviewKind));
+export function isAsyncPreviewKind(
+  value: string | null | undefined,
+): value is AsyncPreviewKind {
+  return Boolean(
+    value && PREVIEWABLE_MEDIA_KINDS.includes(value as AsyncPreviewKind),
+  );
 }
 
 export const PDF_EXTENSIONS = new Set(["pdf"]);
@@ -30,22 +49,11 @@ export const DOCUMENT_TEXT_EXTENSIONS = new Set([
   "odt",
 ]);
 
-export const SPREADSHEET_EXTENSIONS = new Set([
-  "xls",
-  "xlsx",
-  "ods",
-]);
+export const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "ods"]);
 
-export const PRESENTATION_EXTENSIONS = new Set([
-  "ppt",
-  "pptx",
-  "odp",
-]);
+export const PRESENTATION_EXTENSIONS = new Set(["ppt", "pptx", "odp"]);
 
-export const CSV_EXTENSIONS = new Set([
-  "csv",
-  "tsv",
-]);
+export const CSV_EXTENSIONS = new Set(["csv", "tsv"]);
 
 export const VIDEO_EXTENSIONS = new Set([
   "mp4",
@@ -153,6 +161,27 @@ export const DOCUMENT_EXTENSIONS = new Set([
   ...CSV_EXTENSIONS,
 ]);
 
+export const LOCAL_TEXT_PREVIEW_EXTENSIONS = new Set([
+  "txt",
+  "text",
+  "md",
+  "markdown",
+  ...CSV_EXTENSIONS,
+  ...CODE_EXTENSIONS,
+]);
+
+export const THUMBNAIL_SERVICE_DOCUMENT_EXTENSIONS = new Set([
+  ...PDF_EXTENSIONS,
+  "doc",
+  "docx",
+  "rtf",
+  "odt",
+  ...SPREADSHEET_EXTENSIONS,
+  ...PRESENTATION_EXTENSIONS,
+]);
+
+export const MAX_LOCAL_IMAGE_THUMBNAIL_BYTES = 60 * 1024 * 1024;
+
 const EXT_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -210,7 +239,10 @@ export function extFromFileName(fileName: string): string {
   return fileName.slice(idx + 1).toLowerCase();
 }
 
-export function mediaKindFromType(mimeType: string, ext: string): BlobMediaKind {
+export function mediaKindFromType(
+  mimeType: string,
+  ext: string,
+): BlobMediaKind {
   if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(ext)) {
     return "image";
   }
@@ -237,3 +269,58 @@ export function contentTypeForExt(ext: string): string {
   return EXT_TO_MIME[ext.toLowerCase()] ?? "application/octet-stream";
 }
 
+export function isLocalTextPreviewDocument(
+  mimeType: string,
+  ext: string,
+): boolean {
+  const normalizedMime = mimeType.toLowerCase();
+  const normalizedExt = ext.toLowerCase();
+  return (
+    normalizedMime.startsWith("text/") ||
+    LOCAL_TEXT_PREVIEW_EXTENSIONS.has(normalizedExt)
+  );
+}
+
+export function isThumbnailServiceSupported(input: {
+  kind: BlobMediaKind;
+  mimeType: string;
+  ext: string;
+  fileSizeBytes: number;
+}): input is {
+  kind: AsyncPreviewKind;
+  mimeType: string;
+  ext: string;
+  fileSizeBytes: number;
+} {
+  const normalizedMime = input.mimeType.toLowerCase();
+  const normalizedExt = input.ext.toLowerCase();
+  if (input.kind === "image") {
+    return (
+      input.fileSizeBytes > MAX_LOCAL_IMAGE_THUMBNAIL_BYTES &&
+      normalizedExt !== "svg" &&
+      (normalizedMime.startsWith("image/") ||
+        IMAGE_EXTENSIONS.has(normalizedExt))
+    );
+  }
+  if (input.kind === "video") {
+    return (
+      normalizedMime.startsWith("video/") || VIDEO_EXTENSIONS.has(normalizedExt)
+    );
+  }
+  if (input.kind === "document") {
+    return (
+      !isLocalTextPreviewDocument(normalizedMime, normalizedExt) &&
+      (normalizedMime.includes("pdf") ||
+        normalizedMime.includes("document") ||
+        normalizedMime.includes("spreadsheet") ||
+        normalizedMime.includes("presentation") ||
+        normalizedMime.includes("msword") ||
+        normalizedMime.includes("ms-excel") ||
+        normalizedMime.includes("powerpoint") ||
+        normalizedMime.includes("opendocument") ||
+        normalizedMime.includes("rtf") ||
+        THUMBNAIL_SERVICE_DOCUMENT_EXTENSIONS.has(normalizedExt))
+    );
+  }
+  return false;
+}

@@ -1,5 +1,9 @@
 import { uploadPart as uploadBlobPart } from "@vercel/blob/client";
-import { extFromFileName, mediaKindFromType, type BlobMediaKind } from "@/lib/media-types";
+import {
+  extFromFileName,
+  mediaKindFromType,
+  type BlobMediaKind,
+} from "@/lib/media-types";
 
 export type UploadResult = {
   ok: boolean;
@@ -16,7 +20,7 @@ export type UploadResult = {
     height?: number;
     uploadedAt: string;
     shared?: boolean;
-    previewStatus?: "pending" | "processing" | "ready" | "failed";
+    previewStatus?: "pending" | "started" | "complete" | "error";
   };
 };
 
@@ -24,7 +28,8 @@ const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 // Keep regular uploads below common serverless payload caps.
 export const DEFAULT_RESUMABLE_THRESHOLD = 4 * 1024 * 1024;
 const MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES = 4 * 1024 * 1024;
-export const KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY = "latex-keep-original-file-name";
+export const KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY =
+  "latex-keep-original-file-name";
 const PART_RETRY_LIMIT = 4;
 
 export type UploadOptions = {
@@ -77,7 +82,11 @@ async function computeSha256Hex(file: File): Promise<string> {
     .join("");
 }
 
-function sumUploadedBytes(uploadedParts: Record<string, string>, chunkSize: number, totalBytes: number): number {
+function sumUploadedBytes(
+  uploadedParts: Record<string, string>,
+  chunkSize: number,
+  totalBytes: number,
+): number {
   const partCount = Object.keys(uploadedParts).length;
   return Math.min(totalBytes, partCount * chunkSize);
 }
@@ -85,8 +94,16 @@ function sumUploadedBytes(uploadedParts: Record<string, string>, chunkSize: numb
 async function uploadResumable(
   file: File,
   targetType: BlobMediaKind,
-  options?: Pick<UploadOptions, "resumeFromSessionId" | "checksum" | "onProgress">,
-): Promise<{ ok: boolean; sessionId?: string; storageKey?: string; error?: string }> {
+  options?: Pick<
+    UploadOptions,
+    "resumeFromSessionId" | "checksum" | "onProgress"
+  >,
+): Promise<{
+  ok: boolean;
+  sessionId?: string;
+  storageKey?: string;
+  error?: string;
+}> {
   const checksum = options?.checksum ?? (await computeSha256Hex(file));
   let initPayload: InitUploadResponse;
   if (options?.resumeFromSessionId) {
@@ -96,7 +113,10 @@ async function uploadResumable(
     );
     if (!statusResponse.ok) {
       const payload = (await statusResponse.json()) as { error?: string };
-      return { ok: false, error: payload.error ?? "Unable to resume upload session." };
+      return {
+        ok: false,
+        error: payload.error ?? "Unable to resume upload session.",
+      };
     }
     const statusPayload = (await statusResponse.json()) as StatusUploadResponse;
     initPayload = {
@@ -122,14 +142,20 @@ async function uploadResumable(
     });
     if (!initResponse.ok) {
       const payload = (await initResponse.json()) as { error?: string };
-      return { ok: false, error: payload.error ?? "Unable to initialize upload session." };
+      return {
+        ok: false,
+        error: payload.error ?? "Unable to initialize upload session.",
+      };
     }
     initPayload = (await initResponse.json()) as InitUploadResponse;
   }
   const chunkSize = initPayload.chunkSize;
   const totalParts = initPayload.totalParts;
   const multipart = initPayload.multipart;
-  options?.onProgress?.(sumUploadedBytes(initPayload.uploadedParts, chunkSize, file.size), file.size);
+  options?.onProgress?.(
+    sumUploadedBytes(initPayload.uploadedParts, chunkSize, file.size),
+    file.size,
+  );
 
   for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
     if (initPayload.uploadedParts[String(partNumber)]) {
@@ -209,15 +235,28 @@ async function uploadResumable(
   const completeResponse = await fetch("/api/uploads/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: initPayload.sessionId, expectedTotalParts: totalParts, checksum }),
+    body: JSON.stringify({
+      sessionId: initPayload.sessionId,
+      expectedTotalParts: totalParts,
+      checksum,
+    }),
   });
   if (!completeResponse.ok) {
     const payload = (await completeResponse.json()) as { error?: string };
-    return { ok: false, error: payload.error ?? "Failed to finalize upload session." };
+    return {
+      ok: false,
+      error: payload.error ?? "Failed to finalize upload session.",
+    };
   }
-  const completePayload = (await completeResponse.json()) as { storageKey?: string };
+  const completePayload = (await completeResponse.json()) as {
+    storageKey?: string;
+  };
   options?.onProgress?.(file.size, file.size);
-  return { ok: true, sessionId: initPayload.sessionId, storageKey: completePayload.storageKey };
+  return {
+    ok: true,
+    sessionId: initPayload.sessionId,
+    storageKey: completePayload.storageKey,
+  };
 }
 
 export async function uploadSingleMedia(
@@ -232,7 +271,10 @@ export async function uploadSingleMedia(
     1024 * 1024,
     Number(options?.resumableThresholdBytes ?? DEFAULT_RESUMABLE_THRESHOLD),
   );
-  const effectiveResumableThresholdBytes = Math.min(resumableThresholdBytes, MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES);
+  const effectiveResumableThresholdBytes = Math.min(
+    resumableThresholdBytes,
+    MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES,
+  );
   if (file.size >= effectiveResumableThresholdBytes) {
     const resumable = await uploadResumable(file, kind, {
       resumeFromSessionId: options?.resumeFromSessionId,
@@ -240,7 +282,10 @@ export async function uploadSingleMedia(
       onProgress: options?.onProgress,
     });
     if (!resumable.ok || !resumable.sessionId) {
-      return { ok: false, message: `${file.name}: ${resumable.error ?? "Upload failed."}` };
+      return {
+        ok: false,
+        message: `${file.name}: ${resumable.error ?? "Upload failed."}`,
+      };
     }
     const finalizeResponse = await fetch("/api/media/from-upload-session", {
       method: "POST",
@@ -263,7 +308,9 @@ export async function uploadSingleMedia(
       }
       return { ok: false, message: `${file.name}: ${errorMessage}` };
     }
-    const payload = (await finalizeResponse.json()) as { media: UploadResult["media"] };
+    const payload = (await finalizeResponse.json()) as {
+      media: UploadResult["media"];
+    };
     return {
       ok: true,
       message: `${file.name} uploaded`,
@@ -276,7 +323,10 @@ export async function uploadSingleMedia(
   if (albumId) {
     formData.append("albumId", albumId);
   }
-  formData.append("keepOriginalFileName", options?.keepOriginalFileName === true ? "1" : "0");
+  formData.append(
+    "keepOriginalFileName",
+    options?.keepOriginalFileName === true ? "1" : "0",
+  );
 
   const response = await fetch("/api/media", {
     method: "POST",
@@ -305,7 +355,10 @@ export async function uploadSingleMedia(
   };
 }
 
-export async function uploadSingleImage(file: File, albumId?: string): Promise<UploadResult> {
+export async function uploadSingleImage(
+  file: File,
+  albumId?: string,
+): Promise<UploadResult> {
   const result = await uploadSingleMedia(file, albumId);
   if (!result.ok) {
     return result;
@@ -314,8 +367,10 @@ export async function uploadSingleImage(file: File, albumId?: string): Promise<U
     return result;
   }
   if (result.media.kind !== "image") {
-    return { ok: false, message: `${file.name}: upload returned non-image media type.` };
+    return {
+      ok: false,
+      message: `${file.name}: upload returned non-image media type.`,
+    };
   }
   return result;
 }
-

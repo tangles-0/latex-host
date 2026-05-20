@@ -7,18 +7,18 @@ import {
 } from "@/lib/upload-client";
 import FancyCheckbox from "@/components/ui/fancy-checkbox";
 
-import { LightCaretRight } from '@energiz3r/icon-library/Icons/Light/LightCaretRight';
-import { LightCaretLeft } from '@energiz3r/icon-library/Icons/Light/LightCaretLeft';
-import { LightTimes } from '@energiz3r/icon-library/Icons/Light/LightTimes';
-import { LightDownload } from '@energiz3r/icon-library/Icons/Light/LightDownload';
-import { LightUndo } from '@energiz3r/icon-library/Icons/Light/LightUndo';
-import { LightRedo } from '@energiz3r/icon-library/Icons/Light/LightRedo';
-import { LightArrowAltUp } from '@energiz3r/icon-library/Icons/Light/LightArrowAltUp';
-import { LightArrowAltDown } from '@energiz3r/icon-library/Icons/Light/LightArrowAltDown';
-import { LightTrashAlt } from '@energiz3r/icon-library/Icons/Light/LightTrashAlt';
-import { LightClock } from '@energiz3r/icon-library/Icons/Light/LightClock';
-import { LightPlayCircle } from '@energiz3r/icon-library/Icons/Light/LightPlayCircle';
-import { LightEdit } from '@energiz3r/icon-library/Icons/Light/LightEdit';
+import { LightCaretRight } from "@energiz3r/icon-library/Icons/Light/LightCaretRight";
+import { LightCaretLeft } from "@energiz3r/icon-library/Icons/Light/LightCaretLeft";
+import { LightTimes } from "@energiz3r/icon-library/Icons/Light/LightTimes";
+import { LightDownload } from "@energiz3r/icon-library/Icons/Light/LightDownload";
+import { LightUndo } from "@energiz3r/icon-library/Icons/Light/LightUndo";
+import { LightRedo } from "@energiz3r/icon-library/Icons/Light/LightRedo";
+import { LightArrowAltUp } from "@energiz3r/icon-library/Icons/Light/LightArrowAltUp";
+import { LightArrowAltDown } from "@energiz3r/icon-library/Icons/Light/LightArrowAltDown";
+import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
+import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
+import { LightPlayCircle } from "@energiz3r/icon-library/Icons/Light/LightPlayCircle";
+import { LightEdit } from "@energiz3r/icon-library/Icons/Light/LightEdit";
 
 import { SharePill } from "./share-pill";
 import { DitherIcon } from "./icons/dither";
@@ -34,6 +34,9 @@ const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
 const GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
+const PREVIEW_POLL_MAX_MS = 2 * 60 * 1000;
+
+type PreviewStatus = "pending" | "started" | "complete" | "error";
 
 type GalleryImage = {
   id: string;
@@ -51,12 +54,26 @@ type GalleryImage = {
   sizeOriginal?: number;
   sizeSm?: number;
   sizeLg?: number;
-  previewStatus?: "pending" | "processing" | "ready" | "failed";
+  previewStatus?: PreviewStatus;
   uploadedAt: string;
   updatedAt?: string;
   previewText?: string;
   shared?: boolean;
 };
+
+function isPreviewPollingStatus(status: PreviewStatus | undefined): boolean {
+  return status === "pending" || status === "started";
+}
+
+function previewPollDelayMs(items: GalleryImage[]): number {
+  const hasSlowItem = items.some(
+    (item) =>
+      item.kind === "video" ||
+      item.kind === "document" ||
+      (item.sizeOriginal ?? 0) >= 64 * 1024 * 1024,
+  );
+  return hasSlowItem ? 10000 : 5000;
+}
 
 type ShareInfo = {
   id: string;
@@ -108,7 +125,10 @@ function clipboardImageFileName(index: number, mimeType: string): string {
 function extractClipboardImageFiles(event: ClipboardEvent): File[] {
   const items = Array.from(event.clipboardData?.items ?? []);
   return items
-    .filter((item) => item.kind === "file" && item.type.toLowerCase().startsWith("image/"))
+    .filter(
+      (item) =>
+        item.kind === "file" && item.type.toLowerCase().startsWith("image/"),
+    )
     .map((item, index) => {
       const file = item.getAsFile();
       if (!file) {
@@ -171,34 +191,45 @@ export default function GalleryClient({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [globalDragging, setGlobalDragging] = useState(false);
   const [messages, setMessages] = useState<UploadMessage[]>([]);
-  const [dropUploadProgress, setDropUploadProgress] = useState<GalleryUploadProgressEntry[]>([]);
+  const [dropUploadProgress, setDropUploadProgress] = useState<
+    GalleryUploadProgressEntry[]
+  >([]);
   const [showAlbumImages, setShowAlbumImages] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [isRotating, setIsRotating] = useState(false);
   const [rotateError, setRotateError] = useState<string | null>(null);
   const [isDitherOpen, setIsDitherOpen] = useState(false);
   const [ditherError, setDitherError] = useState<string | null>(null);
-  const [previewActionError, setPreviewActionError] = useState<string | null>(null);
-  const [isRegeneratingVideoPreview, setIsRegeneratingVideoPreview] = useState(false);
+  const [previewActionError, setPreviewActionError] = useState<string | null>(
+    null,
+  );
+  const [isRegeneratingVideoPreview, setIsRegeneratingVideoPreview] =
+    useState(false);
   const [albumEditError, setAlbumEditError] = useState<string | null>(null);
   const [isSavingCaption, setIsSavingCaption] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [captionDraft, setCaptionDraft] = useState("");
-  const [isEditingOriginalFileName, setIsEditingOriginalFileName] = useState(false);
-  const [isSavingOriginalFileName, setIsSavingOriginalFileName] = useState(false);
+  const [isEditingOriginalFileName, setIsEditingOriginalFileName] =
+    useState(false);
+  const [isSavingOriginalFileName, setIsSavingOriginalFileName] =
+    useState(false);
   const [originalFileNameDraft, setOriginalFileNameDraft] = useState("");
   const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
   const [dragOverImageId, setDragOverImageId] = useState<string | null>(null);
-  const [imageVersionBumps, setImageVersionBumps] = useState<Record<string, number>>({});
+  const [imageVersionBumps, setImageVersionBumps] = useState<
+    Record<string, number>
+  >({});
   const [activeNote, setActiveNote] = useState<NoteDetails | null>(null);
   const [isLoadingNote, setIsLoadingNote] = useState(false);
-  const [noteEditorMode, setNoteEditorMode] = useState<NoteEditorMode>("markdown");
+  const [noteEditorMode, setNoteEditorMode] =
+    useState<NoteEditorMode>("markdown");
   const [noteContentDraft, setNoteContentDraft] = useState("");
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [autosaveEnabled, setAutosaveEnabled] = useState(true);
-  const [noteWindowMode, setNoteWindowMode] = useState<NoteWindowMode>("windowed");
+  const [noteWindowMode, setNoteWindowMode] =
+    useState<NoteWindowMode>("windowed");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const dragCounter = useRef(0);
   const lastSavedNoteContentRef = useRef("");
@@ -269,7 +300,10 @@ export default function GalleryClient({
       return;
     }
     try {
-      window.localStorage.setItem(SHOW_ALBUM_IMAGES_STORAGE_KEY, showAlbumImages ? "1" : "0");
+      window.localStorage.setItem(
+        SHOW_ALBUM_IMAGES_STORAGE_KEY,
+        showAlbumImages ? "1" : "0",
+      );
     } catch {
       // ignore storage errors
     }
@@ -278,15 +312,17 @@ export default function GalleryClient({
   useEffect(() => {
     function isInternalImageDrag(event: DragEvent): boolean {
       const types = event.dataTransfer?.types;
-      return Boolean(types && Array.from(types).includes(INTERNAL_IMAGE_DRAG_TYPE));
+      return Boolean(
+        types && Array.from(types).includes(INTERNAL_IMAGE_DRAG_TYPE),
+      );
     }
 
     function isFileDrag(event: DragEvent): boolean {
       const types = event.dataTransfer?.types;
       return Boolean(
         types &&
-          Array.from(types).includes("Files") &&
-          !Array.from(types).includes(INTERNAL_IMAGE_DRAG_TYPE),
+        Array.from(types).includes("Files") &&
+        !Array.from(types).includes(INTERNAL_IMAGE_DRAG_TYPE),
       );
     }
 
@@ -378,25 +414,32 @@ export default function GalleryClient({
       window.removeEventListener("drop", handleDrop);
       window.removeEventListener("paste", handlePaste);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filteredItems = useMemo(
-    () => {
-      let next = items;
-      if (kindFilter !== "all") {
-        next = next.filter((image) => image.kind === kindFilter);
-      }
-      if (hideImagesInAlbums) {
-        next = next.filter((image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId);
-      }
-      if (showAlbumImageToggle && !showAlbumImages) {
-        next = next.filter((image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId);
-      }
-      return next;
-    },
-    [hideImagesInAlbums, items, kindFilter, showAlbumImageToggle, showAlbumImages],
-  );
+  const filteredItems = useMemo(() => {
+    let next = items;
+    if (kindFilter !== "all") {
+      next = next.filter((image) => image.kind === kindFilter);
+    }
+    if (hideImagesInAlbums) {
+      next = next.filter(
+        (image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId,
+      );
+    }
+    if (showAlbumImageToggle && !showAlbumImages) {
+      next = next.filter(
+        (image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId,
+      );
+    }
+    return next;
+  }, [
+    hideImagesInAlbums,
+    items,
+    kindFilter,
+    showAlbumImageToggle,
+    showAlbumImages,
+  ]);
 
   const displayItems = useMemo(
     () =>
@@ -436,7 +479,10 @@ export default function GalleryClient({
     return displayItems.slice(start, start + PAGE_SIZE);
   }, [currentPage, displayItems, usePagination]);
 
-  const visibleIds = useMemo(() => new Set(filteredItems.map((image) => image.id)), [filteredItems]);
+  const visibleIds = useMemo(
+    () => new Set(filteredItems.map((image) => image.id)),
+    [filteredItems],
+  );
   const selectedIds = useMemo(
     () => Array.from(selected).filter((id) => visibleIds.has(id)),
     [selected, visibleIds],
@@ -459,12 +505,18 @@ export default function GalleryClient({
   const hasNext = activeIndex >= 0 && activeIndex < displayItems.length - 1;
   const activeDisplayItem = activeIndex >= 0 ? displayItems[activeIndex] : null;
   const isImageActive = active?.kind === "image";
-  const supports640Variant = isImageActive && active?.ext.toLowerCase() !== "svg";
+  const supports640Variant =
+    isImageActive && active?.ext.toLowerCase() !== "svg";
   const canRotateActive =
-    active && isImageActive ? ROTATABLE_EXTENSIONS.has(active.ext.toLowerCase()) : false;
+    active && isImageActive
+      ? ROTATABLE_EXTENSIONS.has(active.ext.toLowerCase())
+      : false;
   const activeDisplayName = active?.originalFileName || active?.baseName || "";
   const isNoteActive = active?.kind === "note";
-  const noteIsDirty = isNoteActive && activeNote ? noteContentDraft !== lastSavedNoteContentRef.current : false;
+  const noteIsDirty =
+    isNoteActive && activeNote
+      ? noteContentDraft !== lastSavedNoteContentRef.current
+      : false;
   const isNoteLarge = isNoteActive && noteWindowMode === "large";
   const isNoteFullscreen = isNoteActive && noteWindowMode === "fullscreen";
   const isNoteExpanded = isNoteLarge || isNoteFullscreen;
@@ -530,7 +582,9 @@ export default function GalleryClient({
 
     let keepOriginalFileName = false;
     try {
-      keepOriginalFileName = window.localStorage.getItem(KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY) === "1";
+      keepOriginalFileName =
+        window.localStorage.getItem(KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY) ===
+        "1";
     } catch {
       keepOriginalFileName = false;
     }
@@ -541,7 +595,10 @@ export default function GalleryClient({
         window.alert(
           `${file.name} is too large for quick gallery upload (>64MB). Use the Upload page for progress + resume uploads.`,
         );
-        pushMessage(`${file.name}: use Upload page for files over 64MB.`, "error");
+        pushMessage(
+          `${file.name}: use Upload page for files over 64MB.`,
+          "error",
+        );
         continue;
       }
       acceptedFiles.push({
@@ -572,7 +629,9 @@ export default function GalleryClient({
     for (const { file, progressId } of acceptedFiles) {
       setDropUploadProgress((current) =>
         current.map((entry) =>
-          entry.id === progressId ? { ...entry, status: "uploading", uploaded: 0, total: file.size } : entry,
+          entry.id === progressId
+            ? { ...entry, status: "uploading", uploaded: 0, total: file.size }
+            : entry,
         ),
       );
       const result = await uploadSingleMedia(file, uploadAlbumId, {
@@ -621,8 +680,13 @@ export default function GalleryClient({
     setIsLoadingNote(true);
     setNoteSaveError(null);
     try {
-      const response = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, { cache: "no-store" });
-      const payload = (await response.json()) as { error?: string; note?: NoteDetails };
+      const response = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        note?: NoteDetails;
+      };
       if (!response.ok || !payload.note) {
         throw new Error(payload.error ?? "Unable to load note.");
       }
@@ -632,12 +696,16 @@ export default function GalleryClient({
       setLastSavedAt(payload.note.updatedAt ?? null);
       setNoteEditorMode("markdown");
       try {
-        setAutosaveEnabled(window.localStorage.getItem(noteAutosaveStorageKey(noteId)) !== "0");
+        setAutosaveEnabled(
+          window.localStorage.getItem(noteAutosaveStorageKey(noteId)) !== "0",
+        );
       } catch {
         setAutosaveEnabled(true);
       }
     } catch (error) {
-      setNoteSaveError(error instanceof Error ? error.message : "Unable to load note.");
+      setNoteSaveError(
+        error instanceof Error ? error.message : "Unable to load note.",
+      );
     } finally {
       setIsLoadingNote(false);
     }
@@ -655,33 +723,56 @@ export default function GalleryClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ albumId: uploadAlbumId }),
       });
-      const payload = (await response.json()) as { error?: string; note?: GalleryImage };
+      const payload = (await response.json()) as {
+        error?: string;
+        note?: GalleryImage;
+      };
       if (!response.ok || !payload.note) {
         throw new Error(payload.error ?? "Unable to create note.");
       }
       setItems((current) => [payload.note!, ...current]);
       await openModal(payload.note);
-      pushMessage(uploadAlbumId ? "Created note in album." : "Created note.", "success");
+      pushMessage(
+        uploadAlbumId ? "Created note in album." : "Created note.",
+        "success",
+      );
     } catch (error) {
-      pushMessage(error instanceof Error ? error.message : "Unable to create note.", "error");
+      pushMessage(
+        error instanceof Error ? error.message : "Unable to create note.",
+        "error",
+      );
     } finally {
       setIsCreatingNote(false);
     }
   }
 
-  async function saveActiveNote(options?: { silent?: boolean }): Promise<boolean> {
-    if (!active || active.kind !== "note" || !activeNote || isSavingNote || !noteIsDirty) {
+  async function saveActiveNote(options?: {
+    silent?: boolean;
+  }): Promise<boolean> {
+    if (
+      !active ||
+      active.kind !== "note" ||
+      !activeNote ||
+      isSavingNote ||
+      !noteIsDirty
+    ) {
       return true;
     }
     setIsSavingNote(true);
     setNoteSaveError(null);
     try {
-      const response = await fetch(`/api/notes/${encodeURIComponent(active.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: noteContentDraft }),
-      });
-      const payload = (await response.json()) as { error?: string; note?: NoteDetails & GalleryImage };
+      const response = await fetch(
+        `/api/notes/${encodeURIComponent(active.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: noteContentDraft }),
+        },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        note?: NoteDetails & GalleryImage;
+      };
       if (!response.ok || !payload.note) {
         throw new Error(payload.error ?? "Unable to save note.");
       }
@@ -719,7 +810,9 @@ export default function GalleryClient({
       }
       return true;
     } catch (error) {
-      setNoteSaveError(error instanceof Error ? error.message : "Unable to save note.");
+      setNoteSaveError(
+        error instanceof Error ? error.message : "Unable to save note.",
+      );
       return false;
     } finally {
       setIsSavingNote(false);
@@ -798,7 +891,9 @@ export default function GalleryClient({
         }
       }
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : "Unable to load share info.");
+      setShareError(
+        error instanceof Error ? error.message : "Unable to load share info.",
+      );
     }
   }
 
@@ -840,7 +935,9 @@ export default function GalleryClient({
       ),
     );
     setActive((current) =>
-      current?.id === mediaId ? { ...current, previewStatus: "pending" } : current,
+      current?.id === mediaId
+        ? { ...current, previewStatus: "pending" }
+        : current,
     );
     try {
       const response = await fetch("/api/media/video-preview", {
@@ -850,34 +947,41 @@ export default function GalleryClient({
       });
       const payload = (await response.json()) as {
         error?: string;
-        previewStatus?: "pending" | "processing" | "ready" | "failed";
+        previewStatus?: PreviewStatus;
       };
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to regenerate thumbnail.");
       }
-      const nextStatus = payload.previewStatus ?? "ready";
+      const nextStatus = payload.previewStatus ?? "pending";
       setItems((current) =>
         current.map((item) =>
           item.id === mediaId ? { ...item, previewStatus: nextStatus } : item,
         ),
       );
       setActive((current) =>
-        current?.id === mediaId ? { ...current, previewStatus: nextStatus } : current,
+        current?.id === mediaId
+          ? { ...current, previewStatus: nextStatus }
+          : current,
       );
       setImageVersionBumps((current) => ({
         ...current,
         [mediaId]: Date.now(),
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to regenerate thumbnail.";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to regenerate thumbnail.";
       setPreviewActionError(message);
       setItems((current) =>
         current.map((item) =>
-          item.id === mediaId ? { ...item, previewStatus: "failed" } : item,
+          item.id === mediaId ? { ...item, previewStatus: "error" } : item,
         ),
       );
       setActive((current) =>
-        current?.id === mediaId ? { ...current, previewStatus: "failed" } : current,
+        current?.id === mediaId
+          ? { ...current, previewStatus: "error" }
+          : current,
       );
     } finally {
       setIsRegeneratingVideoPreview(false);
@@ -909,7 +1013,10 @@ export default function GalleryClient({
   async function copyText(text: string, label: string) {
     await navigator.clipboard.writeText(text);
     setCopied(label);
-    window.setTimeout(() => setCopied((current) => (current === label ? null : current)), 1200);
+    window.setTimeout(
+      () => setCopied((current) => (current === label ? null : current)),
+      1200,
+    );
   }
 
   function to640VariantUrl(url: string): string {
@@ -924,7 +1031,10 @@ export default function GalleryClient({
       return "0 B";
     }
     const units = ["B", "KB", "MB", "GB", "TB"];
-    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const exponent = Math.min(
+      Math.floor(Math.log(bytes) / Math.log(1024)),
+      units.length - 1,
+    );
     const value = bytes / 1024 ** exponent;
     return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`;
   }
@@ -943,7 +1053,10 @@ export default function GalleryClient({
       return null;
     }
 
-    const payload = (await response.json()) as { share: { id: string }; urls: ShareInfo["urls"] };
+    const payload = (await response.json()) as {
+      share: { id: string };
+      urls: ShareInfo["urls"];
+    };
     const nextShare = { id: payload.share.id, urls: payload.urls };
     setShare(nextShare);
     if (image.kind === "image" && image.ext.toLowerCase() !== "svg") {
@@ -1006,7 +1119,11 @@ export default function GalleryClient({
       setHas640Variant(true);
       await copyText(`${origin}${variantUrl}`, "640");
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : "Unable to generate 640x480 link.");
+      setShareError(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate 640x480 link.",
+      );
     } finally {
       setIsGenerating640(false);
     }
@@ -1015,9 +1132,12 @@ export default function GalleryClient({
   async function check640Variant(imageId: string) {
     setIsChecking640(true);
     try {
-      const response = await fetch(`/api/images/640?imageId=${encodeURIComponent(imageId)}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/images/640?imageId=${encodeURIComponent(imageId)}`,
+        {
+          cache: "no-store",
+        },
+      );
       if (!response.ok) {
         setHas640Variant(false);
         return;
@@ -1048,7 +1168,13 @@ export default function GalleryClient({
       });
       const payload = (await response.json()) as {
         error?: string;
-        image?: { width: number; height: number; sizeOriginal?: number; sizeSm?: number; sizeLg?: number };
+        image?: {
+          width: number;
+          height: number;
+          sizeOriginal?: number;
+          sizeSm?: number;
+          sizeLg?: number;
+        };
       };
       if (!response.ok || !payload.image) {
         throw new Error(payload.error ?? "Unable to rotate image.");
@@ -1063,26 +1189,26 @@ export default function GalleryClient({
         current.map((item) =>
           item.id === active.id
             ? {
-              ...item,
-              width: nextWidth,
-              height: nextHeight,
-              sizeOriginal: nextSizeOriginal,
-              sizeSm: nextSizeSm,
-              sizeLg: nextSizeLg,
-            }
+                ...item,
+                width: nextWidth,
+                height: nextHeight,
+                sizeOriginal: nextSizeOriginal,
+                sizeSm: nextSizeSm,
+                sizeLg: nextSizeLg,
+              }
             : item,
         ),
       );
       setActive((current) =>
         current?.id === active.id
           ? {
-            ...current,
-            width: nextWidth,
-            height: nextHeight,
-             sizeOriginal: nextSizeOriginal,
-             sizeSm: nextSizeSm,
-             sizeLg: nextSizeLg,
-          }
+              ...current,
+              width: nextWidth,
+              height: nextHeight,
+              sizeOriginal: nextSizeOriginal,
+              sizeSm: nextSizeSm,
+              sizeLg: nextSizeLg,
+            }
           : current,
       );
       setImageVersionBumps((current) => ({
@@ -1090,7 +1216,9 @@ export default function GalleryClient({
         [active.id]: Date.now(),
       }));
     } catch (error) {
-      setRotateError(error instanceof Error ? error.message : "Unable to rotate image.");
+      setRotateError(
+        error instanceof Error ? error.message : "Unable to rotate image.",
+      );
     } finally {
       setIsRotating(false);
     }
@@ -1103,7 +1231,10 @@ export default function GalleryClient({
     const formData = new FormData();
     formData.append("mode", mode);
     formData.append("imageId", active.id);
-    formData.append("file", new File([blob], `${active.baseName}.${active.ext}`, { type: blob.type }));
+    formData.append(
+      "file",
+      new File([blob], `${active.baseName}.${active.ext}`, { type: blob.type }),
+    );
 
     const response = await fetch("/api/images/dither", {
       method: "POST",
@@ -1176,7 +1307,10 @@ export default function GalleryClient({
     if (!uploadAlbumId) {
       return;
     }
-    const mediaItems = nextItems.map((item) => ({ id: item.id, kind: item.kind }));
+    const mediaItems = nextItems.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+    }));
     const response = await fetch(`/api/albums/${uploadAlbumId}/images/order`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1212,14 +1346,21 @@ export default function GalleryClient({
       await persistAlbumOrder(nextItems);
     } catch (error) {
       setItems(previousItems);
-      setAlbumEditError(error instanceof Error ? error.message : "Unable to reorder image.");
+      setAlbumEditError(
+        error instanceof Error ? error.message : "Unable to reorder image.",
+      );
     } finally {
       setIsSavingOrder(false);
     }
   }
 
   async function moveImageByDrag(targetImageId: string) {
-    if (!uploadAlbumId || !draggedImageId || draggedImageId === targetImageId || isSavingOrder) {
+    if (
+      !uploadAlbumId ||
+      !draggedImageId ||
+      draggedImageId === targetImageId ||
+      isSavingOrder
+    ) {
       return;
     }
     const fromIndex = items.findIndex((item) => item.id === draggedImageId);
@@ -1239,7 +1380,9 @@ export default function GalleryClient({
       await persistAlbumOrder(nextItems);
     } catch (error) {
       setItems(previousItems);
-      setAlbumEditError(error instanceof Error ? error.message : "Unable to reorder image.");
+      setAlbumEditError(
+        error instanceof Error ? error.message : "Unable to reorder image.",
+      );
     } finally {
       setIsSavingOrder(false);
       setDraggedImageId(null);
@@ -1254,11 +1397,14 @@ export default function GalleryClient({
     setAlbumEditError(null);
     setIsSavingCaption(true);
     try {
-      const response = await fetch(`/api/albums/${uploadAlbumId}/images/${active.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caption: captionDraft, kind: active.kind }),
-      });
+      const response = await fetch(
+        `/api/albums/${uploadAlbumId}/images/${active.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caption: captionDraft, kind: active.kind }),
+        },
+      );
       const payload = (await response.json()) as {
         error?: string;
         image?: { albumCaption?: string };
@@ -1287,7 +1433,9 @@ export default function GalleryClient({
           : current,
       );
     } catch (error) {
-      setAlbumEditError(error instanceof Error ? error.message : "Unable to save caption.");
+      setAlbumEditError(
+        error instanceof Error ? error.message : "Unable to save caption.",
+      );
     } finally {
       setIsSavingCaption(false);
     }
@@ -1309,23 +1457,32 @@ export default function GalleryClient({
           originalFileName: originalFileNameDraft.trim() || null,
         }),
       });
-      const payload = (await response.json()) as { error?: string; media?: { originalFileName?: string } };
+      const payload = (await response.json()) as {
+        error?: string;
+        media?: { originalFileName?: string };
+      };
       if (!response.ok || !payload.media) {
         throw new Error(payload.error ?? "Unable to update file name.");
       }
       const nextOriginalFileName = payload.media.originalFileName ?? undefined;
       setItems((current) =>
         current.map((item) =>
-          item.id === active.id ? { ...item, originalFileName: nextOriginalFileName } : item,
+          item.id === active.id
+            ? { ...item, originalFileName: nextOriginalFileName }
+            : item,
         ),
       );
       setActive((current) =>
-        current?.id === active.id ? { ...current, originalFileName: nextOriginalFileName } : current,
+        current?.id === active.id
+          ? { ...current, originalFileName: nextOriginalFileName }
+          : current,
       );
       setOriginalFileNameDraft(nextOriginalFileName ?? "");
       setIsEditingOriginalFileName(false);
     } catch (error) {
-      setAlbumEditError(error instanceof Error ? error.message : "Unable to update file name.");
+      setAlbumEditError(
+        error instanceof Error ? error.message : "Unable to update file name.",
+      );
     } finally {
       setIsSavingOriginalFileName(false);
     }
@@ -1336,7 +1493,9 @@ export default function GalleryClient({
     if (!response.ok) {
       return;
     }
-    const payload = (await response.json()) as { albums?: { id: string; name: string }[] };
+    const payload = (await response.json()) as {
+      albums?: { id: string; name: string }[];
+    };
     if (payload.albums) {
       setAlbums(payload.albums);
     }
@@ -1400,7 +1559,9 @@ export default function GalleryClient({
           ? {
               ...item,
               albumId: item.albumId ?? selectedAlbumId,
-              albumIds: Array.from(new Set([...(item.albumIds ?? []), selectedAlbumId])),
+              albumIds: Array.from(
+                new Set([...(item.albumIds ?? []), selectedAlbumId]),
+              ),
             }
           : item,
       ),
@@ -1414,7 +1575,10 @@ export default function GalleryClient({
     const response = await fetch("/api/media/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", mediaItems: [{ id: image.id, kind: image.kind }] }),
+      body: JSON.stringify({
+        action: "delete",
+        mediaItems: [{ id: image.id, kind: image.kind }],
+      }),
     });
 
     if (!response.ok) {
@@ -1449,47 +1613,82 @@ export default function GalleryClient({
   }, [items, media, onImagesChange]);
 
   useEffect(() => {
-    const pending = items.filter((item) => item.kind === "video" && item.previewStatus === "pending");
+    const pending = items.filter((item) =>
+      isPreviewPollingStatus(item.previewStatus),
+    );
     if (pending.length === 0) {
       return;
     }
     let isMounted = true;
-    const interval = window.setInterval(() => {
-      const targets = pending.slice(0, 10);
-      void Promise.all(
-        targets.map(async (item) => {
-          const response = await fetch(
-            `/api/media/preview-status?kind=${encodeURIComponent(item.kind)}&mediaId=${encodeURIComponent(item.id)}`,
-            { cache: "no-store" },
-          );
-          if (!response.ok) {
-            return;
+    const startedAt = Date.now();
+    let timeoutId: number | undefined;
+    const poll = async () => {
+      const targets = pending.slice(0, 100);
+      const response = await fetch("/api/media/preview-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaIds: targets.map((item) => item.id) }),
+        cache: "no-store",
+      });
+      if (response.ok && isMounted) {
+        const payload = (await response.json()) as {
+          media?: Array<{ mediaId: string; previewStatus?: PreviewStatus }>;
+        };
+        const statusById = new Map(
+          (payload.media ?? []).map((item) => [
+            item.mediaId,
+            item.previewStatus,
+          ]),
+        );
+        const completedIds: string[] = [];
+        setItems((current) => {
+          let changed = false;
+          const next = current.map((media) => {
+            const previewStatus = statusById.get(media.id);
+            if (!previewStatus || media.previewStatus === previewStatus) {
+              return media;
+            }
+            changed = true;
+            if (previewStatus === "complete") {
+              completedIds.push(media.id);
+            }
+            return { ...media, previewStatus };
+          });
+          return changed ? next : current;
+        });
+        setActive((current) => {
+          if (!current) {
+            return current;
           }
-          const payload = (await response.json()) as {
-            previewStatus?: "pending" | "processing" | "ready" | "failed";
-          };
-          if (!payload.previewStatus || !isMounted) {
-            return;
-          }
-          setItems((current) =>
-            {
-              let changed = false;
-              const next = current.map((media) => {
-                if (media.id === item.id && media.previewStatus !== payload.previewStatus) {
-                  changed = true;
-                  return { ...media, previewStatus: payload.previewStatus };
-                }
-                return media;
-              });
-              return changed ? next : current;
-            },
-          );
-        }),
-      );
-    }, 5000);
+          const previewStatus = statusById.get(current.id);
+          return previewStatus && current.previewStatus !== previewStatus
+            ? { ...current, previewStatus }
+            : current;
+        });
+        if (completedIds.length > 0) {
+          setImageVersionBumps((current) => {
+            const next = { ...current };
+            for (const id of completedIds) {
+              next[id] = Date.now();
+            }
+            return next;
+          });
+        }
+      }
+      if (isMounted && Date.now() - startedAt < PREVIEW_POLL_MAX_MS) {
+        timeoutId = window.setTimeout(() => {
+          void poll();
+        }, previewPollDelayMs(targets));
+      }
+    };
+    timeoutId = window.setTimeout(() => {
+      void poll();
+    }, previewPollDelayMs(pending));
     return () => {
       isMounted = false;
-      window.clearInterval(interval);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [items]);
 
@@ -1509,14 +1708,23 @@ export default function GalleryClient({
       return;
     }
     setCurrentPage(1);
-  }, [hideImagesInAlbums, kindFilter, showAlbumImageToggle, showAlbumImages, usePagination]);
+  }, [
+    hideImagesInAlbums,
+    kindFilter,
+    showAlbumImageToggle,
+    showAlbumImages,
+    usePagination,
+  ]);
 
   useEffect(() => {
     if (!active || active.kind !== "note") {
       return;
     }
     try {
-      window.localStorage.setItem(noteAutosaveStorageKey(active.id), autosaveEnabled ? "1" : "0");
+      window.localStorage.setItem(
+        noteAutosaveStorageKey(active.id),
+        autosaveEnabled ? "1" : "0",
+      );
     } catch {
       // ignore storage errors
     }
@@ -1532,7 +1740,13 @@ export default function GalleryClient({
       }
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [activeNote, autosaveEnabled, isNoteActive, noteContentDraft, noteIsDirty]);
+  }, [
+    activeNote,
+    autosaveEnabled,
+    isNoteActive,
+    noteContentDraft,
+    noteIsDirty,
+  ]);
 
   useEffect(() => {
     if (!active) {
@@ -1577,8 +1791,19 @@ export default function GalleryClient({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, activeIndex, displayItems, hasNext, hasPrevious, autosaveEnabled, noteContentDraft, noteIsDirty, activeNote, isNoteActive]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    active,
+    activeIndex,
+    displayItems,
+    hasNext,
+    hasPrevious,
+    autosaveEnabled,
+    noteContentDraft,
+    noteIsDirty,
+    activeNote,
+    isNoteActive,
+  ]);
 
   return (
     <>
@@ -1596,11 +1821,19 @@ export default function GalleryClient({
             <h3 className="text-lg font-semibold">uploading to gallery</h3>
             <div className="mt-4 space-y-3">
               {dropUploadProgress.map((entry) => {
-                const percent = entry.total > 0 ? Math.max(0, Math.min(100, (entry.uploaded / entry.total) * 100)) : 0;
+                const percent =
+                  entry.total > 0
+                    ? Math.max(
+                        0,
+                        Math.min(100, (entry.uploaded / entry.total) * 100),
+                      )
+                    : 0;
                 return (
                   <div key={entry.id} className="space-y-1">
                     <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="min-w-0 truncate text-neutral-700">{entry.name}</span>
+                      <span className="min-w-0 truncate text-neutral-700">
+                        {entry.name}
+                      </span>
                       <span className="shrink-0 text-neutral-500">
                         {entry.status === "queued"
                           ? "queued"
@@ -1641,10 +1874,11 @@ export default function GalleryClient({
           {messages.map((item) => (
             <div
               key={item.id}
-              className={`rounded border px-3 py-2 text-xs shadow ${item.tone === "success"
+              className={`rounded border px-3 py-2 text-xs shadow ${
+                item.tone === "success"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border-red-200 bg-red-50 text-red-700"
-                }`}
+              }`}
             >
               {item.text}
             </div>
@@ -1691,7 +1925,9 @@ export default function GalleryClient({
             onClick={() => setShowAlbumImages((current) => !current)}
             className="rounded border border-neutral-200 px-3 py-1 text-xs"
           >
-            {showAlbumImages ? "Hide images in albums" : "Show images in albums"}
+            {showAlbumImages
+              ? "Hide images in albums"
+              : "Show images in albums"}
           </button>
         </div>
       ) : null}
@@ -1716,138 +1952,188 @@ export default function GalleryClient({
       ) : (
         <div className="space-y-4">
           <div className="grid justify-center gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(240px,320px))] [grid-template-columns:repeat(auto-fit,minmax(240px,100%))]">
-          {pagedDisplayItems.map((image) => (
-            <div
-              key={image.id}
-              draggable={inAlbumContext}
-              onDragStart={(event) => {
-                if (!inAlbumContext) {
-                  return;
-                }
-                setAlbumEditError(null);
-                setDraggedImageId(image.id);
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData(INTERNAL_IMAGE_DRAG_TYPE, image.id);
-                event.dataTransfer.setData("text/plain", image.id);
-              }}
-              onDragOver={(event) => {
-                if (!inAlbumContext || !draggedImageId || draggedImageId === image.id) {
-                  return;
-                }
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                setDragOverImageId(image.id);
-              }}
-              onDragLeave={() => {
-                if (dragOverImageId === image.id) {
-                  setDragOverImageId(null);
-                }
-              }}
-              onDrop={(event) => {
-                if (!inAlbumContext) {
-                  return;
-                }
-                event.preventDefault();
-                void moveImageByDrag(image.id);
-              }}
-              onDragEnd={() => {
-                setDraggedImageId(null);
-                setDragOverImageId(null);
-              }}
-              className={`gallery-tile relative overflow-hidden rounded-md border text-left ${
-                dragOverImageId === image.id
-                  ? "border-black ring-2 ring-black/20"
-                  : "border-neutral-200"
-              } ${draggedImageId === image.id ? "opacity-70" : ""}`}
-            >
-              <SharePill isShared={image.shared} absolutePosition />
-              <FancyCheckbox
-                className="tile-control absolute left-1 top-1 z-10 text-xs"
-                checked={selected.has(image.id)}
-                onChange={(checked) => {
-                  const next = new Set(selected);
-                  if (checked) {
-                    next.add(image.id);
-                  } else {
-                    next.delete(image.id);
+            {pagedDisplayItems.map((image) => (
+              <div
+                key={image.id}
+                draggable={inAlbumContext}
+                onDragStart={(event) => {
+                  if (!inAlbumContext) {
+                    return;
                   }
-                  setSelected(next);
+                  setAlbumEditError(null);
+                  setDraggedImageId(image.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData(
+                    INTERNAL_IMAGE_DRAG_TYPE,
+                    image.id,
+                  );
+                  event.dataTransfer.setData("text/plain", image.id);
                 }}
-              />
-              <button
-                type="button"
-                onClick={() => setImageToDelete(image)}
-                className="tile-control absolute right-1 top-1 z-10 rounded p-1"
-                aria-label="Delete image"
-                title="Delete image"
+                onDragOver={(event) => {
+                  if (
+                    !inAlbumContext ||
+                    !draggedImageId ||
+                    draggedImageId === image.id
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverImageId(image.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOverImageId === image.id) {
+                    setDragOverImageId(null);
+                  }
+                }}
+                onDrop={(event) => {
+                  if (!inAlbumContext) {
+                    return;
+                  }
+                  event.preventDefault();
+                  void moveImageByDrag(image.id);
+                }}
+                onDragEnd={() => {
+                  setDraggedImageId(null);
+                  setDragOverImageId(null);
+                }}
+                className={`gallery-tile relative overflow-hidden rounded-md border text-left ${
+                  dragOverImageId === image.id
+                    ? "border-black ring-2 ring-black/20"
+                    : "border-neutral-200"
+                } ${draggedImageId === image.id ? "opacity-70" : ""}`}
               >
-                <LightTrashAlt className="h-4 w-4" fill="currentColor" />
-              </button>
-              <button type="button" onClick={() => openModal(image)} className="block w-full">
-                {image.kind === "video" && image.previewStatus !== "ready" ? (
-                  <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
-                    <div className="flex flex-col items-center gap-2 text-xs text-neutral-500">
-                      <LightClock className="h-8 w-8" fill="currentColor" />
-                      <span>preview pending</span>
-                    </div>
-                  </div>
-                ) : image.kind === "document" && image.previewStatus !== "ready" ? (
-                  <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
-                    {(() => {
-                      const Icon = getFileIconForExtension(image.ext);
-                      return <Icon className="h-10 w-10 text-neutral-500" fill="currentColor" />;
-                    })()}
-                  </div>
-                ) : image.kind === "other" ? (
-                  <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
-                    {(() => {
-                      const Icon = getFileIconForExtension(image.ext);
-                      return <Icon className="h-10 w-10 text-neutral-500" fill="currentColor" />;
-                    })()}
-                  </div>
-                ) : image.kind === "note" ? (
-                  <div className="mt-2 flex h-48 max-h-64 w-full flex-col justify-between rounded border border-neutral-200 bg-neutral-50 p-4 text-left">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">note</div>
-                    <div className="line-clamp-6 text-sm text-neutral-700">
-                      {image.previewText || "Empty note"}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="relative mt-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={image.thumbUrl}
-                      alt="Uploaded"
-                      className="sm:h-48 max-h-64 w-full object-cover"
-                      loading="lazy"
-                      draggable={false}
-                      onDragStart={(event) => event.preventDefault()}
-                    />
-                    {image.kind === "video" ? (
-                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                        <LightPlayCircle className="h-12 w-12 text-white/75 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" fill="currentColor" opacity={0.5} />
+                <SharePill isShared={image.shared} absolutePosition />
+                <FancyCheckbox
+                  className="tile-control absolute left-1 top-1 z-10 text-xs"
+                  checked={selected.has(image.id)}
+                  onChange={(checked) => {
+                    const next = new Set(selected);
+                    if (checked) {
+                      next.add(image.id);
+                    } else {
+                      next.delete(image.id);
+                    }
+                    setSelected(next);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setImageToDelete(image)}
+                  className="tile-control absolute right-1 top-1 z-10 rounded p-1"
+                  aria-label="Delete image"
+                  title="Delete image"
+                >
+                  <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openModal(image)}
+                  className="block w-full"
+                >
+                  {image.previewStatus === "pending" ? (
+                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                      <div className="flex flex-col items-center gap-2 text-xs text-neutral-500">
+                        <LightClock className="h-8 w-8" fill="currentColor" />
+                        <span>preview pending</span>
                       </div>
-                    ) : null}
-                  </div>
-                )}
-              </button>
-              <div className="flex items-center justify-between px-3 py-2 text-xs text-neutral-500">
-                <span className="truncate">{displayNameForMedia(image)}</span>
-                <span>
-                  {image.width && image.height ? `${image.width}×${image.height}` : image.kind === "note" ? "markdown" : image.kind}
-                </span>
+                    </div>
+                  ) : image.kind !== "image" &&
+                    image.kind !== "note" &&
+                    image.previewStatus !== "complete" ? (
+                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                      {(() => {
+                        const Icon = getFileIconForExtension(image.ext);
+                        return (
+                          <Icon
+                            className="h-10 w-10 text-neutral-500"
+                            fill="currentColor"
+                          />
+                        );
+                      })()}
+                    </div>
+                  ) : image.kind === "image" &&
+                    image.previewStatus !== "complete" ? (
+                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                      {(() => {
+                        const Icon = getFileIconForExtension(image.ext);
+                        return (
+                          <Icon
+                            className="h-10 w-10 text-neutral-500"
+                            fill="currentColor"
+                          />
+                        );
+                      })()}
+                    </div>
+                  ) : image.kind === "other" ? (
+                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                      {(() => {
+                        const Icon = getFileIconForExtension(image.ext);
+                        return (
+                          <Icon
+                            className="h-10 w-10 text-neutral-500"
+                            fill="currentColor"
+                          />
+                        );
+                      })()}
+                    </div>
+                  ) : image.kind === "note" ? (
+                    <div className="mt-2 flex h-48 max-h-64 w-full flex-col justify-between rounded border border-neutral-200 bg-neutral-50 p-4 text-left">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                        note
+                      </div>
+                      <div className="line-clamp-6 text-sm text-neutral-700">
+                        {image.previewText || "Empty note"}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative mt-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={image.thumbUrl}
+                        alt="Uploaded"
+                        className="sm:h-48 max-h-64 w-full object-cover"
+                        loading="lazy"
+                        draggable={false}
+                        onDragStart={(event) => event.preventDefault()}
+                      />
+                      {image.kind === "video" ? (
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                          <LightPlayCircle
+                            className="h-12 w-12 text-white/75 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
+                            fill="currentColor"
+                            opacity={0.5}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </button>
+                <div className="flex items-center justify-between px-3 py-2 text-xs text-neutral-500">
+                  <span className="truncate">{displayNameForMedia(image)}</span>
+                  <span>
+                    {image.width && image.height
+                      ? `${image.width}×${image.height}`
+                      : image.kind === "note"
+                        ? "markdown"
+                        : image.kind}
+                  </span>
+                </div>
+                {inAlbumContext && image.albumCaption ? (
+                  <p className="px-3 pb-3 text-xs text-neutral-600">
+                    {image.albumCaption}
+                  </p>
+                ) : null}
               </div>
-              {inAlbumContext && image.albumCaption ? (
-                <p className="px-3 pb-3 text-xs text-neutral-600">{image.albumCaption}</p>
-              ) : null}
-            </div>
-          ))}
+            ))}
           </div>
           {usePagination && totalPages > 1 ? (
             <div className="flex items-center justify-center gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
+                onClick={() =>
+                  setCurrentPage((current) => Math.max(1, current - 1))
+                }
                 disabled={currentPage <= 1}
                 className="rounded border border-neutral-200 px-3 py-1 disabled:opacity-50"
               >
@@ -1858,7 +2144,9 @@ export default function GalleryClient({
               </span>
               <button
                 type="button"
-                onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
+                onClick={() =>
+                  setCurrentPage((current) => Math.min(totalPages, current + 1))
+                }
                 disabled={currentPage >= totalPages}
                 className="rounded border border-neutral-200 px-3 py-1 disabled:opacity-50"
               >
@@ -1937,11 +2225,15 @@ export default function GalleryClient({
                       <input
                         type="checkbox"
                         checked={autosaveEnabled}
-                        onChange={(event) => setAutosaveEnabled(event.target.checked)}
+                        onChange={(event) =>
+                          setAutosaveEnabled(event.target.checked)
+                        }
                       />
                       Auto-save every 30s
                     </label>
-                    <div>{noteIsDirty ? "Unsaved changes" : "All changes saved"}</div>
+                    <div>
+                      {noteIsDirty ? "Unsaved changes" : "All changes saved"}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -1954,7 +2246,11 @@ export default function GalleryClient({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setNoteWindowMode((current) => nextNoteWindowMode(current))}
+                      onClick={() =>
+                        setNoteWindowMode((current) =>
+                          nextNoteWindowMode(current),
+                        )
+                      }
                       className="rounded border border-neutral-200 px-2 py-1 text-xs"
                     >
                       {noteWindowModeButtonLabel(noteWindowMode)}
@@ -1973,8 +2269,12 @@ export default function GalleryClient({
                   </div>
                 </div>
                 <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
-                  {shareError ? <p className="mb-3 text-xs text-red-600">{shareError}</p> : null}
-                  {noteSaveError ? <p className="mb-3 text-xs text-red-600">{noteSaveError}</p> : null}
+                  {shareError ? (
+                    <p className="mb-3 text-xs text-red-600">{shareError}</p>
+                  ) : null}
+                  {noteSaveError ? (
+                    <p className="mb-3 text-xs text-red-600">{noteSaveError}</p>
+                  ) : null}
                   {isLoadingNote ? (
                     <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
                       Loading note...
@@ -2002,7 +2302,9 @@ export default function GalleryClient({
                         <>
                           <input
                             value={originalFileNameDraft}
-                            onChange={(event) => setOriginalFileNameDraft(event.target.value)}
+                            onChange={(event) =>
+                              setOriginalFileNameDraft(event.target.value)
+                            }
                             className="w-full rounded border border-neutral-200 px-2 py-1 text-xs"
                             placeholder={active.baseName}
                             maxLength={255}
@@ -2019,7 +2321,9 @@ export default function GalleryClient({
                             type="button"
                             onClick={() => {
                               setIsEditingOriginalFileName(false);
-                              setOriginalFileNameDraft(active.originalFileName ?? "");
+                              setOriginalFileNameDraft(
+                                active.originalFileName ?? "",
+                              );
                             }}
                             className="rounded border border-neutral-200 px-2 py-1 text-xs"
                           >
@@ -2028,7 +2332,9 @@ export default function GalleryClient({
                         </>
                       ) : (
                         <>
-                          <p className="text-xs text-neutral-500">{activeDisplayName}</p>
+                          <p className="text-xs text-neutral-500">
+                            {activeDisplayName}
+                          </p>
                           <button
                             type="button"
                             onClick={() => setIsEditingOriginalFileName(true)}
@@ -2036,7 +2342,10 @@ export default function GalleryClient({
                             aria-label="Edit file name"
                             title="Edit file name"
                           >
-                            <LightEdit className="h-4 w-4" fill="currentColor" />
+                            <LightEdit
+                              className="h-4 w-4"
+                              fill="currentColor"
+                            />
                           </button>
                         </>
                       )}
@@ -2048,419 +2357,526 @@ export default function GalleryClient({
                     ) : null}
                   </div>
                   <div className="w-full sm:w-auto flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={openPreviousImage}
-                  disabled={!hasPrevious}
-                  className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                >
-                  <LightCaretLeft className="h-4 w-4" fill="currentColor" />
-                </button>
-                <button
-                  type="button"
-                  onClick={openNextImage}
-                  disabled={!hasNext}
-                  className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                >
-                  <LightCaretRight className="h-4 w-4" fill="currentColor" />
-                </button>
-                {inAlbumContext ? (
-                  <>
                     <button
                       type="button"
-                      onClick={() => void moveActiveImage(-1)}
-                      disabled={!hasPrevious || isSavingOrder}
+                      onClick={openPreviousImage}
+                      disabled={!hasPrevious}
                       className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                      title="Move earlier in album"
                     >
-                      <LightArrowAltUp className="h-4 w-4" fill="currentColor" />
+                      <LightCaretLeft className="h-4 w-4" fill="currentColor" />
                     </button>
                     <button
                       type="button"
-                      onClick={() => void moveActiveImage(1)}
-                      disabled={!hasNext || isSavingOrder}
+                      onClick={openNextImage}
+                      disabled={!hasNext}
                       className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                      title="Move later in album"
                     >
-                      <LightArrowAltDown className="h-4 w-4" fill="currentColor" />
+                      <LightCaretRight
+                        className="h-4 w-4"
+                        fill="currentColor"
+                      />
                     </button>
-                  </>
-                ) : null}
-                {isImageActive ? (
-                  <>
+                    {inAlbumContext ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void moveActiveImage(-1)}
+                          disabled={!hasPrevious || isSavingOrder}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                          title="Move earlier in album"
+                        >
+                          <LightArrowAltUp
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void moveActiveImage(1)}
+                          disabled={!hasNext || isSavingOrder}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                          title="Move later in album"
+                        >
+                          <LightArrowAltDown
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
+                      </>
+                    ) : null}
+                    {isImageActive ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void rotateImage("left")}
+                          disabled={!canRotateActive || isRotating}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-300"
+                          aria-label="Rotate image left"
+                          title={
+                            canRotateActive
+                              ? "Rotate left 90 degrees"
+                              : "Rotation is only available for JPG and PNG images."
+                          }
+                        >
+                          <LightUndo className="h-4 w-4" fill="currentColor" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void rotateImage("right")}
+                          disabled={!canRotateActive || isRotating}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-300"
+                          aria-label="Rotate image right"
+                          title={
+                            canRotateActive
+                              ? "Rotate right 90 degrees"
+                              : "Rotation is only available for JPG and PNG images."
+                          }
+                        >
+                          <LightRedo className="h-4 w-4" fill="currentColor" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDitherError(null);
+                            setIsDitherOpen((current) => !current);
+                          }}
+                          className={`rounded border px-2 py-1 text-xs ${
+                            isDitherOpen
+                              ? "border-black bg-black text-white"
+                              : "border-neutral-200"
+                          }`}
+                          title="Open dither controls"
+                        >
+                          <DitherIcon className="h-4 w-4" fill="currentColor" />
+                        </button>
+                      </>
+                    ) : null}
+                    {isNoteActive ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void saveActiveNote()}
+                          disabled={isSavingNote || !noteIsDirty}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                        >
+                          {isSavingNote ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNoteWindowMode((current) =>
+                              nextNoteWindowMode(current),
+                            )
+                          }
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                        >
+                          {noteWindowModeButtonLabel(noteWindowMode)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const blob = new Blob([noteContentDraft], {
+                              type: "text/markdown;charset=utf-8",
+                            });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download =
+                              noteDownloadFileName(activeDisplayName);
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                          aria-label="Download note"
+                          title="Download note"
+                        >
+                          <LightDownload
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const downloadUrl = `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`;
+                          const link = document.createElement("a");
+                          link.href = downloadUrl;
+                          link.download = `${active.baseName}.${active.ext}`;
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }}
+                        className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                        aria-label="Download image"
+                        title="Download image"
+                      >
+                        <LightDownload
+                          className="h-4 w-4"
+                          fill="currentColor"
+                        />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => void rotateImage("left")}
-                      disabled={!canRotateActive || isRotating}
-                      className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-300"
-                      aria-label="Rotate image left"
-                      title={
-                        canRotateActive
-                          ? "Rotate left 90 degrees"
-                          : "Rotation is only available for JPG and PNG images."
+                      onClick={() =>
+                        void handlePendingNoteBefore(() => {
+                          closeModal();
+                        })
                       }
-                    >
-                      <LightUndo className="h-4 w-4" fill="currentColor" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void rotateImage("right")}
-                      disabled={!canRotateActive || isRotating}
-                      className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-300"
-                      aria-label="Rotate image right"
-                      title={
-                        canRotateActive
-                          ? "Rotate right 90 degrees"
-                          : "Rotation is only available for JPG and PNG images."
-                      }
-                    >
-                      <LightRedo className="h-4 w-4" fill="currentColor" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDitherError(null);
-                        setIsDitherOpen((current) => !current);
-                      }}
-                      className={`rounded border px-2 py-1 text-xs ${
-                        isDitherOpen ? "border-black bg-black text-white" : "border-neutral-200"
-                      }`}
-                      title="Open dither controls"
-                    >
-                      <DitherIcon className="h-4 w-4" fill="currentColor" />
-                    </button>
-                  </>
-                ) : null}
-                {isNoteActive ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void saveActiveNote()}
-                      disabled={isSavingNote || !noteIsDirty}
-                      className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                    >
-                      {isSavingNote ? "Saving..." : "Save"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNoteWindowMode((current) => nextNoteWindowMode(current))}
                       className="rounded border border-neutral-200 px-2 py-1 text-xs"
                     >
-                      {noteWindowModeButtonLabel(noteWindowMode)}
+                      <LightTimes className="h-4 w-4" fill="currentColor" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const blob = new Blob([noteContentDraft], { type: "text/markdown;charset=utf-8" });
-                        const url = URL.createObjectURL(blob);
-                        const link = document.createElement("a");
-                        link.href = url;
-                        link.download = noteDownloadFileName(activeDisplayName);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        URL.revokeObjectURL(url);
-                      }}
-                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
-                      aria-label="Download note"
-                      title="Download note"
-                    >
-                      <LightDownload className="h-4 w-4" fill="currentColor" />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const downloadUrl = `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`;
-                      const link = document.createElement("a");
-                      link.href = downloadUrl;
-                      link.download = `${active.baseName}.${active.ext}`;
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                    }}
-                    className="rounded border border-neutral-200 px-2 py-1 text-xs"
-                    aria-label="Download image"
-                    title="Download image"
-                  >
-                    <LightDownload className="h-4 w-4" fill="currentColor" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() =>
-                    void handlePendingNoteBefore(() => {
-                      closeModal();
-                    })
-                  }
-                  className="rounded border border-neutral-200 px-2 py-1 text-xs"
-                >
-                  <LightTimes className="h-4 w-4" fill="currentColor" />
-                </button>
                   </div>
                 </div>
 
                 <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[2fr,1fr]">
                   <div className="space-y-3">
-                {active.kind === "image" ? (
-                  <ImageViewerContent
-                    imageUrl={activeDisplayItem?.lgUrl ?? `/media/${active.kind}/${active.id}/${active.baseName}-lg.${active.ext}`}
-                    imageName={active.baseName}
-                    outputExt={active.ext}
-                    isDitherOpen={isDitherOpen}
-                    onCancelDither={() => {
-                      setDitherError(null);
-                      setIsDitherOpen(false);
-                    }}
-                    onSaveDither={async (blob) => {
-                      try {
-                        await handleDitherSave(blob);
-                      } catch (error) {
-                        setDitherError(error instanceof Error ? error.message : "Unable to save dithered image.");
-                        throw error;
-                      }
-                    }}
-                    onSaveCopyDither={async (blob) => {
-                      try {
-                        await handleDitherSaveCopy(blob);
-                      } catch (error) {
-                        setDitherError(
-                          error instanceof Error ? error.message : "Unable to save dithered image copy.",
-                        );
-                        throw error;
-                      }
-                    }}
-                  />
-                ) : active.kind === "note" ? (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      {(["markdown", "preview"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setNoteEditorMode(mode)}
-                          className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
-                        >
-                          {mode === "markdown" ? "markdown" : "preview"}
-                        </button>
-                      ))}
-                    </div>
-                    {isLoadingNote ? (
-                      <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
-                        Loading note...
-                      </div>
-                    ) : noteEditorMode === "markdown" ? (
-                      <NoteRichEditor
-                        value={noteContentDraft}
-                        onChange={setNoteContentDraft}
-                    layoutMode={noteWindowMode}
+                    {active.kind === "image" ? (
+                      <ImageViewerContent
+                        imageUrl={
+                          activeDisplayItem?.lgUrl ??
+                          `/media/${active.kind}/${active.id}/${active.baseName}-lg.${active.ext}`
+                        }
+                        imageName={active.baseName}
+                        outputExt={active.ext}
+                        isDitherOpen={isDitherOpen}
+                        onCancelDither={() => {
+                          setDitherError(null);
+                          setIsDitherOpen(false);
+                        }}
+                        onSaveDither={async (blob) => {
+                          try {
+                            await handleDitherSave(blob);
+                          } catch (error) {
+                            setDitherError(
+                              error instanceof Error
+                                ? error.message
+                                : "Unable to save dithered image.",
+                            );
+                            throw error;
+                          }
+                        }}
+                        onSaveCopyDither={async (blob) => {
+                          try {
+                            await handleDitherSaveCopy(blob);
+                          } catch (error) {
+                            setDitherError(
+                              error instanceof Error
+                                ? error.message
+                                : "Unable to save dithered image copy.",
+                            );
+                            throw error;
+                          }
+                        }}
                       />
-                    ) : (
-                      <div className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}>
-                        <NoteMarkdown content={noteContentDraft} />
+                    ) : active.kind === "note" ? (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          {(["markdown", "preview"] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setNoteEditorMode(mode)}
+                              className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
+                            >
+                              {mode === "markdown" ? "markdown" : "preview"}
+                            </button>
+                          ))}
+                        </div>
+                        {isLoadingNote ? (
+                          <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+                            Loading note...
+                          </div>
+                        ) : noteEditorMode === "markdown" ? (
+                          <NoteRichEditor
+                            value={noteContentDraft}
+                            onChange={setNoteContentDraft}
+                            layoutMode={noteWindowMode}
+                          />
+                        ) : (
+                          <div
+                            className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
+                          >
+                            <NoteMarkdown content={noteContentDraft} />
+                          </div>
+                        )}
                       </div>
+                    ) : (
+                      <FileViewerContent
+                        isAdmin={isAdmin}
+                        kind={active.kind}
+                        previewStatus={active.previewStatus}
+                        fullUrl={
+                          activeDisplayItem?.fullUrl ??
+                          `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`
+                        }
+                        previewUrl={
+                          activeDisplayItem?.lgUrl ??
+                          `/media/${active.kind}/${active.id}/${active.baseName}-lg.png`
+                        }
+                        ext={active.ext}
+                        mimeType={active.mimeType}
+                        onRegenerateThumbnail={
+                          active.kind === "video"
+                            ? () => void regenerateVideoThumbnail()
+                            : undefined
+                        }
+                        isRegeneratingThumbnail={
+                          active.kind === "video"
+                            ? isRegeneratingVideoPreview
+                            : false
+                        }
+                      />
                     )}
-                  </div>
-                ) : (
-                  <FileViewerContent
-                    isAdmin={isAdmin}
-                    kind={active.kind}
-                    previewStatus={active.previewStatus}
-                    fullUrl={activeDisplayItem?.fullUrl ?? `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`}
-                    previewUrl={activeDisplayItem?.lgUrl ?? `/media/${active.kind}/${active.id}/${active.baseName}-lg.png`}
-                    ext={active.ext}
-                    mimeType={active.mimeType}
-                    onRegenerateThumbnail={
-                      active.kind === "video" ? () => void regenerateVideoThumbnail() : undefined
-                    }
-                    isRegeneratingThumbnail={active.kind === "video" ? isRegeneratingVideoPreview : false}
-                  />
-                )}
                   </div>
 
                   <div className="min-w-0 space-y-3">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
-                  <div className="min-w-0">
-                    <div>
-                      Dimensions: {active.width && active.height ? `${active.width}×${active.height}` : active.kind === "note" ? "markdown" : "n/a"}
-                    </div>
-                    <div>File size: {formatBytes(active.sizeOriginal)}</div>
-                    <div>Uploaded: {new Date(active.uploadedAt).toLocaleString()}</div>
-                    {active.kind === "note" && lastSavedAt ? (
-                      <div>Last saved: {new Date(lastSavedAt).toLocaleString()}</div>
-                    ) : null}
-                  </div>
-                  <div className="justify-self-center">
-                    <SharePill isShared={Boolean(share)} shouldShowOff />
-                  </div>
-                  <div className="justify-self-end">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void (share ? disableShare(active) : enableShare(active))
-                      }
-                      className={`rounded px-3 py-1 text-xs ${share ? "bg-black text-white" : "border border-neutral-200"
-                        }`}
-                    >
-                      {share ? "disable" : "enable"}
-                    </button>
-                  </div>
-                </div>
-
-                {shareError ? <p className="text-xs text-red-600">{shareError}</p> : null}
-                {rotateError ? <p className="text-xs text-red-600">{rotateError}</p> : null}
-                {ditherError ? <p className="text-xs text-red-600">{ditherError}</p> : null}
-                {previewActionError ? <p className="text-xs text-red-600">{previewActionError}</p> : null}
-                {albumEditError ? <p className="text-xs text-red-600">{albumEditError}</p> : null}
-                {noteSaveError ? <p className="text-xs text-red-600">{noteSaveError}</p> : null}
-
-                {active.kind === "note" ? (
-                  <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={autosaveEnabled}
-                        onChange={(event) => setAutosaveEnabled(event.target.checked)}
-                      />
-                      Auto-save every 30s
-                    </label>
-                    <div>{noteIsDirty ? "Unsaved changes" : "All changes saved"}</div>
-                  </div>
-                ) : null}
-
-                {inAlbumContext ? (
-                  <div className="space-y-2 rounded border border-neutral-200 p-3">
-                    <label className="text-xs font-medium text-neutral-600">Caption (album only)</label>
-                    <textarea
-                      value={captionDraft}
-                      onChange={(event) => setCaptionDraft(event.target.value)}
-                      className="min-h-20 w-full rounded border border-neutral-200 px-3 py-2 text-xs"
-                      maxLength={1000}
-                      placeholder="Add a caption for this image in this album."
-                    />
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-neutral-500">{captionDraft.length} / 1000</span>
-                      <button
-                        type="button"
-                        onClick={() => void saveAlbumCaption()}
-                        disabled={isSavingCaption}
-                        className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
-                      >
-                        {isSavingCaption ? "Saving..." : "Save caption"}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {share ? (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-neutral-600">Direct link</label>
-                      <button
-                        type="button"
-                        onClick={() => copyText(`${origin}${share.urls.original}`, "direct")}
-                        className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "direct" ? "text-emerald-600" : ""}`}
-                      >
-                        {copied === "direct" ? "Copied link to clipboard!" : 
-                        `${origin}${share.urls.original}`}
-                      </button>
-                    </div>
-
-                    {active.kind === "image" ? (
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-neutral-600">BBCode</label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
+                      <div className="min-w-0">
+                        <div>
+                          Dimensions:{" "}
+                          {active.width && active.height
+                            ? `${active.width}×${active.height}`
+                            : active.kind === "note"
+                              ? "markdown"
+                              : "n/a"}
+                        </div>
+                        <div>File size: {formatBytes(active.sizeOriginal)}</div>
+                        <div>
+                          Uploaded:{" "}
+                          {new Date(active.uploadedAt).toLocaleString()}
+                        </div>
+                        {active.kind === "note" && lastSavedAt ? (
+                          <div>
+                            Last saved: {new Date(lastSavedAt).toLocaleString()}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="justify-self-center">
+                        <SharePill isShared={Boolean(share)} shouldShowOff />
+                      </div>
+                      <div className="justify-self-end">
                         <button
                           type="button"
                           onClick={() =>
-                            copyText(`[img]${origin}${share.urls.original}[/img]`, "bbcode")
+                            void (share
+                              ? disableShare(active)
+                              : enableShare(active))
                           }
-                          className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "bbcode" ? "text-emerald-600" : ""}`}
+                          className={`rounded px-3 py-1 text-xs ${
+                            share
+                              ? "bg-black text-white"
+                              : "border border-neutral-200"
+                          }`}
                         >
-                          {copied === "bbcode" ? "Copied link to clipboard!" : 
-                          `[img]${origin}${share.urls.original}[/img]`}
+                          {share ? "disable" : "enable"}
                         </button>
+                      </div>
+                    </div>
+
+                    {shareError ? (
+                      <p className="text-xs text-red-600">{shareError}</p>
+                    ) : null}
+                    {rotateError ? (
+                      <p className="text-xs text-red-600">{rotateError}</p>
+                    ) : null}
+                    {ditherError ? (
+                      <p className="text-xs text-red-600">{ditherError}</p>
+                    ) : null}
+                    {previewActionError ? (
+                      <p className="text-xs text-red-600">
+                        {previewActionError}
+                      </p>
+                    ) : null}
+                    {albumEditError ? (
+                      <p className="text-xs text-red-600">{albumEditError}</p>
+                    ) : null}
+                    {noteSaveError ? (
+                      <p className="text-xs text-red-600">{noteSaveError}</p>
+                    ) : null}
+
+                    {active.kind === "note" ? (
+                      <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={autosaveEnabled}
+                            onChange={(event) =>
+                              setAutosaveEnabled(event.target.checked)
+                            }
+                          />
+                          Auto-save every 30s
+                        </label>
+                        <div>
+                          {noteIsDirty
+                            ? "Unsaved changes"
+                            : "All changes saved"}
+                        </div>
                       </div>
                     ) : null}
 
-                    {active.kind !== "note" ? (
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-neutral-600">
-                        Linked BBCode
-                      </label>
-                      {active.kind === "image" ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            copyText(
-                              `[url=${origin}${share.urls.original}][img]${origin}${share.urls.sm}[/img][/url]`,
-                              "linked",
-                            )
+                    {inAlbumContext ? (
+                      <div className="space-y-2 rounded border border-neutral-200 p-3">
+                        <label className="text-xs font-medium text-neutral-600">
+                          Caption (album only)
+                        </label>
+                        <textarea
+                          value={captionDraft}
+                          onChange={(event) =>
+                            setCaptionDraft(event.target.value)
                           }
-                          className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "linked" ? "text-emerald-600" : ""}`}
-                        >
-                          {copied === "linked" ? "Copied link to clipboard!" : 
-                          `[url=${origin}${share.urls.original}][img]${origin}${share.urls.sm}[/img][/url]`}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            copyText(
-                              `[url]${origin}${share.urls.original}[/url]`,
-                              "linked",
-                            )
-                          }
-                          className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "linked" ? "text-emerald-600" : ""}`}
-                        >
-                          {copied === "linked" ? "Copied link to clipboard!" : 
-                          `[url]${origin}${share.urls.original}[/url]`}
-                        </button>
-                      )}
-                    </div>
+                          className="min-h-20 w-full rounded border border-neutral-200 px-3 py-2 text-xs"
+                          maxLength={1000}
+                          placeholder="Add a caption for this image in this album."
+                        />
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-neutral-500">
+                            {captionDraft.length} / 1000
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void saveAlbumCaption()}
+                            disabled={isSavingCaption}
+                            className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                          >
+                            {isSavingCaption ? "Saving..." : "Save caption"}
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
 
-                    {supports640Variant ? (
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-neutral-600">
-                          Direct link (max size 640x480)
-                        </label>
-                        {isChecking640 ? (
-                          <div className="w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs text-neutral-500">
-                            Checking 640x480 variant...
-                          </div>
-                        ) : has640Variant ? (
+                    {share ? (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-neutral-600">
+                            Direct link
+                          </label>
                           <button
                             type="button"
                             onClick={() =>
                               copyText(
-                                `${origin}${to640VariantUrl(share.urls.original)}`,
-                                "640",
+                                `${origin}${share.urls.original}`,
+                                "direct",
                               )
                             }
-                            className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "640" ? "text-emerald-600" : ""}`}
+                            className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "direct" ? "text-emerald-600" : ""}`}
                           >
-                            {copied === "640" ? "Copied link to clipboard!" :
-                            `${origin}${to640VariantUrl(share.urls.original)}`}
+                            {copied === "direct"
+                              ? "Copied link to clipboard!"
+                              : `${origin}${share.urls.original}`}
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => void generate640Link(active)}
-                            disabled={isGenerating640}
-                            className="w-full rounded border border-neutral-200 px-3 py-2 text-xs disabled:opacity-50"
-                          >
-                            {isGenerating640 ? "Generating..." : "Generate 640x480 image"}
-                          </button>
-                        )}
+                        </div>
+
+                        {active.kind === "image" ? (
+                          <div className="space-y-2">
+                            <label className="text-xs font-medium text-neutral-600">
+                              BBCode
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                copyText(
+                                  `[img]${origin}${share.urls.original}[/img]`,
+                                  "bbcode",
+                                )
+                              }
+                              className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "bbcode" ? "text-emerald-600" : ""}`}
+                            >
+                              {copied === "bbcode"
+                                ? "Copied link to clipboard!"
+                                : `[img]${origin}${share.urls.original}[/img]`}
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {active.kind !== "note" ? (
+                          <div className="space-y-2">
+                            <label className="text-xs font-medium text-neutral-600">
+                              Linked BBCode
+                            </label>
+                            {active.kind === "image" ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyText(
+                                    `[url=${origin}${share.urls.original}][img]${origin}${share.urls.sm}[/img][/url]`,
+                                    "linked",
+                                  )
+                                }
+                                className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "linked" ? "text-emerald-600" : ""}`}
+                              >
+                                {copied === "linked"
+                                  ? "Copied link to clipboard!"
+                                  : `[url=${origin}${share.urls.original}][img]${origin}${share.urls.sm}[/img][/url]`}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyText(
+                                    `[url]${origin}${share.urls.original}[/url]`,
+                                    "linked",
+                                  )
+                                }
+                                className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "linked" ? "text-emerald-600" : ""}`}
+                              >
+                                {copied === "linked"
+                                  ? "Copied link to clipboard!"
+                                  : `[url]${origin}${share.urls.original}[/url]`}
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {supports640Variant ? (
+                          <div className="space-y-2">
+                            <label className="text-xs font-medium text-neutral-600">
+                              Direct link (max size 640x480)
+                            </label>
+                            {isChecking640 ? (
+                              <div className="w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs text-neutral-500">
+                                Checking 640x480 variant...
+                              </div>
+                            ) : has640Variant ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyText(
+                                    `${origin}${to640VariantUrl(share.urls.original)}`,
+                                    "640",
+                                  )
+                                }
+                                className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "640" ? "text-emerald-600" : ""}`}
+                              >
+                                {copied === "640"
+                                  ? "Copied link to clipboard!"
+                                  : `${origin}${to640VariantUrl(share.urls.original)}`}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void generate640Link(active)}
+                                disabled={isGenerating640}
+                                className="w-full rounded border border-neutral-200 px-3 py-2 text-xs disabled:opacity-50"
+                              >
+                                {isGenerating640
+                                  ? "Generating..."
+                                  : "Generate 640x480 image"}
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-xs text-neutral-500 text-center">
-                    Share links are disabled for this file.
-                  </p>
-                )}
+                    ) : (
+                      <p className="text-xs text-neutral-500 text-center">
+                        Share links are disabled for this file.
+                      </p>
+                    )}
                   </div>
                 </div>
               </>
@@ -2489,7 +2905,9 @@ export default function GalleryClient({
                 </option>
               ))}
             </select>
-            {bulkError ? <p className="mt-2 text-xs text-red-600">{bulkError}</p> : null}
+            {bulkError ? (
+              <p className="mt-2 text-xs text-red-600">{bulkError}</p>
+            ) : null}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
@@ -2542,4 +2960,3 @@ export default function GalleryClient({
     </>
   );
 }
-

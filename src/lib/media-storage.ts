@@ -1,21 +1,18 @@
 import path from "path";
-import os from "os";
-import { constants as fsConstants, createReadStream, promises as fs } from "fs";
-import { execFile } from "child_process";
+import { createReadStream, promises as fs } from "fs";
 import { Readable } from "stream";
-import { promisify } from "util";
 import sharp from "sharp";
-import mammoth from "mammoth";
-import { copy as blobCopy, del as blobDelete, get as blobGet, head as blobHead, put as blobPut } from "@vercel/blob";
+import {
+  copy as blobCopy,
+  del as blobDelete,
+  get as blobGet,
+  head as blobHead,
+  put as blobPut,
+} from "@vercel/blob";
 import {
   type BlobMediaKind,
-  type AsyncPreviewKind,
-  CODE_EXTENSIONS,
-  CSV_EXTENSIONS,
-  DOCUMENT_TEXT_EXTENSIONS,
-  PRESENTATION_EXTENSIONS,
-  SPREADSHEET_EXTENSIONS,
   contentTypeForExt,
+  isLocalTextPreviewDocument,
 } from "@/lib/media-types";
 
 type StorageBackend = "local" | "blob";
@@ -29,7 +26,7 @@ export type StoredMediaResult = {
   sizeOriginal: number;
   sizeSm: number;
   sizeLg: number;
-  previewStatus: "pending" | "processing" | "ready" | "failed";
+  previewStatus: "pending" | "started" | "complete" | "error";
 };
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -41,67 +38,11 @@ function resolveStorageBackend(): StorageBackend {
   return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local";
 }
 const STORAGE_BACKEND = resolveStorageBackend();
-const execFileAsync = promisify(execFile);
 const BLOB_ACCESS = "private";
-function formatProcessError(error: unknown): string {
-  if (!error || typeof error !== "object") {
-    return "Unknown process error.";
-  }
-  const maybeError = error as {
-    message?: unknown;
-    code?: unknown;
-    stdout?: unknown;
-    stderr?: unknown;
-  };
-  const parts: string[] = [];
-  if (typeof maybeError.message === "string" && maybeError.message.trim().length > 0) {
-    parts.push(maybeError.message.trim());
-  }
-  if (typeof maybeError.code === "string" && maybeError.code.trim().length > 0) {
-    parts.push(`code=${maybeError.code}`);
-  } else if (typeof maybeError.code === "number") {
-    parts.push(`code=${String(maybeError.code)}`);
-  }
-  if (typeof maybeError.stderr === "string" && maybeError.stderr.trim().length > 0) {
-    parts.push(`stderr=${maybeError.stderr.trim()}`);
-  }
-  if (typeof maybeError.stdout === "string" && maybeError.stdout.trim().length > 0) {
-    parts.push(`stdout=${maybeError.stdout.trim()}`);
-  }
-  if (parts.length > 0) {
-    return parts.join(" | ");
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Unknown process error.";
-}
 
-async function writableStatusForDir(dirPath: string): Promise<string> {
-  try {
-    await fs.mkdir(dirPath, { recursive: true });
-    await fs.access(dirPath, fsConstants.W_OK);
-    const probePath = path.join(
-      dirPath,
-      `.writable-probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    await fs.writeFile(probePath, "ok");
-    await fs.rm(probePath, { force: true });
-    return "yes";
-  } catch (error) {
-    return `no (${formatProcessError(error)})`;
-  }
-}
-
-const TMP_CANDIDATES = [
-  path.join(DATA_DIR, "tmp"),
-  process.env.LATEX_TMP_DIR,
-  "/var/tmp",
-  os.tmpdir(),
-  "/dev/shm",
-].filter((value): value is string => Boolean(value && value.trim().length > 0));
-
-async function readWebStreamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+async function readWebStreamToBuffer(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Buffer> {
   const reader = stream.getReader();
   const chunks: Buffer[] = [];
   try {
@@ -120,7 +61,11 @@ async function readWebStreamToBuffer(stream: ReadableStream<Uint8Array>): Promis
   return Buffer.concat(chunks);
 }
 
-function datePathParts(uploadedAt: Date): { year: string; month: string; day: string } {
+function datePathParts(uploadedAt: Date): {
+  year: string;
+  month: string;
+  day: string;
+} {
   return {
     year: String(uploadedAt.getUTCFullYear()),
     month: String(uploadedAt.getUTCMonth() + 1).padStart(2, "0"),
@@ -136,20 +81,15 @@ function buildStorageKey(
   uploadedAt: Date,
 ): string {
   const { year, month, day } = datePathParts(uploadedAt);
-  return path.posix.join("uploads", year, month, day, kind, size, `${baseName}.${ext}`);
-}
-
-async function createWorkingDir(prefix: string, candidates: string[] = TMP_CANDIDATES): Promise<string> {
-  let lastError: Error | null = null;
-  for (const candidate of candidates) {
-    try {
-      await fs.mkdir(candidate, { recursive: true });
-      return await fs.mkdtemp(path.join(candidate, prefix));
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Unable to create temp directory.");
-    }
-  }
-  throw lastError ?? new Error("Unable to create temp directory.");
+  return path.posix.join(
+    "uploads",
+    year,
+    month,
+    day,
+    kind,
+    size,
+    `${baseName}.${ext}`,
+  );
 }
 
 function mediaStorageKey(input: {
@@ -159,8 +99,15 @@ function mediaStorageKey(input: {
   size: MediaSize;
   uploadedAt: Date;
 }): string {
-  const requestedExt = input.kind === "image" || input.size === "original" ? input.ext : "png";
-  return buildStorageKey(input.kind, input.baseName, requestedExt, input.size, input.uploadedAt);
+  const requestedExt =
+    input.kind === "image" || input.size === "original" ? input.ext : "png";
+  return buildStorageKey(
+    input.kind,
+    input.baseName,
+    requestedExt,
+    input.size,
+    input.uploadedAt,
+  );
 }
 
 export function usesS3StorageBackend(): boolean {
@@ -192,7 +139,11 @@ async function writeKey(key: string, ext: string, data: Buffer): Promise<void> {
   await fs.writeFile(filePath, data);
 }
 
-async function copyKey(sourceKey: string, targetKey: string, ext: string): Promise<void> {
+async function copyKey(
+  sourceKey: string,
+  targetKey: string,
+  ext: string,
+): Promise<void> {
   if (sourceKey === targetKey) {
     return;
   }
@@ -221,7 +172,10 @@ async function deleteKey(key: string): Promise<void> {
 
 async function readKey(key: string): Promise<Buffer> {
   if (STORAGE_BACKEND === "blob") {
-    const response = await blobGet(key, { access: BLOB_ACCESS, useCache: false });
+    const response = await blobGet(key, {
+      access: BLOB_ACCESS,
+      useCache: false,
+    });
     if (!response || response.statusCode !== 200 || !response.stream) {
       throw new Error("Blob object was not found.");
     }
@@ -239,7 +193,11 @@ async function getKeySize(key: string): Promise<number> {
   return Number(stats.size ?? 0);
 }
 
-async function readKeyRange(key: string, start: number, end: number): Promise<Buffer> {
+async function readKeyRange(
+  key: string,
+  start: number,
+  end: number,
+): Promise<Buffer> {
   if (STORAGE_BACKEND === "blob") {
     const response = await blobGet(key, {
       access: BLOB_ACCESS,
@@ -266,13 +224,18 @@ async function readKeyRange(key: string, start: number, end: number): Promise<Bu
 
 async function readKeyStream(key: string): Promise<ReadableStream<Uint8Array>> {
   if (STORAGE_BACKEND === "blob") {
-    const response = await blobGet(key, { access: BLOB_ACCESS, useCache: true });
+    const response = await blobGet(key, {
+      access: BLOB_ACCESS,
+      useCache: true,
+    });
     if (!response || response.statusCode !== 200 || !response.stream) {
       throw new Error("Blob object was not found.");
     }
     return response.stream;
   }
-  return Readable.toWeb(createReadStream(absolutePathForKey(key))) as ReadableStream<Uint8Array>;
+  return Readable.toWeb(
+    createReadStream(absolutePathForKey(key)),
+  ) as ReadableStream<Uint8Array>;
 }
 
 async function readKeyRangeStream(
@@ -293,7 +256,9 @@ async function readKeyRangeStream(
     }
     return response.stream;
   }
-  return Readable.toWeb(createReadStream(absolutePathForKey(key), { start, end })) as ReadableStream<Uint8Array>;
+  return Readable.toWeb(
+    createReadStream(absolutePathForKey(key), { start, end }),
+  ) as ReadableStream<Uint8Array>;
 }
 
 function asPreviewPng(_text: string): Promise<Buffer> {
@@ -345,109 +310,10 @@ async function asTextPreviewPng(label: string, text: string): Promise<Buffer> {
     return await sharp(Buffer.from(svg)).png().toBuffer();
   } catch {
     // Fall back to a font-free placeholder if fontconfig is unavailable.
-    console.warn("Fontconfig is unavailable, falling back to a font-free placeholder.");
+    console.warn(
+      "Fontconfig is unavailable, falling back to a font-free placeholder.",
+    );
     return asPreviewPng("File Preview");
-  }
-}
-
-async function tryGeneratePdfPreview(buffer: Buffer): Promise<Buffer | null> {
-  const tmpDir = await createWorkingDir("latex-pdf-");
-  const inputPath = path.join(tmpDir, "input.pdf");
-  const outputPrefix = path.join(tmpDir, "preview");
-  const outputPath = `${outputPrefix}.png`;
-  try {
-    await fs.writeFile(inputPath, buffer);
-    await execFileAsync("pdftoppm", ["-f", "1", "-singlefile", "-png", inputPath, outputPrefix], {
-      timeout: 20_000,
-    });
-    return await fs.readFile(outputPath);
-  } catch (error) {
-    console.warn(`[document-preview] PDF preview generation failed: ${formatProcessError(error)}`);
-    return null;
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  }
-}
-
-async function tryGenerateOfficePreview(buffer: Buffer, ext: string): Promise<Buffer | null> {
-  const officeTmpCandidates = Array.from(new Set([path.join(DATA_DIR, "tmp"), ...TMP_CANDIDATES]));
-  const errorsByCandidate: string[] = [];
-  for (const candidate of officeTmpCandidates) {
-    let tmpDir = "";
-    try {
-      const candidateWritable = await writableStatusForDir(candidate);
-      console.info(
-        `[document-preview] Office preview candidate check for .${ext}: path=${candidate} writable=${candidateWritable}`,
-      );
-      tmpDir = await createWorkingDir("latex-office-", [candidate]);
-      const inputPath = path.join(tmpDir, `input.${ext}`);
-      const pdfPath = path.join(tmpDir, "input.pdf");
-      const outputPrefix = path.join(tmpDir, "preview");
-      const outputPath = `${outputPrefix}.png`;
-      const officeProfilePath = path.join(tmpDir, "lo-profile");
-      const officeProfileUri = `file://${officeProfilePath}`;
-
-      await fs.mkdir(officeProfilePath, { recursive: true });
-      const tmpDirWritable = await writableStatusForDir(tmpDir);
-      const profileDirWritable = await writableStatusForDir(officeProfilePath);
-      console.info(
-        `[document-preview] Office preview working dirs for .${ext}: tmpDir=${tmpDir} writable=${tmpDirWritable}; profileDir=${officeProfilePath} writable=${profileDirWritable}`,
-      );
-      await fs.writeFile(inputPath, buffer);
-      await execFileAsync(
-        "soffice",
-        [
-          "--headless",
-          "--invisible",
-          "--nologo",
-          "--nodefault",
-          "--nolockcheck",
-          "--norestore",
-          `-env:UserInstallation=${officeProfileUri}`,
-          "--convert-to",
-          "pdf:writer_pdf_Export",
-          "--outdir",
-          tmpDir,
-          inputPath,
-        ],
-        {
-          timeout: 20_000,
-          env: {
-            ...process.env,
-            HOME: tmpDir,
-            TMPDIR: tmpDir,
-          },
-        },
-      );
-      await execFileAsync("pdftoppm", ["-f", "1", "-singlefile", "-png", pdfPath, outputPrefix], {
-        timeout: 20_000,
-      });
-      return await fs.readFile(outputPath);
-    } catch (error) {
-      errorsByCandidate.push(`${candidate}: ${formatProcessError(error)}`);
-    } finally {
-      if (tmpDir) {
-        await fs.rm(tmpDir, { recursive: true, force: true });
-      }
-    }
-  }
-  console.warn(
-    `[document-preview] Office preview generation failed for .${ext}: ${errorsByCandidate.join(" || ")}`,
-  );
-  return null;
-}
-
-async function tryGenerateDocxTextPreview(buffer: Buffer): Promise<Buffer | null> {
-  try {
-    const result = await mammoth.extractRawText({ buffer });
-    const text = result.value?.trim();
-    if (!text) {
-      return null;
-    }
-    return asTextPreviewPng("DOCX preview", text);
-  } catch (error) {
-    console.warn(`[document-preview] DOCX text preview failed: ${formatProcessError(error)}`);
-    return null;
   }
 }
 
@@ -459,91 +325,17 @@ async function tryGenerateDocumentPreview(
   const normalizedExt = ext.toLowerCase();
   const normalizedMime = mimeType.toLowerCase();
 
-  if (normalizedExt === "pdf" || normalizedMime === "application/pdf") {
-    return tryGeneratePdfPreview(buffer);
+  if (isLocalTextPreviewDocument(normalizedMime, normalizedExt)) {
+    return asTextPreviewPng(
+      `${normalizedExt.toUpperCase()} preview`,
+      buffer.toString("utf8", 0, 256 * 1024),
+    );
   }
-
-  if (
-    normalizedMime.startsWith("text/") ||
-    CSV_EXTENSIONS.has(normalizedExt) ||
-    CODE_EXTENSIONS.has(normalizedExt) ||
-    normalizedExt === "txt" ||
-    normalizedExt === "text"
-  ) {
-    return asTextPreviewPng(`${normalizedExt.toUpperCase()} preview`, buffer.toString("utf8", 0, 256 * 1024));
-  }
-
-  const officeConvertibleExtensions = new Set([
-    ...DOCUMENT_TEXT_EXTENSIONS,
-    ...SPREADSHEET_EXTENSIONS,
-    ...PRESENTATION_EXTENSIONS,
-  ]);
-  if (
-    normalizedExt === "docx" ||
-    normalizedMime.includes("wordprocessingml.document")
-  ) {
-    const docxPreview = await tryGenerateDocxTextPreview(buffer);
-    if (docxPreview) {
-      return docxPreview;
-    }
-  }
-
-  if (
-    officeConvertibleExtensions.has(normalizedExt) ||
-    normalizedMime.includes("officedocument") ||
-    normalizedMime.includes("msword") ||
-    normalizedMime.includes("ms-excel") ||
-    normalizedMime.includes("powerpoint") ||
-    normalizedMime.includes("opendocument") ||
-    normalizedMime.includes("rtf")
-  ) {
-    return tryGenerateOfficePreview(buffer, normalizedExt);
-  }
-
   return null;
 }
 
-async function tryGenerateVideoPreviewFromSource(source: string): Promise<Buffer | null> {
-  const tmpDir = await createWorkingDir("latex-video-preview-");
-  const outputPath = path.join(tmpDir, "preview.png");
-  try {
-    await execFileAsync(
-      "ffmpeg",
-      [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-threads",
-        "1",
-        "-ss",
-        "00:00:01",
-        "-i",
-        source,
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale='min(1024,iw)':-2:flags=lanczos",
-        "-an",
-        "-sn",
-        "-dn",
-        "-y",
-        outputPath,
-      ],
-      { timeout: 30_000 },
-    );
-    return await fs.readFile(outputPath);
-  } catch (error) {
-    const details = error instanceof Error ? error.message : "Unknown ffmpeg error";
-    console.warn(`ffmpeg thumbnail generation failed: ${details}`);
-    return null;
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  }
-}
-
 export async function storeGenericMediaFromBuffer(input: {
-  kind: AsyncPreviewKind;
+  kind: Exclude<BlobMediaKind, "image">;
   buffer: Buffer;
   ext: string;
   mimeType: string;
@@ -551,7 +343,13 @@ export async function storeGenericMediaFromBuffer(input: {
   deferPreview?: boolean;
 }): Promise<StoredMediaResult> {
   const baseName = buildMediaBaseName(input.uploadedAt);
-  const originalKey = buildStorageKey(input.kind, baseName, input.ext, "original", input.uploadedAt);
+  const originalKey = buildStorageKey(
+    input.kind,
+    baseName,
+    input.ext,
+    "original",
+    input.uploadedAt,
+  );
   await writeKey(originalKey, input.ext, input.buffer);
   const sizeOriginal = input.buffer.length;
 
@@ -569,7 +367,11 @@ export async function storeGenericMediaFromBuffer(input: {
 
   let lgBuffer: Buffer;
   if (input.kind === "document") {
-    const preview = await tryGenerateDocumentPreview(input.buffer, input.ext, input.mimeType);
+    const preview = await tryGenerateDocumentPreview(
+      input.buffer,
+      input.ext,
+      input.mimeType,
+    );
     if (!preview) {
       return {
         baseName,
@@ -578,17 +380,35 @@ export async function storeGenericMediaFromBuffer(input: {
         sizeOriginal,
         sizeSm: 0,
         sizeLg: 0,
-        previewStatus: "failed",
+        previewStatus: "error",
       };
     }
-    lgBuffer = await sharp(preview).resize({ width: 1024, withoutEnlargement: true }).png().toBuffer();
+    lgBuffer = await sharp(preview)
+      .resize({ width: 1024, withoutEnlargement: true })
+      .png()
+      .toBuffer();
   } else {
     lgBuffer = await asPreviewPng("File Preview");
   }
-  const smBuffer = await sharp(lgBuffer).resize({ width: 320, withoutEnlargement: true }).png().toBuffer();
+  const smBuffer = await sharp(lgBuffer)
+    .resize({ width: 320, withoutEnlargement: true })
+    .png()
+    .toBuffer();
 
-  const smKey = buildStorageKey(input.kind, baseName, "png", "sm", input.uploadedAt);
-  const lgKey = buildStorageKey(input.kind, baseName, "png", "lg", input.uploadedAt);
+  const smKey = buildStorageKey(
+    input.kind,
+    baseName,
+    "png",
+    "sm",
+    input.uploadedAt,
+  );
+  const lgKey = buildStorageKey(
+    input.kind,
+    baseName,
+    "png",
+    "lg",
+    input.uploadedAt,
+  );
   await writeKey(smKey, "png", smBuffer);
   await writeKey(lgKey, "png", lgBuffer);
 
@@ -599,14 +419,14 @@ export async function storeGenericMediaFromBuffer(input: {
     sizeOriginal,
     sizeSm: smBuffer.length,
     sizeLg: lgBuffer.length,
-    previewStatus: "ready",
+    previewStatus: "complete",
   };
 }
 
 const MAX_INLINE_PREVIEW_BYTES = 512 * 1024 * 1024;
 
 export async function storeGenericMediaFromStoredUpload(input: {
-  kind: AsyncPreviewKind;
+  kind: Exclude<BlobMediaKind, "image">;
   sourceKey: string;
   sizeOriginal: number;
   ext: string;
@@ -615,7 +435,13 @@ export async function storeGenericMediaFromStoredUpload(input: {
   deferPreview?: boolean;
 }): Promise<StoredMediaResult> {
   const baseName = buildMediaBaseName(input.uploadedAt);
-  const originalKey = buildStorageKey(input.kind, baseName, input.ext, "original", input.uploadedAt);
+  const originalKey = buildStorageKey(
+    input.kind,
+    baseName,
+    input.ext,
+    "original",
+    input.uploadedAt,
+  );
   await copyKey(input.sourceKey, originalKey, input.ext);
   if (input.sourceKey !== originalKey) {
     await deleteKey(input.sourceKey);
@@ -643,11 +469,15 @@ export async function storeGenericMediaFromStoredUpload(input: {
         sizeOriginal: input.sizeOriginal,
         sizeSm: 0,
         sizeLg: 0,
-        previewStatus: "failed",
+        previewStatus: "error",
       };
     }
     const sourceBuffer = await readKey(originalKey);
-    const preview = await tryGenerateDocumentPreview(sourceBuffer, input.ext, input.mimeType);
+    const preview = await tryGenerateDocumentPreview(
+      sourceBuffer,
+      input.ext,
+      input.mimeType,
+    );
     if (!preview) {
       return {
         baseName,
@@ -656,16 +486,34 @@ export async function storeGenericMediaFromStoredUpload(input: {
         sizeOriginal: input.sizeOriginal,
         sizeSm: 0,
         sizeLg: 0,
-        previewStatus: "failed",
+        previewStatus: "error",
       };
     }
-    lgBuffer = await sharp(preview).resize({ width: 1024, withoutEnlargement: true }).png().toBuffer();
+    lgBuffer = await sharp(preview)
+      .resize({ width: 1024, withoutEnlargement: true })
+      .png()
+      .toBuffer();
   } else {
     lgBuffer = await asPreviewPng("File Preview");
   }
-  const smBuffer = await sharp(lgBuffer).resize({ width: 320, withoutEnlargement: true }).png().toBuffer();
-  const smKey = buildStorageKey(input.kind, baseName, "png", "sm", input.uploadedAt);
-  const lgKey = buildStorageKey(input.kind, baseName, "png", "lg", input.uploadedAt);
+  const smBuffer = await sharp(lgBuffer)
+    .resize({ width: 320, withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  const smKey = buildStorageKey(
+    input.kind,
+    baseName,
+    "png",
+    "sm",
+    input.uploadedAt,
+  );
+  const lgKey = buildStorageKey(
+    input.kind,
+    baseName,
+    "png",
+    "lg",
+    input.uploadedAt,
+  );
   await writeKey(smKey, "png", smBuffer);
   await writeKey(lgKey, "png", lgBuffer);
 
@@ -676,7 +524,7 @@ export async function storeGenericMediaFromStoredUpload(input: {
     sizeOriginal: input.sizeOriginal,
     sizeSm: smBuffer.length,
     sizeLg: lgBuffer.length,
-    previewStatus: "ready",
+    previewStatus: "complete",
   };
 }
 
@@ -687,16 +535,29 @@ export async function storeImageMediaFromBuffer(input: {
   uploadedAt: Date;
 }): Promise<StoredMediaResult> {
   const baseName = buildMediaBaseName(input.uploadedAt);
-  const ext = input.ext.toLowerCase() === "jpeg" ? "jpg" : input.ext.toLowerCase();
+  const ext =
+    input.ext.toLowerCase() === "jpeg" ? "jpg" : input.ext.toLowerCase();
   if (ext === "svg") {
     const metadata = await sharp(input.buffer).metadata();
     const originalBuffer = input.buffer;
     // Keep vector data for all sizes to avoid lossy raster conversion.
     const smBuffer = input.buffer;
     const lgBuffer = input.buffer;
-    await writeKey(buildStorageKey("image", baseName, ext, "original", input.uploadedAt), ext, originalBuffer);
-    await writeKey(buildStorageKey("image", baseName, ext, "sm", input.uploadedAt), ext, smBuffer);
-    await writeKey(buildStorageKey("image", baseName, ext, "lg", input.uploadedAt), ext, lgBuffer);
+    await writeKey(
+      buildStorageKey("image", baseName, ext, "original", input.uploadedAt),
+      ext,
+      originalBuffer,
+    );
+    await writeKey(
+      buildStorageKey("image", baseName, ext, "sm", input.uploadedAt),
+      ext,
+      smBuffer,
+    );
+    await writeKey(
+      buildStorageKey("image", baseName, ext, "lg", input.uploadedAt),
+      ext,
+      lgBuffer,
+    );
     return {
       baseName,
       ext,
@@ -706,7 +567,7 @@ export async function storeImageMediaFromBuffer(input: {
       sizeOriginal: originalBuffer.length,
       sizeSm: smBuffer.length,
       sizeLg: lgBuffer.length,
-      previewStatus: "ready",
+      previewStatus: "complete",
     };
   }
   if (ext === "gif") {
@@ -725,9 +586,21 @@ export async function storeImageMediaFromBuffer(input: {
       .resize({ width: 1024, withoutEnlargement: true })
       .gif()
       .toBuffer();
-    await writeKey(buildStorageKey("image", baseName, ext, "original", input.uploadedAt), ext, originalBuffer);
-    await writeKey(buildStorageKey("image", baseName, ext, "sm", input.uploadedAt), ext, smBuffer);
-    await writeKey(buildStorageKey("image", baseName, ext, "lg", input.uploadedAt), ext, lgBuffer);
+    await writeKey(
+      buildStorageKey("image", baseName, ext, "original", input.uploadedAt),
+      ext,
+      originalBuffer,
+    );
+    await writeKey(
+      buildStorageKey("image", baseName, ext, "sm", input.uploadedAt),
+      ext,
+      smBuffer,
+    );
+    await writeKey(
+      buildStorageKey("image", baseName, ext, "lg", input.uploadedAt),
+      ext,
+      lgBuffer,
+    );
     return {
       baseName,
       ext,
@@ -737,7 +610,7 @@ export async function storeImageMediaFromBuffer(input: {
       sizeOriginal: originalBuffer.length,
       sizeSm: smBuffer.length,
       sizeLg: lgBuffer.length,
-      previewStatus: "ready",
+      previewStatus: "complete",
     };
   }
   const image = sharp(input.buffer).rotate();
@@ -756,9 +629,21 @@ export async function storeImageMediaFromBuffer(input: {
     .toFormat(format)
     .toBuffer();
 
-  await writeKey(buildStorageKey("image", baseName, ext, "original", input.uploadedAt), ext, originalBuffer);
-  await writeKey(buildStorageKey("image", baseName, ext, "sm", input.uploadedAt), ext, smBuffer);
-  await writeKey(buildStorageKey("image", baseName, ext, "lg", input.uploadedAt), ext, lgBuffer);
+  await writeKey(
+    buildStorageKey("image", baseName, ext, "original", input.uploadedAt),
+    ext,
+    originalBuffer,
+  );
+  await writeKey(
+    buildStorageKey("image", baseName, ext, "sm", input.uploadedAt),
+    ext,
+    smBuffer,
+  );
+  await writeKey(
+    buildStorageKey("image", baseName, ext, "lg", input.uploadedAt),
+    ext,
+    lgBuffer,
+  );
 
   return {
     baseName,
@@ -769,7 +654,89 @@ export async function storeImageMediaFromBuffer(input: {
     sizeOriginal: originalBuffer.length,
     sizeSm: smBuffer.length,
     sizeLg: lgBuffer.length,
-    previewStatus: "ready",
+    previewStatus: "complete",
+  };
+}
+
+export async function storeImageOriginalFromBuffer(input: {
+  buffer: Buffer;
+  ext: string;
+  mimeType: string;
+  uploadedAt: Date;
+}): Promise<StoredMediaResult> {
+  const baseName = buildMediaBaseName(input.uploadedAt);
+  const ext =
+    input.ext.toLowerCase() === "jpeg" ? "jpg" : input.ext.toLowerCase();
+  await writeKey(
+    buildStorageKey("image", baseName, ext, "original", input.uploadedAt),
+    ext,
+    input.buffer,
+  );
+  let width: number | undefined;
+  let height: number | undefined;
+  try {
+    const metadata = await sharp(input.buffer).metadata();
+    width = metadata.width ?? undefined;
+    height = metadata.height ?? undefined;
+  } catch {
+    // The thumbnail service can still try to process formats that sharp cannot read locally.
+  }
+  return {
+    baseName,
+    ext,
+    mimeType: input.mimeType,
+    width,
+    height,
+    sizeOriginal: input.buffer.length,
+    sizeSm: 0,
+    sizeLg: 0,
+    previewStatus: "pending",
+  };
+}
+
+export async function storeImageOriginalFromStoredUpload(input: {
+  sourceKey: string;
+  sizeOriginal: number;
+  ext: string;
+  mimeType: string;
+  uploadedAt: Date;
+}): Promise<StoredMediaResult> {
+  const baseName = buildMediaBaseName(input.uploadedAt);
+  const ext =
+    input.ext.toLowerCase() === "jpeg" ? "jpg" : input.ext.toLowerCase();
+  const originalKey = buildStorageKey(
+    "image",
+    baseName,
+    ext,
+    "original",
+    input.uploadedAt,
+  );
+  await copyKey(input.sourceKey, originalKey, ext);
+  if (input.sourceKey !== originalKey) {
+    await deleteKey(input.sourceKey);
+  }
+  let width: number | undefined;
+  let height: number | undefined;
+  if (input.sizeOriginal <= 512 * 1024 * 1024) {
+    try {
+      const sourceBuffer = await readKey(originalKey);
+      const metadata = await sharp(sourceBuffer).metadata();
+      width = metadata.width ?? undefined;
+      height = metadata.height ?? undefined;
+    } catch {
+      // The original is stored; defer thumbnail parsing to the worker.
+    }
+  }
+  return {
+    baseName,
+    ext,
+    mimeType: input.mimeType,
+    width,
+    height,
+    sizeOriginal: input.sizeOriginal,
+    sizeSm: 0,
+    sizeLg: 0,
+    previewStatus: "pending",
   };
 }
 
@@ -848,69 +815,52 @@ export async function getMediaSignedUrl(input: {
     }
     return blob.blob.url;
   }
-  throw new Error("Direct media URLs are not available for local storage backend.");
-}
-
-export async function generateVideoPreviewFromStoredMedia(input: {
-  baseName: string;
-  ext: string;
-  uploadedAt: Date;
-}): Promise<{ sizeSm: number; sizeLg: number; width?: number; height?: number }> {
-  const originalKey = buildStorageKey("video", input.baseName, input.ext, "original", input.uploadedAt);
-  let videoFrame: Buffer | null = null;
-  if (STORAGE_BACKEND === "blob") {
-    const buffer = await readKey(originalKey);
-    const tmpDir = await createWorkingDir("latex-video-source-");
-    const tmpPath = path.join(tmpDir, `source.${input.ext}`);
-    try {
-      await fs.writeFile(tmpPath, buffer);
-      videoFrame = await tryGenerateVideoPreviewFromSource(tmpPath);
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
-  } else {
-    videoFrame = await tryGenerateVideoPreviewFromSource(absolutePathForKey(originalKey));
-  }
-  if (!videoFrame) {
-    throw new Error("Unable to extract a preview frame from this video.");
-  }
-  const lgBuffer = await sharp(videoFrame)
-    .resize({ width: 1024, withoutEnlargement: true })
-    .png()
-    .toBuffer();
-  const smBuffer = await sharp(lgBuffer).resize({ width: 320, withoutEnlargement: true }).png().toBuffer();
-  const metadata = await sharp(lgBuffer).metadata();
-
-  const smKey = buildStorageKey("video", input.baseName, "png", "sm", input.uploadedAt);
-  const lgKey = buildStorageKey("video", input.baseName, "png", "lg", input.uploadedAt);
-  await writeKey(smKey, "png", smBuffer);
-  await writeKey(lgKey, "png", lgBuffer);
-
-  return {
-    sizeSm: smBuffer.length,
-    sizeLg: lgBuffer.length,
-    width: metadata.width ?? undefined,
-    height: metadata.height ?? undefined,
-  };
+  throw new Error(
+    "Direct media URLs are not available for local storage backend.",
+  );
 }
 
 export async function storeGeneratedPreviewForMedia(input: {
-  kind: AsyncPreviewKind;
+  kind: BlobMediaKind;
   baseName: string;
+  ext: string;
   uploadedAt: Date;
   previewImageBuffer: Buffer;
-}): Promise<{ sizeSm: number; sizeLg: number; width?: number; height?: number }> {
+}): Promise<{
+  sizeSm: number;
+  sizeLg: number;
+  width?: number;
+  height?: number;
+}> {
+  const outputExt = input.kind === "image" ? input.ext.toLowerCase() : "png";
+  const outputFormat: keyof sharp.FormatEnum =
+    outputExt === "jpg" ? "jpeg" : (outputExt as keyof sharp.FormatEnum);
   const lgBuffer = await sharp(input.previewImageBuffer)
     .resize({ width: 1024, withoutEnlargement: true })
-    .png()
+    .toFormat(outputFormat)
     .toBuffer();
-  const smBuffer = await sharp(lgBuffer).resize({ width: 320, withoutEnlargement: true }).png().toBuffer();
+  const smBuffer = await sharp(lgBuffer)
+    .resize({ width: 320, withoutEnlargement: true })
+    .toFormat(outputFormat)
+    .toBuffer();
   const metadata = await sharp(lgBuffer).metadata();
 
-  const smKey = buildStorageKey(input.kind, input.baseName, "png", "sm", input.uploadedAt);
-  const lgKey = buildStorageKey(input.kind, input.baseName, "png", "lg", input.uploadedAt);
-  await writeKey(smKey, "png", smBuffer);
-  await writeKey(lgKey, "png", lgBuffer);
+  const smKey = buildStorageKey(
+    input.kind,
+    input.baseName,
+    outputExt,
+    "sm",
+    input.uploadedAt,
+  );
+  const lgKey = buildStorageKey(
+    input.kind,
+    input.baseName,
+    outputExt,
+    "lg",
+    input.uploadedAt,
+  );
+  await writeKey(smKey, outputExt, smBuffer);
+  await writeKey(lgKey, outputExt, lgBuffer);
 
   return {
     sizeSm: smBuffer.length,
@@ -920,10 +870,14 @@ export async function storeGeneratedPreviewForMedia(input: {
   };
 }
 
-export async function readCompletedUploadBuffer(storageKey: string): Promise<Buffer> {
+export async function readCompletedUploadBuffer(
+  storageKey: string,
+): Promise<Buffer> {
   return readKey(storageKey);
 }
 
-export async function deleteCompletedUploadObject(storageKey: string): Promise<void> {
+export async function deleteCompletedUploadObject(
+  storageKey: string,
+): Promise<void> {
   await deleteKey(storageKey);
 }

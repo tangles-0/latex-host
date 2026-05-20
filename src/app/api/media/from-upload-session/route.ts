@@ -2,14 +2,19 @@ import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { getAlbumForUser } from "@/lib/metadata-store";
 import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
-import { mediaKindFromType } from "@/lib/media-types";
+import {
+  isLocalTextPreviewDocument,
+  isThumbnailServiceSupported,
+  mediaKindFromType,
+} from "@/lib/media-types";
 import {
   deleteCompletedUploadObject,
   readCompletedUploadBuffer,
   storeGenericMediaFromStoredUpload,
+  storeImageOriginalFromStoredUpload,
   storeImageMediaFromBuffer,
 } from "@/lib/media-storage";
-import { requestPreviewGeneration } from "@/lib/preview-worker";
+import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 import { getUploadSessionForUser } from "@/lib/upload-sessions";
 
 export const runtime = "nodejs";
@@ -27,7 +32,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   const sessionId = payload.sessionId?.trim() ?? "";
   const albumId = payload.albumId?.trim() || undefined;
   if (!sessionId) {
-    return NextResponse.json({ error: "sessionId is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "sessionId is required." },
+      { status: 400 },
+    );
   }
   if (albumId) {
     const album = await getAlbumForUser(albumId, userId);
@@ -38,37 +46,64 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const session = await getUploadSessionForUser(sessionId, userId);
   if (!session) {
-    return NextResponse.json({ error: "Upload session not found." }, { status: 404 });
+    return NextResponse.json(
+      { error: "Upload session not found." },
+      { status: 404 },
+    );
   }
   if (session.state !== "complete" || !session.storageKey) {
-    return NextResponse.json({ error: "Upload session is not complete." }, { status: 409 });
+    return NextResponse.json(
+      { error: "Upload session is not complete." },
+      { status: 409 },
+    );
   }
 
   const kind = mediaKindFromType(session.mimeType, session.ext);
   const uploadedAt = new Date();
+  const canUseThumbnailService = isThumbnailServiceSupported({
+    kind,
+    mimeType: session.mimeType,
+    ext: session.ext,
+    fileSizeBytes: session.fileSize,
+  });
+  const thumbnailKind =
+    canUseThumbnailService && kind !== "other" ? kind : null;
   let stored;
   if (kind === "image") {
-    const buffer = await readCompletedUploadBuffer(session.storageKey);
-    stored = await storeImageMediaFromBuffer({
-      buffer,
-      ext: session.ext,
-      mimeType: session.mimeType,
-      uploadedAt,
-    });
-    try {
-      await deleteCompletedUploadObject(session.storageKey);
-    } catch {
-      // Keep registration successful even if staged upload cleanup fails.
+    if (canUseThumbnailService) {
+      stored = await storeImageOriginalFromStoredUpload({
+        sourceKey: session.storageKey,
+        sizeOriginal: session.fileSize,
+        ext: session.ext,
+        mimeType: session.mimeType,
+        uploadedAt,
+      });
+    } else {
+      const buffer = await readCompletedUploadBuffer(session.storageKey);
+      stored = await storeImageMediaFromBuffer({
+        buffer,
+        ext: session.ext,
+        mimeType: session.mimeType,
+        uploadedAt,
+      });
+      try {
+        await deleteCompletedUploadObject(session.storageKey);
+      } catch {
+        // Keep registration successful even if staged upload cleanup fails.
+      }
     }
   } else {
     stored = await storeGenericMediaFromStoredUpload({
-      kind: kind === "video" ? "video" : kind === "document" ? "document" : "other",
+      kind:
+        kind === "video" ? "video" : kind === "document" ? "document" : "other",
       sourceKey: session.storageKey,
       sizeOriginal: session.fileSize,
       ext: session.ext,
       mimeType: session.mimeType,
       uploadedAt,
-      deferPreview: kind === "video" || kind === "document",
+      deferPreview:
+        canUseThumbnailService &&
+        !isLocalTextPreviewDocument(session.mimeType, session.ext),
     });
   }
   const media = await addMediaForUser({
@@ -76,7 +111,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     kind,
     albumId,
     baseName: stored.baseName,
-    originalFileName: payload.keepOriginalFileName ? session.fileName : undefined,
+    originalFileName: payload.keepOriginalFileName
+      ? session.fileName
+      : undefined,
     ext: stored.ext,
     mimeType: stored.mimeType,
     width: stored.width,
@@ -88,28 +125,21 @@ export async function POST(request: Request): Promise<NextResponse> {
     uploadedAt: uploadedAt.toISOString(),
   });
 
-  if (
-    (media.kind === "video" || media.kind === "document" || media.kind === "other") &&
-    media.previewStatus === "pending"
-  ) {
+  if (thumbnailKind && media.previewStatus === "pending") {
     const queued = await requestPreviewGeneration({
       mediaId: media.id,
-      kind: media.kind,
+      kind: thumbnailKind,
+      ext: media.ext,
+      mimeType: media.mimeType,
+      fileSizeBytes: media.sizeOriginal,
+      downloadUrl: buildAppUrl(request, `/api/thumbnails/${media.id}/source`),
     });
-    if (queued.ok) {
+    if (!queued.ok) {
       await updateMediaPreviewForUser({
         userId,
-        kind: media.kind,
+        kind,
         mediaId: media.id,
-        previewStatus: "processing",
-        previewError: null,
-      });
-    } else {
-      await updateMediaPreviewForUser({
-        userId,
-        kind: media.kind,
-        mediaId: media.id,
-        previewStatus: "failed",
+        previewStatus: "error",
         previewError: queued.error,
       });
     }
@@ -117,4 +147,3 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   return NextResponse.json({ media });
 }
-
