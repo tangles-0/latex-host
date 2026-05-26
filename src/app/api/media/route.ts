@@ -8,7 +8,11 @@ import {
   getUserGroupInfo,
   isAdminUser,
 } from "@/lib/metadata-store";
-import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
+import {
+  addMediaForUser,
+  getMediaForUser,
+  updateMediaPreviewForUser,
+} from "@/lib/media-store";
 import {
   extFromFileName,
   isLocalTextPreviewDocument,
@@ -30,6 +34,38 @@ type RateLimitEntry = {
 };
 
 const rateLimitStore = new Map<string, RateLimitEntry>();
+
+export async function GET(request: Request): Promise<NextResponse> {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  const url = new URL(request.url);
+  const mediaId = url.searchParams.get("mediaId")?.trim() ?? "";
+  const kind = url.searchParams.get("kind")?.trim() ?? "";
+  if (!mediaId || !kind) {
+    return NextResponse.json(
+      { error: "kind and mediaId are required." },
+      { status: 400 },
+    );
+  }
+  if (
+    kind !== "image" &&
+    kind !== "video" &&
+    kind !== "document" &&
+    kind !== "other"
+  ) {
+    return NextResponse.json(
+      { error: "Unsupported media kind." },
+      { status: 400 },
+    );
+  }
+  const media = await getMediaForUser(kind, mediaId, userId);
+  if (!media) {
+    return NextResponse.json({ error: "Media not found." }, { status: 404 });
+  }
+  return NextResponse.json({ media });
+}
 
 function isAllowedType(allowed: string[], mime: string): boolean {
   if (allowed.length === 0) {

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { BlobMediaKind } from "@/lib/media-types";
 import {
   DEFAULT_RESUMABLE_THRESHOLD,
@@ -8,6 +15,8 @@ import {
   uploadSingleMedia,
 } from "@/lib/upload-client";
 import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
+import { LightImages } from "@energiz3r/icon-library/Icons/Light/LightImages";
+import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 
 type UploadState = "idle" | "uploading" | "success" | "error";
@@ -36,6 +45,57 @@ type UploadMessage = {
   text: string;
   tone: "success" | "error";
 };
+
+type YoutubeQualityOption = {
+  id: string;
+  label: string;
+  height?: number;
+  fps?: number;
+  ext?: string;
+  filesizeBytes?: number;
+};
+
+type YoutubeMetadata = {
+  youtubeId: string;
+  title: string;
+  channelName?: string;
+  durationSeconds?: number;
+  qualities: YoutubeQualityOption[];
+};
+
+type YoutubeIngest = {
+  id: string;
+  youtubeId: string;
+  title: string;
+  channelName?: string;
+  qualityLabel?: string;
+  status:
+    | "pending"
+    | "started"
+    | "downloading"
+    | "uploading"
+    | "complete"
+    | "error";
+  progress: number;
+  error?: string;
+  mediaId?: string;
+  updatedAt: string;
+};
+
+type DeleteConfirmation =
+  | {
+      type: "upload";
+      media: UploadedImage;
+    }
+  | {
+      type: "youtube-upload";
+      ingest: YoutubeIngest;
+      media: UploadedImage;
+    }
+  | {
+      type: "youtube-ingest";
+      ingest: YoutubeIngest;
+    };
 
 function isEditablePasteTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -128,6 +188,9 @@ export default function UploadDropzone({
   const [shareStates, setShareStates] = useState<Record<string, ShareInfo>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [messages, setMessages] = useState<UploadMessage[]>([]);
+  const [youtubeIngestMedia, setYoutubeIngestMedia] = useState<
+    Record<string, UploadedImage>
+  >({});
   const [uploadProgress, setUploadProgress] = useState<
     Record<
       string,
@@ -150,6 +213,19 @@ export default function UploadDropzone({
   const [keepOriginalFileName, setKeepOriginalFileName] = useState(false);
   const [hasLoadedKeepOriginalFileName, setHasLoadedKeepOriginalFileName] =
     useState(false);
+  const [youtubeIngests, setYoutubeIngests] = useState<YoutubeIngest[]>([]);
+  const [isYoutubeModalOpen, setIsYoutubeModalOpen] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeMetadata, setYoutubeMetadata] =
+    useState<YoutubeMetadata | null>(null);
+  const [selectedYoutubeQualityId, setSelectedYoutubeQualityId] = useState("");
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+  const [isFetchingYoutubeMetadata, setIsFetchingYoutubeMetadata] =
+    useState(false);
+  const [isStartingYoutubeIngest, setIsStartingYoutubeIngest] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<DeleteConfirmation | null>(null);
+  const [isDeletingConfirmedItem, setIsDeletingConfirmedItem] = useState(false);
   const dragCounter = useRef(0);
   const uploadFilesRef = useRef<(files: FileList | File[]) => Promise<void>>(
     async () => {},
@@ -163,17 +239,22 @@ export default function UploadDropzone({
     return "drag N drop files here, or click 2 browse";
   }, [message, status]);
 
-  function pushMessage(text: string, tone: UploadMessage["tone"]) {
-    const entry: UploadMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      text,
-      tone,
-    };
-    setMessages((current) => [entry, ...current]);
-    window.setTimeout(() => {
-      setMessages((current) => current.filter((item) => item.id !== entry.id));
-    }, 4000);
-  }
+  const pushMessage = useCallback(
+    (text: string, tone: UploadMessage["tone"]) => {
+      const entry: UploadMessage = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        tone,
+      };
+      setMessages((current) => [entry, ...current]);
+      window.setTimeout(() => {
+        setMessages((current) =>
+          current.filter((item) => item.id !== entry.id),
+        );
+      }, 4000);
+    },
+    [],
+  );
 
   function formatBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
@@ -214,6 +295,64 @@ export default function UploadDropzone({
     };
     setIncompleteSessions(payload.sessions ?? []);
   }
+
+  const loadYoutubeIngests = useCallback(async () => {
+    const response = await fetch("/api/youtube/ingests", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    const payload = (await response.json()) as { ingests?: YoutubeIngest[] };
+    const incoming = payload.ingests ?? [];
+    setYoutubeIngests((current) => {
+      const incomingIds = new Set(incoming.map((ingest) => ingest.id));
+      const localCompleted = current.filter(
+        (ingest) =>
+          ingest.status === "complete" &&
+          Boolean(ingest.mediaId) &&
+          Boolean(youtubeIngestMedia[ingest.id]) &&
+          !incomingIds.has(ingest.id),
+      );
+      return [...incoming, ...localCompleted];
+    });
+  }, [youtubeIngestMedia]);
+
+  const loadCompletedYoutubeIngestMedia = useCallback(
+    async (ingest: YoutubeIngest) => {
+      if (!ingest.mediaId || youtubeIngestMedia[ingest.id]) {
+        return;
+      }
+      const response = await fetch(
+        `/api/media?kind=video&mediaId=${encodeURIComponent(ingest.mediaId)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as {
+        media?: UploadedImage;
+      };
+      if (!payload.media) {
+        return;
+      }
+      setYoutubeIngestMedia((current) => ({
+        ...current,
+        [ingest.id]: payload.media!,
+      }));
+      const deleteResponse = await fetch(
+        `/api/youtube/ingests/${encodeURIComponent(ingest.id)}`,
+        {
+          method: "DELETE",
+        },
+      );
+      if (!deleteResponse.ok && deleteResponse.status !== 404) {
+        pushMessage(
+          "Unable to clear completed YouTube ingest record.",
+          "error",
+        );
+      }
+    },
+    [pushMessage, youtubeIngestMedia],
+  );
 
   async function clearFailedSessions() {
     const clearableIds = incompleteSessions
@@ -276,10 +415,12 @@ export default function UploadDropzone({
   useEffect(() => {
     let isMounted = true;
     async function loadAlbumsAndSessions() {
-      const [albumsResponse, sessionsResponse] = await Promise.all([
-        fetch("/api/albums"),
-        fetch("/api/uploads/list", { cache: "no-store" }),
-      ]);
+      const [albumsResponse, sessionsResponse, youtubeResponse] =
+        await Promise.all([
+          fetch("/api/albums"),
+          fetch("/api/uploads/list", { cache: "no-store" }),
+          fetch("/api/youtube/ingests", { cache: "no-store" }),
+        ]);
       if (albumsResponse.ok) {
         const payload = (await albumsResponse.json()) as {
           albums?: { id: string; name: string }[];
@@ -305,6 +446,14 @@ export default function UploadDropzone({
           setIncompleteSessions(payload.sessions ?? []);
         }
       }
+      if (youtubeResponse.ok) {
+        const payload = (await youtubeResponse.json()) as {
+          ingests?: YoutubeIngest[];
+        };
+        if (isMounted) {
+          setYoutubeIngests(payload.ingests ?? []);
+        }
+      }
     }
 
     void loadAlbumsAndSessions();
@@ -312,6 +461,28 @@ export default function UploadDropzone({
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const activeIngests = youtubeIngests.filter(
+      (ingest) => ingest.status !== "complete" && ingest.status !== "error",
+    );
+    if (activeIngests.length === 0) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void loadYoutubeIngests();
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [loadYoutubeIngests, youtubeIngests]);
+
+  useEffect(() => {
+    const completed = youtubeIngests.filter(
+      (ingest) => ingest.status === "complete" && Boolean(ingest.mediaId),
+    );
+    for (const ingest of completed) {
+      void loadCompletedYoutubeIngestMedia(ingest);
+    }
+  }, [loadCompletedYoutubeIngestMedia, youtubeIngests]);
 
   useEffect(() => {
     function handleDragEnter(event: DragEvent) {
@@ -373,9 +544,10 @@ export default function UploadDropzone({
   }, [uploadsEnabled]);
 
   useEffect(() => {
-    const pending = recentUploads.filter((item) =>
-      isPreviewPollingStatus(item.previewStatus),
-    );
+    const pending = [
+      ...recentUploads,
+      ...Object.values(youtubeIngestMedia),
+    ].filter((item) => isPreviewPollingStatus(item.previewStatus));
     if (pending.length === 0) {
       return;
     }
@@ -413,6 +585,20 @@ export default function UploadDropzone({
           });
           return changed ? next : current;
         });
+        setYoutubeIngestMedia((current) => {
+          let changed = false;
+          const next = Object.fromEntries(
+            Object.entries(current).map(([ingestId, entry]) => {
+              const previewStatus = statusById.get(entry.id);
+              if (!previewStatus || entry.previewStatus === previewStatus) {
+                return [ingestId, entry];
+              }
+              changed = true;
+              return [ingestId, { ...entry, previewStatus }];
+            }),
+          );
+          return changed ? next : current;
+        });
       }
       if (isMounted && Date.now() - startedAt < PREVIEW_POLL_MAX_MS) {
         const hasSlowItem = pending.some(
@@ -440,7 +626,7 @@ export default function UploadDropzone({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [recentUploads]);
+  }, [recentUploads, youtubeIngestMedia]);
 
   async function uploadFiles(files: FileList | File[]) {
     if (!uploadsEnabled) {
@@ -624,6 +810,110 @@ export default function UploadDropzone({
     }
   }
 
+  function openYoutubeModal() {
+    setYoutubeUrl("");
+    setYoutubeMetadata(null);
+    setSelectedYoutubeQualityId("");
+    setYoutubeError(null);
+    setIsYoutubeModalOpen(true);
+  }
+
+  async function fetchYoutubeMetadata() {
+    const url = youtubeUrl.trim();
+    if (!url) {
+      setYoutubeError("YouTube URL is required.");
+      return;
+    }
+    setYoutubeError(null);
+    setIsFetchingYoutubeMetadata(true);
+    try {
+      const response = await fetch("/api/youtube/metadata", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const payload = (await response.json()) as {
+        metadata?: YoutubeMetadata;
+        error?: string;
+      };
+      if (!response.ok || !payload.metadata) {
+        throw new Error(payload.error ?? "Unable to fetch YouTube metadata.");
+      }
+      setYoutubeMetadata(payload.metadata);
+      setSelectedYoutubeQualityId(payload.metadata.qualities[0]?.id ?? "");
+    } catch (error) {
+      setYoutubeError(
+        error instanceof Error
+          ? error.message
+          : "Unable to fetch YouTube metadata.",
+      );
+    } finally {
+      setIsFetchingYoutubeMetadata(false);
+    }
+  }
+
+  async function startYoutubeIngest() {
+    if (!youtubeMetadata || !selectedYoutubeQualityId) {
+      setYoutubeError("Choose a quality option.");
+      return;
+    }
+    const quality = youtubeMetadata.qualities.find(
+      (item) => item.id === selectedYoutubeQualityId,
+    );
+    setYoutubeError(null);
+    setIsStartingYoutubeIngest(true);
+    try {
+      const response = await fetch("/api/youtube/ingests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          youtubeUrl: youtubeUrl.trim(),
+          youtubeId: youtubeMetadata.youtubeId,
+          title: youtubeMetadata.title,
+          channelName: youtubeMetadata.channelName,
+          durationSeconds: youtubeMetadata.durationSeconds,
+          qualityId: selectedYoutubeQualityId,
+          qualityLabel: quality?.label ?? selectedYoutubeQualityId,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ingest?: YoutubeIngest;
+        error?: string;
+      };
+      if (!response.ok || !payload.ingest) {
+        throw new Error(payload.error ?? "Unable to start YouTube ingest.");
+      }
+      setYoutubeIngests((current) => [payload.ingest!, ...current]);
+      setIsYoutubeModalOpen(false);
+      pushMessage("YouTube ingest started.", "success");
+    } catch (error) {
+      setYoutubeError(
+        error instanceof Error
+          ? error.message
+          : "Unable to start YouTube ingest.",
+      );
+    } finally {
+      setIsStartingYoutubeIngest(false);
+    }
+  }
+
+  async function deleteYoutubeIngest(ingest: YoutubeIngest) {
+    const response = await fetch(
+      `/api/youtube/ingests/${encodeURIComponent(ingest.id)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      pushMessage(payload.error ?? "Unable to delete YouTube ingest.", "error");
+      return;
+    }
+    setYoutubeIngests((current) =>
+      current.filter((item) => item.id !== ingest.id),
+    );
+  }
+
   function openAlbumPicker(upload: UploadedImage) {
     setAlbumPickerUpload(upload);
     setAlbumPickerAlbumId("");
@@ -743,7 +1033,7 @@ export default function UploadDropzone({
     );
   }
 
-  async function deleteRecentUpload(image: UploadedImage) {
+  async function deleteRecentUpload(image: UploadedImage): Promise<boolean> {
     const response = await fetch("/api/media/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -756,7 +1046,7 @@ export default function UploadDropzone({
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
       pushMessage(payload.error ?? "Unable to delete image.", "error");
-      return;
+      return false;
     }
 
     setRecentUploads((current) =>
@@ -771,6 +1061,86 @@ export default function UploadDropzone({
       return next;
     });
     pushMessage("img deleted.", "success");
+    return true;
+  }
+
+  async function deleteCompletedYoutubeIngest(
+    ingest: YoutubeIngest,
+    media: UploadedImage,
+  ): Promise<boolean> {
+    const deleted = await deleteRecentUpload(media);
+    if (!deleted) {
+      return false;
+    }
+    setYoutubeIngests((current) =>
+      current.filter((item) => item.id !== ingest.id),
+    );
+    setYoutubeIngestMedia((current) => {
+      const next = { ...current };
+      delete next[ingest.id];
+      return next;
+    });
+    return true;
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirmation || isDeletingConfirmedItem) {
+      return;
+    }
+    setIsDeletingConfirmedItem(true);
+    try {
+      if (deleteConfirmation.type === "upload") {
+        const deleted = await deleteRecentUpload(deleteConfirmation.media);
+        if (deleted) {
+          setDeleteConfirmation(null);
+        }
+        return;
+      }
+      if (deleteConfirmation.type === "youtube-upload") {
+        const deleted = await deleteCompletedYoutubeIngest(
+          deleteConfirmation.ingest,
+          deleteConfirmation.media,
+        );
+        if (deleted) {
+          setDeleteConfirmation(null);
+        }
+        return;
+      }
+      await deleteYoutubeIngest(deleteConfirmation.ingest);
+      setDeleteConfirmation(null);
+    } finally {
+      setIsDeletingConfirmedItem(false);
+    }
+  }
+
+  function deleteConfirmationCopy(): {
+    title: string;
+    body: string;
+    confirmLabel: string;
+  } {
+    if (!deleteConfirmation) {
+      return { title: "", body: "", confirmLabel: "delete" };
+    }
+    if (deleteConfirmation.type === "youtube-ingest") {
+      const isFailed = deleteConfirmation.ingest.status === "error";
+      return {
+        title: isFailed ? "Delete YouTube ingest?" : "Cancel YouTube ingest?",
+        body: isFailed
+          ? `Delete the failed YouTube ingest for "${deleteConfirmation.ingest.title}"?`
+          : `Cancel the YouTube ingest for "${deleteConfirmation.ingest.title}"?`,
+        confirmLabel: isFailed ? "delete" : "cancel ingest",
+      };
+    }
+    const name =
+      deleteConfirmation.type === "upload"
+        ? deleteConfirmation.media.originalFileName ||
+          deleteConfirmation.media.baseName
+        : deleteConfirmation.ingest.title;
+    return {
+      title: "Delete upload?",
+      body: `Delete "${name}" from your gallery? This cannot be undone.`,
+      confirmLabel: "delete",
+    };
   }
 
   function onDragOver(event: React.DragEvent<HTMLDivElement>) {
@@ -794,16 +1164,25 @@ export default function UploadDropzone({
         <label className="block text-xs text-neutral-500" htmlFor={inputId}>
           album (optional)
         </label>
-        <button
-          type="button"
-          onClick={() => {
-            setAlbumError(null);
-            setIsAlbumModalOpen(true);
-          }}
-          className="rounded border border-neutral-200 px-3 py-1 text-xs"
-        >
-          + album
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setAlbumError(null);
+              setIsAlbumModalOpen(true);
+            }}
+            className="rounded border border-neutral-200 px-3 py-1 text-xs"
+          >
+            + album
+          </button>
+          <button
+            type="button"
+            onClick={openYoutubeModal}
+            className="rounded border border-neutral-200 px-3 py-1 text-xs"
+          >
+            + youtube
+          </button>
+        </div>
       </div>
       <select
         id={inputId}
@@ -954,36 +1333,29 @@ export default function UploadDropzone({
                     <button
                       type="button"
                       onClick={() => openAlbumPicker(image)}
-                      className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
+                      className="rounded border border-neutral-200 px-3 py-1 text-xs"
                       aria-label="Add to album"
                       title="Add to album"
                     >
-                      +
+                      <LightImages className="h-4 w-4" fill="currentColor" />
                     </button>
                     <button
                       type="button"
                       onClick={() => void copyShare(image)}
-                      className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
+                      className="rounded border border-neutral-200 px-3 py-1 text-xs"
                     >
                       {copied === image.id ? "Copied" : "Copy link"}
                     </button>
                     <button
                       type="button"
-                      onClick={() => void deleteRecentUpload(image)}
-                      className="rounded border border-neutral-200 p-1 text-neutral-500"
+                      onClick={() =>
+                        setDeleteConfirmation({ type: "upload", media: image })
+                      }
+                      className="rounded border border-neutral-200 px-3 py-1 text-xs text-neutral-500"
                       aria-label="Delete image"
                       title="Delete image"
                     >
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path
-                          d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Zm-1 11h12a2 2 0 0 0 2-2V7H4v11a2 2 0 0 0 2 2Z"
-                          fill="currentColor"
-                        />
-                      </svg>
+                      <LightTrashAlt className="h-4 w-4" fill="currentColor" />
                     </button>
                   </div>
                 </div>
@@ -1006,6 +1378,141 @@ export default function UploadDropzone({
                 {formatBytes(progress.total)}
               </div>
             ))}
+          </div>
+        </div>
+      ) : null}
+
+      {youtubeIngests.length > 0 ? (
+        <div className="space-y-2 rounded border border-neutral-200 p-3">
+          <h3 className="text-xs font-medium text-neutral-600">
+            Youtube Ingests
+          </h3>
+          <div className="space-y-2">
+            {youtubeIngests.slice(0, 20).map((ingest) => {
+              const media = youtubeIngestMedia[ingest.id];
+              const thumbUrl = media
+                ? `/media/${media.kind}/${media.id}/${media.baseName}-sm.png`
+                : "";
+              return (
+                <div
+                  key={ingest.id}
+                  className="flex items-center justify-between gap-3 text-xs text-neutral-600"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    {media ? (
+                      media.previewStatus === "pending" ? (
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
+                          <LightClock className="h-4 w-4" fill="currentColor" />
+                        </div>
+                      ) : media.previewStatus !== "complete" ? (
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
+                          {(() => {
+                            const Icon = getFileIconForExtension(media.ext);
+                            return (
+                              <Icon className="h-4 w-4" fill="currentColor" />
+                            );
+                          })()}
+                        </div>
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={thumbUrl}
+                          alt="YouTube upload thumbnail"
+                          className="h-8 w-8 shrink-0 rounded object-cover"
+                        />
+                      )
+                    ) : null}
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-neutral-700">
+                        {ingest.title}
+                      </div>
+                      <div>
+                        {ingest.channelName ? `${ingest.channelName} - ` : ""}
+                        {ingest.qualityLabel ? `${ingest.qualityLabel} - ` : ""}
+                        {ingest.status}
+                        {ingest.status !== "complete" &&
+                        ingest.status !== "error"
+                          ? ` ${ingest.progress}%`
+                          : ""}
+                      </div>
+                      {ingest.error ? (
+                        <div className="text-red-600">{ingest.error}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {media ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => openAlbumPicker(media)}
+                          className="rounded border border-neutral-200 px-3 py-1 text-xs"
+                          aria-label="Add to album"
+                          title="Add to album"
+                        >
+                          <LightImages
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void copyShare(media)}
+                          className="rounded border border-neutral-200 px-3 py-1 text-xs"
+                        >
+                          {copied === media.id ? "Copied" : "Copy link"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeleteConfirmation({
+                              type: "youtube-upload",
+                              ingest,
+                              media,
+                            })
+                          }
+                          className="rounded border border-neutral-200 px-3 py-1 text-xs text-neutral-500"
+                          aria-label="Delete YouTube upload"
+                          title="Delete YouTube upload"
+                        >
+                          <LightTrashAlt
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
+                      </>
+                    ) : null}
+                    {!media && ingest.status !== "complete" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDeleteConfirmation({
+                            type: "youtube-ingest",
+                            ingest,
+                          })
+                        }
+                        className="rounded border border-neutral-200 px-3 py-1 text-xs text-neutral-500"
+                        aria-label={
+                          ingest.status === "error"
+                            ? "Delete YouTube ingest"
+                            : "Cancel YouTube ingest"
+                        }
+                        title={
+                          ingest.status === "error"
+                            ? "Delete YouTube ingest"
+                            : "Cancel YouTube ingest"
+                        }
+                      >
+                        <LightTrashAlt
+                          className="h-4 w-4"
+                          fill="currentColor"
+                        />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -1044,6 +1551,40 @@ export default function UploadDropzone({
         </div>
       ) : null}
 
+      {deleteConfirmation
+        ? (() => {
+            const copy = deleteConfirmationCopy();
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+                <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+                  <h3 className="text-lg font-semibold">{copy.title}</h3>
+                  <p className="mt-2 text-xs text-neutral-600">{copy.body}</p>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmation(null)}
+                      disabled={isDeletingConfirmedItem}
+                      className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                    >
+                      cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmDelete()}
+                      disabled={isDeletingConfirmedItem}
+                      className="rounded bg-red-600 px-3 py-1 text-xs text-white disabled:opacity-50"
+                    >
+                      {isDeletingConfirmedItem
+                        ? "working..."
+                        : copy.confirmLabel}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()
+        : null}
+
       {isAlbumModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
@@ -1075,6 +1616,105 @@ export default function UploadDropzone({
                 className="rounded bg-black px-3 py-1 text-xs text-white"
               >
                 saveth the album
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isYoutubeModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-md bg-white p-6 text-sm">
+            <h3 className="text-lg font-semibold">add youtube video</h3>
+            <p className="mt-1 text-xs text-neutral-500">
+              paste any YouTube URL. latex can handle the usual watch, short,
+              shorts, and share URL shapes.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <input
+                className="min-w-0 flex-1 rounded border px-3 py-2"
+                placeholder="https://www.youtube.com/watch?v=..."
+                value={youtubeUrl}
+                onChange={(event) => {
+                  setYoutubeUrl(event.target.value);
+                  setYoutubeMetadata(null);
+                  setSelectedYoutubeQualityId("");
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void fetchYoutubeMetadata()}
+                disabled={isFetchingYoutubeMetadata}
+                className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+              >
+                {isFetchingYoutubeMetadata ? "checking..." : "fetch"}
+              </button>
+            </div>
+            {youtubeMetadata ? (
+              <div className="mt-4 space-y-3 rounded border border-neutral-200 p-3">
+                <div>
+                  <div className="font-medium">{youtubeMetadata.title}</div>
+                  <div className="text-xs text-neutral-500">
+                    {youtubeMetadata.channelName
+                      ? `${youtubeMetadata.channelName} - `
+                      : ""}
+                    {youtubeMetadata.durationSeconds
+                      ? `${Math.round(youtubeMetadata.durationSeconds / 60)} min`
+                      : ""}
+                  </div>
+                </div>
+                <label className="block text-xs text-neutral-600">
+                  quality
+                  <select
+                    value={selectedYoutubeQualityId}
+                    onChange={(event) =>
+                      setSelectedYoutubeQualityId(event.target.value)
+                    }
+                    className="mt-1 w-full rounded border px-3 py-2"
+                  >
+                    {youtubeMetadata.qualities.map((quality) => (
+                      <option key={quality.id} value={quality.id}>
+                        {quality.label}
+                        {quality.filesizeBytes
+                          ? ` (${formatBytes(quality.filesizeBytes)})`
+                          : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            {youtubeError ? (
+              <p className="mt-2 text-xs text-red-600">{youtubeError}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsYoutubeModalOpen(false)}
+                className="rounded border border-neutral-200 px-3 py-1 text-xs"
+              >
+                cancel
+              </button>
+              {youtubeMetadata ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setYoutubeMetadata(null);
+                    setSelectedYoutubeQualityId("");
+                    setYoutubeError(null);
+                  }}
+                  className="rounded border border-neutral-200 px-3 py-1 text-xs"
+                >
+                  new url
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void startYoutubeIngest()}
+                disabled={!youtubeMetadata || isStartingYoutubeIngest}
+                className="rounded bg-black px-3 py-1 text-xs text-white disabled:opacity-50"
+              >
+                {isStartingYoutubeIngest ? "starting..." : "start download"}
               </button>
             </div>
           </div>

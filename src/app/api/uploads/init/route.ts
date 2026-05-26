@@ -1,9 +1,22 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
-import { getAppSettings, getGroupLimits, getMaxAllowedBytesForKind, getUserGroupInfo } from "@/lib/metadata-store";
-import { extFromFileName, mediaKindFromType, type BlobMediaKind } from "@/lib/media-types";
+import {
+  getAppSettings,
+  getGroupLimits,
+  getMaxAllowedBytesForKind,
+  getUserGroupInfo,
+} from "@/lib/metadata-store";
+import {
+  extFromFileName,
+  mediaKindFromType,
+  type BlobMediaKind,
+} from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
-import { getBlobMultipartClientState, initUploadSession } from "@/lib/upload-sessions";
+import {
+  getBlobMultipartClientState,
+  initUploadSession,
+} from "@/lib/upload-sessions";
+import { isWorkerIngestAuthorized } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
 
@@ -25,24 +38,10 @@ function isAllowedType(allowed: string[], mime: string): boolean {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-  const rate = await consumeRequestRateLimit({
-    namespace: "upload-init",
-    key: userId,
-    limit: Number(process.env.UPLOAD_INIT_RATE_LIMIT_PER_MINUTE ?? 30),
-    windowSeconds: 60,
-  });
-  if (!rate.allowed) {
-    return NextResponse.json(
-      { error: "Too many upload session requests. Please retry shortly." },
-      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
-    );
-  }
-
+  const isWorkerRequest = isWorkerIngestAuthorized(request);
+  let userId = await getSessionUserId();
   const payload = (await request.json()) as {
+    userId?: string;
     fileName?: string;
     fileSize?: number;
     mimeType?: string;
@@ -50,6 +49,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     checksum?: string;
     targetType?: BlobMediaKind;
   };
+  if (!userId && isWorkerRequest) {
+    userId = payload.userId?.trim() ?? "";
+  }
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  if (!isWorkerRequest) {
+    const rate = await consumeRequestRateLimit({
+      namespace: "upload-init",
+      key: userId,
+      limit: Number(process.env.UPLOAD_INIT_RATE_LIMIT_PER_MINUTE ?? 30),
+      windowSeconds: 60,
+    });
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Too many upload session requests. Please retry shortly." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        },
+      );
+    }
+  }
 
   const fileName = payload.fileName?.trim() ?? "";
   const fileSize = Number(payload.fileSize ?? 0);
@@ -59,28 +81,52 @@ export async function POST(request: Request): Promise<NextResponse> {
   const checksum = payload.checksum?.trim() || undefined;
 
   if (!fileName || !ext) {
-    return NextResponse.json({ error: "File name with extension is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "File name with extension is required." },
+      { status: 400 },
+    );
   }
   if (!Number.isFinite(fileSize) || fileSize <= 0) {
-    return NextResponse.json({ error: "File size must be greater than 0." }, { status: 400 });
+    return NextResponse.json(
+      { error: "File size must be greater than 0." },
+      { status: 400 },
+    );
   }
   if (!Number.isFinite(chunkSizeRaw) || chunkSizeRaw <= 0) {
-    return NextResponse.json({ error: "chunkSize must be greater than 0." }, { status: 400 });
+    return NextResponse.json(
+      { error: "chunkSize must be greater than 0." },
+      { status: 400 },
+    );
   }
   if (checksum && !/^[a-fA-F0-9]{64}$/.test(checksum)) {
-    return NextResponse.json({ error: "checksum must be a SHA-256 hex string." }, { status: 400 });
+    return NextResponse.json(
+      { error: "checksum must be a SHA-256 hex string." },
+      { status: 400 },
+    );
   }
-  const [groupInfo, settings] = await Promise.all([getUserGroupInfo(userId), getAppSettings()]);
+  const [groupInfo, settings] = await Promise.all([
+    getUserGroupInfo(userId),
+    getAppSettings(),
+  ]);
   if (!settings.uploadsEnabled) {
-    return NextResponse.json({ error: "Uploads are currently disabled." }, { status: 403 });
+    return NextResponse.json(
+      { error: "Uploads are currently disabled." },
+      { status: 403 },
+    );
   }
   const groupLimits = await getGroupLimits(groupInfo.groupId);
   if (!isAllowedType(groupLimits.allowedTypes, mimeType)) {
-    return NextResponse.json({ error: "File type is not allowed." }, { status: 415 });
+    return NextResponse.json(
+      { error: "File type is not allowed." },
+      { status: 415 },
+    );
   }
   const kind = mediaKindFromType(mimeType, ext);
   if (fileSize > getMaxAllowedBytesForKind(groupLimits, kind)) {
-    return NextResponse.json({ error: "File exceeds size limit." }, { status: 413 });
+    return NextResponse.json(
+      { error: "File exceeds size limit." },
+      { status: 413 },
+    );
   }
 
   const session = await initUploadSession({
@@ -91,7 +137,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     mimeType,
     ext,
     checksum,
-    targetType: payload.targetType ?? kind,
+    targetType: isWorkerRequest ? "video" : (payload.targetType ?? kind),
   });
 
   return NextResponse.json({
@@ -103,4 +149,3 @@ export async function POST(request: Request): Promise<NextResponse> {
     multipart: await getBlobMultipartClientState(session),
   });
 }
-

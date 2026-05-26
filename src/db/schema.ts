@@ -142,6 +142,7 @@ export const videos = pgTable("videos", {
   originalFileName: text("original_file_name"),
   ext: text("ext").notNull(),
   mimeType: text("mime_type").notNull(),
+  youtubeId: text("youtube_id"),
   durationSeconds: integer("duration_seconds"),
   width: integer("width"),
   height: integer("height"),
@@ -310,6 +311,25 @@ export const uploadSessions = pgTable("upload_sessions", {
   checksum: text("checksum"),
   error: text("error"),
   expiresAt: timestamp("expires_at", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+});
+
+export const youtubeIngests = pgTable("youtube_ingests", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  youtubeId: text("youtube_id").notNull(),
+  youtubeUrl: text("youtube_url").notNull(),
+  title: text("title").notNull(),
+  channelName: text("channel_name"),
+  durationSeconds: integer("duration_seconds"),
+  qualityLabel: text("quality_label"),
+  status: text("status").notNull().default("pending"),
+  progress: integer("progress").notNull().default(0),
+  error: text("error"),
+  mediaId: text("media_id"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });

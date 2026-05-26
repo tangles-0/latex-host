@@ -40,6 +40,7 @@ export type MediaEntry = {
   originalFileName?: string;
   ext: string;
   mimeType: string;
+  youtubeId?: string;
   albumId?: string;
   albumCaption?: string;
   albumOrder: number;
@@ -115,6 +116,7 @@ function mapVideoRow(row: typeof videos.$inferSelect): MediaEntry {
     originalFileName: row.originalFileName ?? undefined,
     ext: row.ext,
     mimeType: row.mimeType,
+    youtubeId: row.youtubeId ?? undefined,
     albumOrder: 0,
     uploadedAt: row.uploadedAt.toISOString(),
     width: row.width ?? undefined,
@@ -301,6 +303,7 @@ export async function addMediaForUser(input: {
   originalFileName?: string;
   ext: string;
   mimeType: string;
+  youtubeId?: string;
   albumId?: string;
   albumCaption?: string;
   width?: number;
@@ -456,6 +459,7 @@ export async function addMediaForUser(input: {
     originalFileName: input.originalFileName,
     ext: input.ext,
     mimeType: input.mimeType,
+    youtubeId: input.youtubeId,
     albumId: membership?.albumId,
     albumCaption: membership?.albumCaption,
     albumOrder: membership?.albumOrder ?? 0,
