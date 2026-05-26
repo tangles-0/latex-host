@@ -160,7 +160,10 @@ type NoteDetails = {
 export default function GalleryClient({
   media,
   onImagesChange,
+  createNoteRequestId,
+  onCreateNoteStateChange,
   showAlbumImageToggle = true,
+  showCreateNoteButton = true,
   uploadAlbumId,
   hideImagesInAlbums = false,
   kindFilter = "all",
@@ -168,7 +171,10 @@ export default function GalleryClient({
 }: {
   media: GalleryImage[];
   onImagesChange?: (next: GalleryImage[]) => void;
+  createNoteRequestId?: number;
+  onCreateNoteStateChange?: (isCreating: boolean) => void;
   showAlbumImageToggle?: boolean;
+  showCreateNoteButton?: boolean;
   uploadAlbumId?: string;
   hideImagesInAlbums?: boolean;
   kindFilter?: GalleryKindFilter;
@@ -233,6 +239,7 @@ export default function GalleryClient({
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const dragCounter = useRef(0);
   const lastSavedNoteContentRef = useRef("");
+  const lastHandledCreateNoteRequestIdRef = useRef(createNoteRequestId ?? 0);
   const uploadModalDismissTimeoutRef = useRef<number | null>(null);
   const isGalleryModalOpenRef = useRef(false);
 
@@ -1613,6 +1620,22 @@ export default function GalleryClient({
   }, [items, media, onImagesChange]);
 
   useEffect(() => {
+    onCreateNoteStateChange?.(isCreatingNote);
+  }, [isCreatingNote, onCreateNoteStateChange]);
+
+  useEffect(() => {
+    if (createNoteRequestId === undefined) {
+      return;
+    }
+    if (createNoteRequestId === lastHandledCreateNoteRequestIdRef.current) {
+      return;
+    }
+    lastHandledCreateNoteRequestIdRef.current = createNoteRequestId;
+    void createNote();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createNoteRequestId]);
+
+  useEffect(() => {
     const pending = items.filter((item) =>
       isPreviewPollingStatus(item.previewStatus),
     );
@@ -1918,30 +1941,31 @@ export default function GalleryClient({
         </div>
       ) : null}
 
-      {showAlbumImageToggle ? (
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => setShowAlbumImages((current) => !current)}
-            className="rounded border border-neutral-200 px-3 py-1 text-xs"
-          >
-            {showAlbumImages
-              ? "Hide images in albums"
-              : "Show images in albums"}
-          </button>
+      {showAlbumImageToggle || showCreateNoteButton ? (
+        <div className="flex items-center justify-end gap-2">
+          {showAlbumImageToggle ? (
+            <button
+              type="button"
+              onClick={() => setShowAlbumImages((current) => !current)}
+              className="rounded border border-neutral-200 px-3 py-1 text-xs"
+            >
+              {showAlbumImages
+                ? "Hide images in albums"
+                : "Show images in albums"}
+            </button>
+          ) : null}
+          {showCreateNoteButton ? (
+            <button
+              type="button"
+              onClick={() => void createNote()}
+              disabled={isCreatingNote}
+              className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+            >
+              {isCreatingNote ? "Creating note..." : "+ new note"}
+            </button>
+          ) : null}
         </div>
       ) : null}
-
-      <div className="flex items-center justify-end">
-        <button
-          type="button"
-          onClick={() => void createNote()}
-          disabled={isCreatingNote}
-          className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
-        >
-          {isCreatingNote ? "Creating note..." : "+ new note"}
-        </button>
-      </div>
 
       {displayItems.length === 0 ? (
         <div className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-neutral-500">

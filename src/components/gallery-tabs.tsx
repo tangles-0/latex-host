@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
+import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
+import { LightFolderTimes } from '@energiz3r/icon-library/Icons/Light/LightFolderTimes';
+import { LightFolderOpen } from '@energiz3r/icon-library/Icons/Light/LightFolderOpen';
+import { LightFilePlus } from '@energiz3r/icon-library/Icons/Light/LightFilePlus';
 
 const HIDE_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-hide-album-images";
 
@@ -32,16 +36,58 @@ type GalleryImage = {
   previewText?: string;
 };
 
+type AlbumPreview =
+  | {
+      type: "thumbnail";
+      id: string;
+      kind: MediaKind;
+      baseName: string;
+      ext: string;
+    }
+  | {
+      type: "icon";
+      id: string;
+      ext: string;
+    };
+
+function mediaBelongsToAlbum(image: GalleryImage, albumId: string): boolean {
+  return image.albumIds?.includes(albumId) || image.albumId === albumId;
+}
+
+function hasThumbnailPreview(image: GalleryImage): boolean {
+  return (
+    (image.kind === "image" ||
+      image.kind === "video" ||
+      image.kind === "document") &&
+    image.previewStatus === "complete"
+  );
+}
+
+function previewExtForMedia(image: GalleryImage): string {
+  return image.kind === "image" ? image.ext : "png";
+}
+
+function albumPreviewTileClass(index: number): string {
+  const transforms = [
+    "-rotate-3 -skew-y-1",
+    "rotate-1 translate-y-1",
+    "rotate-3 -translate-y-1 skew-y-1",
+  ];
+  return `h-20 w-full rounded object-cover shadow-sm ring-1 ring-black/5 transform-gpu ${transforms[index] ?? ""}`;
+}
+
 export default function GalleryTabs({
   albums,
   media,
   initialTab = "files",
   isAdmin,
+  actions,
 }: {
   albums: AlbumInfo[];
   media: GalleryImage[];
   initialTab?: "albums" | "files";
   isAdmin?: boolean;
+  actions?: ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -60,6 +106,8 @@ export default function GalleryTabs({
   const [renameAlbumName, setRenameAlbumName] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [createNoteRequestId, setCreateNoteRequestId] = useState(0);
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
   let storedSetting = "";
   try {
     storedSetting =
@@ -78,20 +126,36 @@ export default function GalleryTabs({
   }, [hideAlbumImages]);
 
   const albumPreviews = albumItems.map((album) => {
-    const previews = imageItems
-      .filter(
-        (image) =>
-          (image.albumIds?.includes(album.id) || image.albumId === album.id) &&
-          image.kind === "image",
-      )
+    const albumFiles = imageItems.filter((image) =>
+      mediaBelongsToAlbum(image, album.id),
+    );
+    const thumbnailPreviews: AlbumPreview[] = albumFiles
+      .filter(hasThumbnailPreview)
       .slice(0, 3)
       .map((image) => ({
+        type: "thumbnail" as const,
         id: image.id,
         kind: image.kind,
         baseName: image.baseName,
+        ext: previewExtForMedia(image),
+      }));
+    const thumbnailPreviewIds = new Set(
+      thumbnailPreviews.map((preview) => preview.id),
+    );
+    const iconPreviews: AlbumPreview[] = albumFiles
+      .filter((image) => !thumbnailPreviewIds.has(image.id))
+      .slice(0, 3 - thumbnailPreviews.length)
+      .map((image) => ({
+        type: "icon" as const,
+        id: image.id,
         ext: image.ext,
       }));
-    return { ...album, previews };
+
+    return {
+      ...album,
+      fileCount: albumFiles.length,
+      previews: [...thumbnailPreviews, ...iconPreviews],
+    };
   });
 
   function setTab(next: "albums" | "files") {
@@ -195,49 +259,69 @@ export default function GalleryTabs({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 text-xs">
-        <button
-          type="button"
-          onClick={() => setTab("albums")}
-          className={`rounded px-3 py-1 ${
-            activeTab === "albums"
-              ? "bg-black text-white"
-              : "border border-neutral-200"
-          }`}
-        >
-          albums
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("files")}
-          className={`rounded px-3 py-1 ${
-            activeTab === "files"
-              ? "bg-black text-white"
-              : "border border-neutral-200"
-          }`}
-        >
-          files
-        </button>
-        {activeTab === "files" ? (
+      <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+        <div className="order-2 flex w-full flex-wrap items-center gap-2 sm:order-1 sm:w-auto">
           <button
             type="button"
-            onClick={() => setHideAlbumImages((current) => !current)}
-            className="rounded border border-neutral-200 px-3 py-1"
+            onClick={() => setTab("albums")}
+            className={`flex-1 rounded px-3 py-1 sm:flex-none ${
+              activeTab === "albums"
+                ? "bg-black text-white"
+                : "border border-neutral-200"
+            }`}
           >
-            {hideAlbumImages ? "show album files" : "hide album files"}
+            albums
           </button>
-        ) : null}
-        {activeTab === "albums" ? (
           <button
             type="button"
-            onClick={() => {
-              setCreateError(null);
-              setIsCreateOpen(true);
-            }}
-            className="rounded border border-neutral-200 px-3 py-1"
+            onClick={() => setTab("files")}
+            className={`flex-1 rounded px-3 py-1 sm:flex-none ${
+              activeTab === "files"
+                ? "bg-black text-white"
+                : "border border-neutral-200"
+            }`}
           >
-            + new
+            files
           </button>
+          {activeTab === "files" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setHideAlbumImages((current) => !current)}
+                className="flex-1 flex rounded border border-neutral-200 px-3 py-1 sm:flex-none items-center justify-center gap-1"
+              >
+                {hideAlbumImages ? <LightFolderTimes className="h-4 w-4" fill="currentColor" /> : <LightFolderOpen className="h-4 w-4" fill="currentColor" />}
+                <span className="hidden lg:inline">{hideAlbumImages ? "show album files" : "hide album files"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateNoteRequestId((current) => current + 1)}
+                disabled={isCreatingNote}
+                className="flex-1 flex rounded border border-neutral-200 px-3 py-1 disabled:opacity-50 sm:flex-none items-center justify-center gap-1"
+              >
+                <LightFilePlus className="h-4 w-4" fill="currentColor" />
+                <span className="hidden md:inline">{isCreatingNote ? "Creating..." : "new note"}</span>
+              </button>
+            </>
+          ) : null}
+          {activeTab === "albums" ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCreateError(null);
+                setIsCreateOpen(true);
+              }}
+              className="flex-1 flex rounded border border-neutral-200 px-3 py-1 sm:flex-none items-center justify-center gap-1"
+            >
+              <LightFilePlus className="h-4 w-4" fill="currentColor" />
+              <span className="">new note</span>
+            </button>
+          ) : null}
+        </div>
+        {actions ? (
+          <div className="order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:justify-end">
+            {actions}
+          </div>
         ) : null}
       </div>
       {activeTab === "files" ? (
@@ -249,7 +333,7 @@ export default function GalleryTabs({
               key={item}
               type="button"
               onClick={() => setFileTypeFilter(item)}
-              className={`rounded px-3 py-1 ${
+              className={`flex-1 rounded px-3 py-1 sm:flex-none ${
                 fileTypeFilter === item
                   ? "bg-black text-white"
                   : "border border-neutral-200"
@@ -283,25 +367,44 @@ export default function GalleryTabs({
                   >
                     <div className="grid grid-cols-3 gap-2">
                       {album.previews.length > 0 ? (
-                        album.previews.map((image) => (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            key={image.id}
-                            src={`/media/${image.kind}/${image.id}/${image.baseName}-sm.${image.ext}`}
-                            alt="album preview"
-                            className="h-20 w-full rounded object-cover"
-                          />
-                        ))
+                        album.previews.map((preview, index) =>
+                          preview.type === "thumbnail" ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              key={preview.id}
+                              src={`/media/${preview.kind}/${preview.id}/${preview.baseName}-sm.${preview.ext}`}
+                              alt="album preview"
+                              className={albumPreviewTileClass(index)}
+                            />
+                          ) : (
+                            <div
+                              key={preview.id}
+                              className={`${albumPreviewTileClass(index)} flex items-center justify-center bg-neutral-50 text-neutral-500`}
+                            >
+                              {(() => {
+                                const Icon = getFileIconForExtension(
+                                  preview.ext,
+                                );
+                                return (
+                                  <Icon
+                                    className="h-8 w-8"
+                                    fill="currentColor"
+                                  />
+                                );
+                              })()}
+                            </div>
+                          ),
+                        )
                       ) : (
                         <div className="col-span-3 flex h-20 items-center justify-center rounded border border-dashed text-xs text-neutral-400">
-                          no imgs yet. go snap some selfiez or smth
+                          no files yet. add some to get started.
                         </div>
                       )}
                     </div>
                     <div className="mt-3 text-sm font-medium">{album.name}</div>
                     <div className="text-xs text-neutral-500">
-                      {album.previews.length} preview
-                      {album.previews.length === 1 ? "" : "s"}
+                      {album.fileCount} file{album.fileCount === 1 ? "" : "s"}{" "}
+                      in album
                     </div>
                   </Link>
                   <button
@@ -446,7 +549,10 @@ export default function GalleryTabs({
         <GalleryClient
           media={imageItems}
           onImagesChange={setImageItems}
+          createNoteRequestId={createNoteRequestId}
+          onCreateNoteStateChange={setIsCreatingNote}
           showAlbumImageToggle={false}
+          showCreateNoteButton={false}
           hideImagesInAlbums={hideAlbumImages}
           kindFilter={fileTypeFilter}
           isAdmin={isAdmin}

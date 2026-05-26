@@ -93,7 +93,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         await resetLoginRateLimit(key);
-        return { id: user.id, email: user.email };
+        return { id: user.id, email: user.email, name: user.username };
       },
     }),
   ],
