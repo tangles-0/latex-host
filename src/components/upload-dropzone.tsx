@@ -61,6 +61,7 @@ type YoutubeMetadata = {
   channelName?: string;
   durationSeconds?: number;
   qualities: YoutubeQualityOption[];
+  maxVideoSizeBytes: number;
 };
 
 type YoutubeIngest = {
@@ -209,6 +210,7 @@ export default function UploadDropzone({
       updatedAt: string;
     }>
   >([]);
+  console.log("incompleteSessions", incompleteSessions);
   const [isClearingFailed, setIsClearingFailed] = useState(false);
   const [keepOriginalFileName, setKeepOriginalFileName] = useState(false);
   const [hasLoadedKeepOriginalFileName, setHasLoadedKeepOriginalFileName] =
@@ -238,6 +240,15 @@ export default function UploadDropzone({
     if (status === "error") return message ?? "oh shi-";
     return "drag N drop files here, or click 2 browse";
   }, [message, status]);
+
+  const selectedYoutubeQuality = youtubeMetadata?.qualities.find(
+    (item) => item.id === selectedYoutubeQualityId,
+  );
+  const selectedYoutubeQualityExceedsLimit = Boolean(
+    youtubeMetadata &&
+    selectedYoutubeQuality?.filesizeBytes &&
+    selectedYoutubeQuality.filesizeBytes > youtubeMetadata.maxVideoSizeBytes,
+  );
 
   const pushMessage = useCallback(
     (text: string, tone: UploadMessage["tone"]) => {
@@ -834,12 +845,16 @@ export default function UploadDropzone({
       });
       const payload = (await response.json()) as {
         metadata?: YoutubeMetadata;
+        maxVideoSizeBytes?: number;
         error?: string;
       };
       if (!response.ok || !payload.metadata) {
         throw new Error(payload.error ?? "Unable to fetch YouTube metadata.");
       }
-      setYoutubeMetadata(payload.metadata);
+      setYoutubeMetadata({
+        ...payload.metadata,
+        maxVideoSizeBytes: Number(payload.maxVideoSizeBytes ?? 0),
+      });
       setSelectedYoutubeQualityId(payload.metadata.qualities[0]?.id ?? "");
     } catch (error) {
       setYoutubeError(
@@ -857,9 +872,13 @@ export default function UploadDropzone({
       setYoutubeError("Choose a quality option.");
       return;
     }
-    const quality = youtubeMetadata.qualities.find(
-      (item) => item.id === selectedYoutubeQualityId,
-    );
+    const quality = selectedYoutubeQuality;
+    if (selectedYoutubeQualityExceedsLimit) {
+      setYoutubeError(
+        `Selected quality exceeds your ${formatBytes(youtubeMetadata.maxVideoSizeBytes)} video upload limit.`,
+      );
+      return;
+    }
     setYoutubeError(null);
     setIsStartingYoutubeIngest(true);
     try {
@@ -874,6 +893,7 @@ export default function UploadDropzone({
           durationSeconds: youtubeMetadata.durationSeconds,
           qualityId: selectedYoutubeQualityId,
           qualityLabel: quality?.label ?? selectedYoutubeQualityId,
+          filesizeBytes: quality?.filesizeBytes,
         }),
       });
       const payload = (await response.json()) as {
@@ -1672,16 +1692,35 @@ export default function UploadDropzone({
                     }
                     className="mt-1 w-full rounded border px-3 py-2"
                   >
-                    {youtubeMetadata.qualities.map((quality) => (
-                      <option key={quality.id} value={quality.id}>
-                        {quality.label}
-                        {quality.filesizeBytes
-                          ? ` (${formatBytes(quality.filesizeBytes)})`
-                          : ""}
-                      </option>
-                    ))}
+                    {youtubeMetadata.qualities.map((quality) => {
+                      const exceedsLimit = Boolean(
+                        quality.filesizeBytes &&
+                        quality.filesizeBytes >
+                          youtubeMetadata.maxVideoSizeBytes,
+                      );
+                      return (
+                        <option
+                          key={quality.id}
+                          value={quality.id}
+                          className={exceedsLimit ? "text-red-600" : undefined}
+                        >
+                          {quality.label}
+                          {quality.filesizeBytes
+                            ? ` (${formatBytes(quality.filesizeBytes)})`
+                            : ""}
+                          {exceedsLimit ? " - exceeds limit" : ""}
+                        </option>
+                      );
+                    })}
                   </select>
                 </label>
+                {selectedYoutubeQualityExceedsLimit ? (
+                  <p className="text-xs text-red-600">
+                    Selected quality exceeds your{" "}
+                    {formatBytes(youtubeMetadata.maxVideoSizeBytes)} video
+                    upload limit.
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {youtubeError ? (
@@ -1711,7 +1750,11 @@ export default function UploadDropzone({
               <button
                 type="button"
                 onClick={() => void startYoutubeIngest()}
-                disabled={!youtubeMetadata || isStartingYoutubeIngest}
+                disabled={
+                  !youtubeMetadata ||
+                  isStartingYoutubeIngest ||
+                  selectedYoutubeQualityExceedsLimit
+                }
                 className="rounded bg-black px-3 py-1 text-xs text-white disabled:opacity-50"
               >
                 {isStartingYoutubeIngest ? "starting..." : "start download"}

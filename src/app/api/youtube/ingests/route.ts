@@ -5,6 +5,11 @@ import {
   deleteYoutubeIngestForUser,
   listYoutubeIngestsForUser,
 } from "@/lib/youtube-ingests";
+import {
+  getGroupLimits,
+  getMaxAllowedBytesForKind,
+  getUserGroupInfo,
+} from "@/lib/metadata-store";
 import { buildAppUrl, requestYoutubeDownload } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
@@ -32,6 +37,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     durationSeconds?: number;
     qualityId?: string;
     qualityLabel?: string;
+    filesizeBytes?: number;
   };
   const youtubeUrl = payload.youtubeUrl?.trim() ?? "";
   const youtubeId = payload.youtubeId?.trim() ?? "";
@@ -41,6 +47,20 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json(
       { error: "youtubeUrl, youtubeId, title, and qualityId are required." },
       { status: 400 },
+    );
+  }
+
+  const groupInfo = await getUserGroupInfo(userId);
+  const limits = await getGroupLimits(groupInfo.groupId);
+  const maxVideoSizeBytes = getMaxAllowedBytesForKind(limits, "video");
+  const filesizeBytes = Number(payload.filesizeBytes ?? 0);
+  if (Number.isFinite(filesizeBytes) && filesizeBytes > maxVideoSizeBytes) {
+    return NextResponse.json(
+      {
+        error: "Selected YouTube quality exceeds your upload size limit.",
+        maxVideoSizeBytes,
+      },
+      { status: 413 },
     );
   }
 

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
+import {
+  getGroupLimits,
+  getMaxAllowedBytesForKind,
+  getUserGroupInfo,
+} from "@/lib/metadata-store";
 import { requestYoutubeMetadata } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
@@ -19,9 +24,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const metadata = await requestYoutubeMetadata(youtubeUrl);
+  const [metadata, groupInfo] = await Promise.all([
+    requestYoutubeMetadata(youtubeUrl),
+    getUserGroupInfo(userId),
+  ]);
   if (!metadata.ok) {
     return NextResponse.json({ error: metadata.error }, { status: 502 });
   }
-  return NextResponse.json({ metadata: metadata.metadata });
+  const limits = await getGroupLimits(groupInfo.groupId);
+  return NextResponse.json({
+    metadata: metadata.metadata,
+    maxVideoSizeBytes: getMaxAllowedBytesForKind(limits, "video"),
+  });
 }
