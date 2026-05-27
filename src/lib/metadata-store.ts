@@ -67,6 +67,7 @@ export type PatchNoteSummary = {
   publishedAt: string;
   updatedAt: string;
   firstLine: string;
+  firstLineMarkdown: string;
 };
 
 export type PatchNoteEntry = PatchNoteSummary & {
@@ -94,6 +95,10 @@ function stripMarkdownToText(input: string): string {
 function getPatchNoteFirstLine(content: string): string {
   const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
   return stripMarkdownToText(firstLine);
+}
+
+function getPatchNoteFirstLineMarkdown(content: string): string {
+  return content.split(/\r?\n/, 1)[0]?.trim() ?? "";
 }
 
 function mapImageRow(row: typeof images.$inferSelect): ImageEntry {
@@ -1046,6 +1051,7 @@ function mapPatchNoteSummary(
     publishedAt: row.publishedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     firstLine: getPatchNoteFirstLine(row.content),
+    firstLineMarkdown: getPatchNoteFirstLineMarkdown(row.content),
   };
 }
 
@@ -1086,6 +1092,7 @@ export async function getPatchNoteById(id: string): Promise<PatchNoteEntry | und
     publishedAt: row.publishedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     firstLine: getPatchNoteFirstLine(row.content),
+    firstLineMarkdown: getPatchNoteFirstLineMarkdown(row.content),
   };
 }
 
@@ -1104,6 +1111,7 @@ export async function getLatestPatchNote(): Promise<PatchNoteEntry | undefined> 
     publishedAt: row.publishedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     firstLine: getPatchNoteFirstLine(row.content),
+    firstLineMarkdown: getPatchNoteFirstLineMarkdown(row.content),
   };
 }
 
@@ -1123,6 +1131,7 @@ export async function createPatchNote(content: string): Promise<PatchNoteEntry> 
     publishedAt: now.toISOString(),
     updatedAt: now.toISOString(),
     firstLine: getPatchNoteFirstLine(content),
+    firstLineMarkdown: getPatchNoteFirstLineMarkdown(content),
   };
 }
 
@@ -1145,6 +1154,7 @@ export async function updatePatchNote(
     publishedAt: row.publishedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     firstLine: getPatchNoteFirstLine(row.content),
+    firstLineMarkdown: getPatchNoteFirstLineMarkdown(row.content),
   };
 }
 

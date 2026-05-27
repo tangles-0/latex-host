@@ -5,6 +5,7 @@ import {
   bigint,
   timestamp,
   boolean,
+  index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -218,6 +219,31 @@ export const notes = pgTable("notes", {
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });
+
+export const noteHistories = pgTable(
+  "note_histories",
+  {
+    id: text("id").primaryKey(),
+    noteId: text("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    content: text("content").notNull(),
+    sizeOriginal: bigint("size_original", { mode: "number" })
+      .notNull()
+      .default(0),
+    savedAt: timestamp("saved_at", { mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    noteHistoriesNoteSavedAtIdx: index("note_histories_note_saved_at_idx").on(
+      table.noteId,
+      table.savedAt,
+    ),
+  }),
+);
 
 export const shares = pgTable("shares", {
   id: text("id").primaryKey(),

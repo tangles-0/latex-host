@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { remark } from "remark";
 import stripMarkdown from "strip-markdown";
 import { db } from "@/db";
@@ -11,6 +11,7 @@ import {
   fileShares,
   files,
   images,
+  noteHistories,
   notes,
   noteShares,
   shares,
@@ -532,6 +533,31 @@ export type NoteEntry = MediaEntry & {
   content: string;
 };
 
+export type NoteHistorySummary = {
+  id: string;
+  noteId: string;
+  savedAt: string;
+  sizeOriginal: number;
+  snippet: string;
+};
+
+export type NoteHistoryEntry = NoteHistorySummary & {
+  content: string;
+};
+
+function mapNoteHistoryRow(
+  row: typeof noteHistories.$inferSelect,
+): NoteHistoryEntry {
+  return {
+    id: row.id,
+    noteId: row.noteId,
+    content: row.content,
+    savedAt: row.savedAt.toISOString(),
+    sizeOriginal: row.sizeOriginal,
+    snippet: notePreviewText(row.content) || "Empty note",
+  };
+}
+
 export async function createNoteForUser(input: {
   userId: string;
   albumId?: string;
@@ -603,17 +629,170 @@ export async function updateNoteForUser(input: {
   noteId: string;
   content: string;
 }): Promise<NoteEntry | undefined> {
-  const updatedAt = new Date();
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(notes)
+      .where(and(eq(notes.userId, input.userId), eq(notes.id, input.noteId)))
+      .limit(1);
+    if (!current) {
+      return undefined;
+    }
+    if (current.content === input.content) {
+      return noteEntryFromRow(current);
+    }
+
+    const updatedAt = new Date();
+    await tx.insert(noteHistories).values({
+      id: randomUUID(),
+      noteId: current.id,
+      userId: current.userId,
+      content: current.content,
+      sizeOriginal: current.sizeOriginal,
+      savedAt: current.updatedAt,
+      createdAt: updatedAt,
+    });
+
+    const [row] = await tx
+      .update(notes)
+      .set({
+        content: input.content,
+        sizeOriginal: noteSizeBytes(input.content),
+        updatedAt,
+      })
+      .where(and(eq(notes.userId, input.userId), eq(notes.id, input.noteId)))
+      .returning();
+    return row ? noteEntryFromRow(row) : undefined;
+  });
+}
+
+export async function listNoteHistoryForUser(
+  noteId: string,
+  userId: string,
+): Promise<NoteHistorySummary[]> {
+  const rows = await db
+    .select()
+    .from(noteHistories)
+    .where(
+      and(eq(noteHistories.noteId, noteId), eq(noteHistories.userId, userId)),
+    )
+    .orderBy(desc(noteHistories.savedAt), desc(noteHistories.createdAt));
+  return rows.map((row) => {
+    const entry = mapNoteHistoryRow(row);
+    return {
+      id: entry.id,
+      noteId: entry.noteId,
+      savedAt: entry.savedAt,
+      sizeOriginal: entry.sizeOriginal,
+      snippet: entry.snippet,
+    };
+  });
+}
+
+export async function getNoteHistoryForUser(
+  noteId: string,
+  historyId: string,
+  userId: string,
+): Promise<NoteHistoryEntry | undefined> {
   const [row] = await db
-    .update(notes)
-    .set({
-      content: input.content,
-      sizeOriginal: noteSizeBytes(input.content),
-      updatedAt,
-    })
-    .where(and(eq(notes.userId, input.userId), eq(notes.id, input.noteId)))
-    .returning();
-  return row ? noteEntryFromRow(row) : undefined;
+    .select()
+    .from(noteHistories)
+    .where(
+      and(
+        eq(noteHistories.noteId, noteId),
+        eq(noteHistories.id, historyId),
+        eq(noteHistories.userId, userId),
+      ),
+    )
+    .limit(1);
+  return row ? mapNoteHistoryRow(row) : undefined;
+}
+
+export async function deleteNoteHistoryForUser(
+  noteId: string,
+  historyId: string,
+  userId: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(noteHistories)
+    .where(
+      and(
+        eq(noteHistories.noteId, noteId),
+        eq(noteHistories.id, historyId),
+        eq(noteHistories.userId, userId),
+      ),
+    )
+    .returning({ id: noteHistories.id });
+  return rows.length > 0;
+}
+
+export async function deleteAllNoteHistoryForUser(
+  noteId: string,
+  userId: string,
+): Promise<number> {
+  const rows = await db
+    .delete(noteHistories)
+    .where(
+      and(eq(noteHistories.noteId, noteId), eq(noteHistories.userId, userId)),
+    )
+    .returning({ id: noteHistories.id });
+  return rows.length;
+}
+
+export async function restoreNoteHistoryForUser(input: {
+  userId: string;
+  noteId: string;
+  historyId: string;
+}): Promise<NoteEntry | undefined> {
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(notes)
+      .where(and(eq(notes.userId, input.userId), eq(notes.id, input.noteId)))
+      .limit(1);
+    if (!current) {
+      return undefined;
+    }
+
+    const [history] = await tx
+      .select()
+      .from(noteHistories)
+      .where(
+        and(
+          eq(noteHistories.noteId, input.noteId),
+          eq(noteHistories.id, input.historyId),
+          eq(noteHistories.userId, input.userId),
+        ),
+      )
+      .limit(1);
+    if (!history) {
+      return undefined;
+    }
+
+    const updatedAt = new Date();
+    if (current.content !== history.content) {
+      await tx.insert(noteHistories).values({
+        id: randomUUID(),
+        noteId: current.id,
+        userId: current.userId,
+        content: current.content,
+        sizeOriginal: current.sizeOriginal,
+        savedAt: current.updatedAt,
+        createdAt: updatedAt,
+      });
+    }
+
+    const [row] = await tx
+      .update(notes)
+      .set({
+        content: history.content,
+        sizeOriginal: noteSizeBytes(history.content),
+        updatedAt,
+      })
+      .where(and(eq(notes.userId, input.userId), eq(notes.id, input.noteId)))
+      .returning();
+    return row ? noteEntryFromRow(row) : undefined;
+  });
 }
 
 export async function listMediaForUser(userId: string): Promise<MediaEntry[]> {

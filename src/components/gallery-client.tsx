@@ -15,6 +15,9 @@ import { LightUndo } from "@energiz3r/icon-library/Icons/Light/LightUndo";
 import { LightRedo } from "@energiz3r/icon-library/Icons/Light/LightRedo";
 import { LightArrowAltUp } from "@energiz3r/icon-library/Icons/Light/LightArrowAltUp";
 import { LightArrowAltDown } from "@energiz3r/icon-library/Icons/Light/LightArrowAltDown";
+import { LightArrowAltFromBottom } from "@energiz3r/icon-library/Icons/Light/LightArrowAltFromBottom";
+import { LightEye } from "@energiz3r/icon-library/Icons/Light/LightEye";
+import { LightHistory } from "@energiz3r/icon-library/Icons/Light/LightHistory";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
 import { LightPlayCircle } from "@energiz3r/icon-library/Icons/Light/LightPlayCircle";
@@ -147,6 +150,7 @@ function extractClipboardImageFiles(event: ClipboardEvent): File[] {
 
 type RotationDirection = "left" | "right";
 type NoteEditorMode = "markdown" | "preview";
+type NoteModalView = "note" | "history" | "history-preview";
 type NoteWindowMode = "windowed" | "large" | "fullscreen";
 type GalleryKindFilter = "all" | MediaKind;
 const PAGE_SIZE = 24;
@@ -155,6 +159,18 @@ type NoteDetails = {
   id: string;
   content: string;
   updatedAt?: string;
+};
+
+type NoteHistorySummary = {
+  id: string;
+  noteId: string;
+  savedAt: string;
+  sizeOriginal: number;
+  snippet: string;
+};
+
+type NoteHistoryDetails = NoteHistorySummary & {
+  content: string;
 };
 
 export default function GalleryClient({
@@ -229,8 +245,22 @@ export default function GalleryClient({
   const [isLoadingNote, setIsLoadingNote] = useState(false);
   const [noteEditorMode, setNoteEditorMode] =
     useState<NoteEditorMode>("markdown");
+  const [noteModalView, setNoteModalView] = useState<NoteModalView>("note");
   const [noteContentDraft, setNoteContentDraft] = useState("");
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
+  const [noteHistoryError, setNoteHistoryError] = useState<string | null>(null);
+  const [noteHistoryEntries, setNoteHistoryEntries] = useState<
+    NoteHistorySummary[]
+  >([]);
+  const [selectedNoteHistory, setSelectedNoteHistory] =
+    useState<NoteHistoryDetails | null>(null);
+  const [isLoadingNoteHistory, setIsLoadingNoteHistory] = useState(false);
+  const [isRestoringNoteHistory, setIsRestoringNoteHistory] = useState(false);
+  const [deletingNoteHistoryId, setDeletingNoteHistoryId] = useState<
+    string | null
+  >(null);
+  const [isDeletingAllNoteHistory, setIsDeletingAllNoteHistory] =
+    useState(false);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [autosaveEnabled, setAutosaveEnabled] = useState(true);
@@ -555,6 +585,10 @@ export default function GalleryClient({
     return trimmed.toLowerCase().endsWith(".md") ? trimmed : `${trimmed}.md`;
   }
 
+  function noteHistoryDateLabel(savedAt: string): string {
+    return new Date(savedAt).toLocaleString();
+  }
+
   function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
       return false;
@@ -718,6 +752,31 @@ export default function GalleryClient({
     }
   }
 
+  async function loadNoteHistory(noteId: string) {
+    setIsLoadingNoteHistory(true);
+    setNoteHistoryError(null);
+    try {
+      const response = await fetch(
+        `/api/notes/${encodeURIComponent(noteId)}/history`,
+        { cache: "no-store" },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        history?: NoteHistorySummary[];
+      };
+      if (!response.ok || !payload.history) {
+        throw new Error(payload.error ?? "Unable to load note history.");
+      }
+      setNoteHistoryEntries(payload.history);
+    } catch (error) {
+      setNoteHistoryError(
+        error instanceof Error ? error.message : "Unable to load note history.",
+      );
+    } finally {
+      setIsLoadingNoteHistory(false);
+    }
+  }
+
   async function createNote() {
     if (isCreatingNote) {
       return;
@@ -826,6 +885,190 @@ export default function GalleryClient({
     }
   }
 
+  async function openNoteHistory() {
+    if (!active || active.kind !== "note") {
+      return;
+    }
+    await handlePendingNoteBefore(async () => {
+      setNoteModalView("history");
+      setSelectedNoteHistory(null);
+      await loadNoteHistory(active.id);
+    });
+  }
+
+  async function viewNoteHistory(entry: NoteHistorySummary) {
+    if (!active || active.kind !== "note") {
+      return;
+    }
+    setIsLoadingNoteHistory(true);
+    setNoteHistoryError(null);
+    try {
+      const response = await fetch(
+        `/api/notes/${encodeURIComponent(active.id)}/history/${encodeURIComponent(entry.id)}`,
+        { cache: "no-store" },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        history?: NoteHistoryDetails;
+      };
+      if (!response.ok || !payload.history) {
+        throw new Error(payload.error ?? "Unable to load history entry.");
+      }
+      setSelectedNoteHistory(payload.history);
+      setNoteModalView("history-preview");
+    } catch (error) {
+      setNoteHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load history entry.",
+      );
+    } finally {
+      setIsLoadingNoteHistory(false);
+    }
+  }
+
+  async function restoreNoteHistory(entry: NoteHistorySummary) {
+    if (!active || active.kind !== "note") {
+      return;
+    }
+    const shouldRestore = window.confirm(
+      "Restore this version? Your current note text will be saved into history first.",
+    );
+    if (!shouldRestore) {
+      return;
+    }
+    setIsRestoringNoteHistory(true);
+    setNoteHistoryError(null);
+    try {
+      const response = await fetch(
+        `/api/notes/${encodeURIComponent(active.id)}/history/${encodeURIComponent(entry.id)}/restore`,
+        { method: "POST" },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        note?: NoteDetails & GalleryImage;
+      };
+      if (!response.ok || !payload.note) {
+        throw new Error(payload.error ?? "Unable to restore history entry.");
+      }
+      setActiveNote({
+        id: payload.note.id,
+        content: payload.note.content,
+        updatedAt: payload.note.updatedAt,
+      });
+      setNoteContentDraft(payload.note.content);
+      setLastSavedAt(payload.note.updatedAt ?? null);
+      lastSavedNoteContentRef.current = payload.note.content;
+      setItems((current) =>
+        current.map((item) =>
+          item.id === payload.note!.id
+            ? {
+                ...item,
+                previewText: payload.note!.previewText,
+                updatedAt: payload.note!.updatedAt,
+                sizeOriginal: payload.note!.sizeOriginal,
+              }
+            : item,
+        ),
+      );
+      setActive((current) =>
+        current?.id === payload.note!.id
+          ? {
+              ...current,
+              previewText: payload.note!.previewText,
+              updatedAt: payload.note!.updatedAt,
+              sizeOriginal: payload.note!.sizeOriginal,
+            }
+          : current,
+      );
+      setSelectedNoteHistory(null);
+      setNoteModalView("note");
+      pushMessage("Restored note version.", "success");
+    } catch (error) {
+      setNoteHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to restore history entry.",
+      );
+    } finally {
+      setIsRestoringNoteHistory(false);
+    }
+  }
+
+  async function deleteNoteHistory(entry: NoteHistorySummary) {
+    if (!active || active.kind !== "note") {
+      return;
+    }
+    const shouldDelete = window.confirm("Delete this history entry?");
+    if (!shouldDelete) {
+      return;
+    }
+    setDeletingNoteHistoryId(entry.id);
+    setNoteHistoryError(null);
+    try {
+      const response = await fetch(
+        `/api/notes/${encodeURIComponent(active.id)}/history/${encodeURIComponent(entry.id)}`,
+        { method: "DELETE" },
+      );
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to delete history entry.");
+      }
+      setNoteHistoryEntries((current) =>
+        current.filter((historyEntry) => historyEntry.id !== entry.id),
+      );
+      if (selectedNoteHistory?.id === entry.id) {
+        setSelectedNoteHistory(null);
+        setNoteModalView("history");
+      }
+      pushMessage("Deleted history entry.", "success");
+    } catch (error) {
+      setNoteHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete history entry.",
+      );
+    } finally {
+      setDeletingNoteHistoryId(null);
+    }
+  }
+
+  async function deleteAllNoteHistory() {
+    if (!active || active.kind !== "note") {
+      return;
+    }
+    const shouldDelete = window.confirm(
+      "Delete all history entries for this note?",
+    );
+    if (!shouldDelete) {
+      return;
+    }
+    setIsDeletingAllNoteHistory(true);
+    setNoteHistoryError(null);
+    try {
+      const response = await fetch(
+        `/api/notes/${encodeURIComponent(active.id)}/history`,
+        { method: "DELETE" },
+      );
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to delete note history.");
+      }
+      setNoteHistoryEntries([]);
+      setSelectedNoteHistory(null);
+      setNoteModalView("history");
+      pushMessage("Deleted note history.", "success");
+    } catch (error) {
+      setNoteHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete note history.",
+      );
+    } finally {
+      setIsDeletingAllNoteHistory(false);
+    }
+  }
+
   async function handlePendingNoteBefore(action: () => void | Promise<void>) {
     if (!isNoteActive || !activeNote || !noteIsDirty) {
       await action();
@@ -866,7 +1109,11 @@ export default function GalleryClient({
     lastSavedNoteContentRef.current = "";
     setLastSavedAt(null);
     setNoteEditorMode("markdown");
+    setNoteModalView("note");
     setNoteSaveError(null);
+    setNoteHistoryError(null);
+    setNoteHistoryEntries([]);
+    setSelectedNoteHistory(null);
     setNoteWindowMode("windowed");
 
     try {
@@ -1763,6 +2010,7 @@ export default function GalleryClient({
       }
     }, 30000);
     return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeNote,
     autosaveEnabled,
@@ -1827,6 +2075,169 @@ export default function GalleryClient({
     activeNote,
     isNoteActive,
   ]);
+
+  function renderNoteHistoryList() {
+    return (
+      <div className="space-y-3 rounded border border-neutral-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">version history</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void deleteAllNoteHistory()}
+              disabled={
+                isDeletingAllNoteHistory || noteHistoryEntries.length === 0
+              }
+              className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+            >
+              {isDeletingAllNoteHistory ? "Deleting..." : "Delete all"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedNoteHistory(null);
+                setNoteModalView("note");
+              }}
+              className="rounded border border-neutral-200 px-3 py-1 text-xs"
+            >
+              Return to note
+            </button>
+          </div>
+        </div>
+        {noteHistoryError ? (
+          <p className="text-xs text-red-600">{noteHistoryError}</p>
+        ) : null}
+        {isLoadingNoteHistory ? (
+          <div className="rounded border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500">
+            Loading history...
+          </div>
+        ) : noteHistoryEntries.length === 0 ? (
+          <div className="rounded border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500">
+            No saved versions yet.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {noteHistoryEntries.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex flex-wrap items-center gap-3 rounded border border-neutral-200 p-3 text-xs"
+              >
+                <div className="min-w-36 text-neutral-500">
+                  {noteHistoryDateLabel(entry.savedAt)}
+                </div>
+                <div className="min-w-0 flex-1 truncate text-neutral-700">
+                  {entry.snippet}
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void restoreNoteHistory(entry)}
+                    disabled={isRestoringNoteHistory}
+                    className="rounded border border-neutral-200 px-2 py-1 disabled:opacity-50"
+                    aria-label="Restore note version"
+                    title="Restore"
+                  >
+                    <LightArrowAltFromBottom
+                      className="h-4 w-4"
+                      fill="currentColor"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void viewNoteHistory(entry)}
+                    disabled={isLoadingNoteHistory}
+                    className="rounded border border-neutral-200 px-2 py-1 disabled:opacity-50"
+                    aria-label="View note version"
+                    title="View"
+                  >
+                    <LightEye className="h-4 w-4" fill="currentColor" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteNoteHistory(entry)}
+                    disabled={deletingNoteHistoryId === entry.id}
+                    className="rounded border border-neutral-200 px-2 py-1 disabled:opacity-50"
+                    aria-label="Delete note version"
+                    title="Delete"
+                  >
+                    <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderNoteHistoryPreview() {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedNoteHistory(null);
+              setNoteModalView("history");
+            }}
+            className="rounded border border-neutral-200 px-3 py-1 text-xs"
+          >
+            Back
+          </button>
+          {selectedNoteHistory ? (
+            <div className="text-xs text-neutral-500">
+              {noteHistoryDateLabel(selectedNoteHistory.savedAt)}
+            </div>
+          ) : null}
+        </div>
+        {noteHistoryError ? (
+          <p className="text-xs text-red-600">{noteHistoryError}</p>
+        ) : null}
+        <div
+          className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
+        >
+          <NoteMarkdown content={selectedNoteHistory?.content ?? ""} />
+        </div>
+      </div>
+    );
+  }
+
+  function renderNoteEditor() {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {(["markdown", "preview"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setNoteEditorMode(mode)}
+              className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
+            >
+              {mode === "markdown" ? "markdown" : "preview"}
+            </button>
+          ))}
+        </div>
+        {isLoadingNote ? (
+          <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+            Loading note...
+          </div>
+        ) : noteEditorMode === "markdown" ? (
+          <NoteRichEditor
+            value={noteContentDraft}
+            onChange={setNoteContentDraft}
+            layoutMode={noteWindowMode}
+          />
+        ) : (
+          <div
+            className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
+          >
+            <NoteMarkdown content={noteContentDraft} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -2316,6 +2727,12 @@ export default function GalleryClient({
                   )}
                 </div>
               </>
+            ) : isNoteActive && noteModalView !== "note" ? (
+              noteModalView === "history" ? (
+                renderNoteHistoryList()
+              ) : (
+                renderNoteHistoryPreview()
+              )
             ) : (
               <>
                 <div className="flex sm:flex-row flex-col items-start justify-between gap-4">
@@ -2521,6 +2938,18 @@ export default function GalleryClient({
                             fill="currentColor"
                           />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void openNoteHistory()}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                          aria-label="Open note history"
+                          title="Open note history"
+                        >
+                          <LightHistory
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
                       </>
                     ) : (
                       <button
@@ -2599,37 +3028,7 @@ export default function GalleryClient({
                         }}
                       />
                     ) : active.kind === "note" ? (
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          {(["markdown", "preview"] as const).map((mode) => (
-                            <button
-                              key={mode}
-                              type="button"
-                              onClick={() => setNoteEditorMode(mode)}
-                              className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
-                            >
-                              {mode === "markdown" ? "markdown" : "preview"}
-                            </button>
-                          ))}
-                        </div>
-                        {isLoadingNote ? (
-                          <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
-                            Loading note...
-                          </div>
-                        ) : noteEditorMode === "markdown" ? (
-                          <NoteRichEditor
-                            value={noteContentDraft}
-                            onChange={setNoteContentDraft}
-                            layoutMode={noteWindowMode}
-                          />
-                        ) : (
-                          <div
-                            className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
-                          >
-                            <NoteMarkdown content={noteContentDraft} />
-                          </div>
-                        )}
-                      </div>
+                      renderNoteEditor()
                     ) : (
                       <FileViewerContent
                         isAdmin={isAdmin}
@@ -2725,23 +3124,25 @@ export default function GalleryClient({
                     ) : null}
 
                     {active.kind === "note" ? (
-                      <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={autosaveEnabled}
-                            onChange={(event) =>
-                              setAutosaveEnabled(event.target.checked)
-                            }
-                          />
-                          Auto-save every 30s
-                        </label>
-                        <div>
-                          {noteIsDirty
-                            ? "Unsaved changes"
-                            : "All changes saved"}
+                      noteModalView === "note" ? (
+                        <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={autosaveEnabled}
+                              onChange={(event) =>
+                                setAutosaveEnabled(event.target.checked)
+                              }
+                            />
+                            Auto-save every 30s
+                          </label>
+                          <div>
+                            {noteIsDirty
+                              ? "Unsaved changes"
+                              : "All changes saved"}
+                          </div>
                         </div>
-                      </div>
+                      ) : null
                     ) : null}
 
                     {inAlbumContext ? (
