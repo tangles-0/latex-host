@@ -19,6 +19,10 @@ import {
   getSharedMediaByCodeAndExt,
 } from "@/lib/media-store";
 import { contentTypeForExt, isBlobMediaKind } from "@/lib/media-types";
+import {
+  getNoteShareUnlockCookieName,
+  isNoteShareUnlockTokenValid,
+} from "@/lib/note-share-access";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
 import {
@@ -232,7 +236,23 @@ export async function GET(
       }
       const noteShare = await getMediaShareByCode("note", fileName);
       if (noteShare) {
+        const shareCode = noteShare.code ?? fileName;
+        const unlockToken = request.cookies.get(
+          getNoteShareUnlockCookieName(shareCode),
+        )?.value;
+        const hasNoteShareAccess =
+          !noteShare.hasPassword ||
+          isNoteShareUnlockTokenValid(
+            shareCode,
+            noteShare.accessTokenSeed ?? noteShare.id,
+            unlockToken,
+          );
         if (downloadRequested) {
+          if (!hasNoteShareAccess) {
+            return withPublicImageCors(
+              new Response("Password required.", { status: 403 }),
+            );
+          }
           const note = await getNote(noteShare.mediaId);
           if (!note) {
             return withPublicImageCors(
@@ -253,13 +273,11 @@ export async function GET(
           return withPublicImageCors(new Response(note.content, { headers }));
         }
         const upstream = await fetch(
-          new URL(
-            `/share/internal-note/${noteShare.code ?? fileName}`,
-            getInternalAppOrigin(),
-          ),
+          new URL(`/share/internal-note/${shareCode}`, getInternalAppOrigin()),
           {
             headers: {
               accept: request.headers.get("accept") ?? "text/html,*/*",
+              cookie: request.headers.get("cookie") ?? "",
             },
             cache: "no-store",
           },

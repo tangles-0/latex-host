@@ -81,6 +81,7 @@ function previewPollDelayMs(items: GalleryImage[]): number {
 type ShareInfo = {
   id: string;
   kind?: MediaKind;
+  hasPassword?: boolean;
   urls: {
     original: string;
     sm: string;
@@ -200,6 +201,8 @@ export default function GalleryClient({
   const [active, setActive] = useState<GalleryImage | null>(null);
   const [share, setShare] = useState<ShareInfo | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [sharePasswordDraft, setSharePasswordDraft] = useState("");
+  const [isSavingSharePassword, setIsSavingSharePassword] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [isGenerating640, setIsGenerating640] = useState(false);
   const [isChecking640, setIsChecking640] = useState(false);
@@ -1096,6 +1099,8 @@ export default function GalleryClient({
     setCaptionDraft(image.albumCaption ?? "");
     setShare(null);
     setShareError(null);
+    setSharePasswordDraft("");
+    setIsSavingSharePassword(false);
     setRotateError(null);
     setAlbumEditError(null);
     setPreviewActionError(null);
@@ -1130,11 +1135,18 @@ export default function GalleryClient({
       }
 
       const payload = (await response.json()) as
-        | { share: { id: string }; urls: ShareInfo["urls"] }
+        | {
+            share: { id: string; hasPassword?: boolean };
+            urls: ShareInfo["urls"];
+          }
         | { share: null };
 
       if (payload.share) {
-        setShare({ id: payload.share.id, urls: payload.urls });
+        setShare({
+          id: payload.share.id,
+          hasPassword: payload.share.hasPassword,
+          urls: payload.urls,
+        });
         setItems((current) =>
           current.map((item) =>
             item.id === image.id ? { ...item, shared: true } : item,
@@ -1158,6 +1170,8 @@ export default function GalleryClient({
     setCaptionDraft("");
     setShare(null);
     setShareError(null);
+    setSharePasswordDraft("");
+    setIsSavingSharePassword(false);
     setRotateError(null);
     setAlbumEditError(null);
     setPreviewActionError(null);
@@ -1308,11 +1322,16 @@ export default function GalleryClient({
     }
 
     const payload = (await response.json()) as {
-      share: { id: string };
+      share: { id: string; hasPassword?: boolean };
       urls: ShareInfo["urls"];
     };
-    const nextShare = { id: payload.share.id, urls: payload.urls };
+    const nextShare = {
+      id: payload.share.id,
+      hasPassword: payload.share.hasPassword,
+      urls: payload.urls,
+    };
     setShare(nextShare);
+    setSharePasswordDraft("");
     if (image.kind === "image" && image.ext.toLowerCase() !== "svg") {
       void check640Variant(image.id);
     }
@@ -1339,6 +1358,8 @@ export default function GalleryClient({
     }
 
     setShare(null);
+    setSharePasswordDraft("");
+    setIsSavingSharePassword(false);
     setHas640Variant(null);
     setIsChecking640(false);
     setItems((current) =>
@@ -1346,6 +1367,58 @@ export default function GalleryClient({
         item.id === image.id ? { ...item, shared: false } : item,
       ),
     );
+  }
+
+  async function updateNoteSharePassword(
+    image: GalleryImage,
+    password: string | null,
+  ) {
+    if (image.kind !== "note") {
+      setShareError("Password protection is only available for notes.");
+      return;
+    }
+    setShareError(null);
+    setIsSavingSharePassword(true);
+    try {
+      const response = await fetch("/api/media-shares", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: image.kind, mediaId: image.id, password }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(
+          payload.error ?? "Unable to update note share password.",
+        );
+      }
+      const payload = (await response.json()) as {
+        share: { id: string; hasPassword?: boolean };
+        urls: ShareInfo["urls"];
+      };
+      setShare({
+        id: payload.share.id,
+        hasPassword: payload.share.hasPassword,
+        urls: payload.urls,
+      });
+      setSharePasswordDraft("");
+    } catch (error) {
+      setShareError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update note share password.",
+      );
+    } finally {
+      setIsSavingSharePassword(false);
+    }
+  }
+
+  async function saveNoteSharePassword(image: GalleryImage) {
+    const password = sharePasswordDraft.trim();
+    if (!password) {
+      setShareError("Enter a password for this note share.");
+      return;
+    }
+    await updateNoteSharePassword(image, password);
   }
 
   async function generate640Link(image: GalleryImage) {
@@ -3196,6 +3269,69 @@ export default function GalleryClient({
                               : `${origin}${share.urls.original}`}
                           </button>
                         </div>
+
+                        {active.kind === "note" ? (
+                          <div className="space-y-2 rounded border border-neutral-200 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <label
+                                className="text-xs font-medium text-neutral-600"
+                                htmlFor="note-share-password"
+                              >
+                                Password protection
+                              </label>
+                              <span className="text-[11px] text-neutral-500">
+                                {share.hasPassword ? "enabled" : "off"}
+                              </span>
+                            </div>
+                            <input
+                              id="note-share-password"
+                              type="password"
+                              value={sharePasswordDraft}
+                              onChange={(event) =>
+                                setSharePasswordDraft(event.target.value)
+                              }
+                              className="w-full rounded border border-neutral-200 px-3 py-2 text-xs"
+                              placeholder={
+                                share.hasPassword
+                                  ? "Enter a new password"
+                                  : "Enter a password"
+                              }
+                              autoComplete="new-password"
+                            />
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void saveNoteSharePassword(active)
+                                }
+                                disabled={isSavingSharePassword}
+                                className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                              >
+                                {isSavingSharePassword
+                                  ? "Saving..."
+                                  : share.hasPassword
+                                    ? "Change password"
+                                    : "Set password"}
+                              </button>
+                              {share.hasPassword ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void updateNoteSharePassword(active, null)
+                                  }
+                                  disabled={isSavingSharePassword}
+                                  className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                                >
+                                  Remove password
+                                </button>
+                              ) : null}
+                            </div>
+                            <p className="text-[11px] text-neutral-500">
+                              Protected note links ask for this password before
+                              the note content is rendered or downloaded.
+                            </p>
+                          </div>
+                        ) : null}
 
                         {active.kind === "image" ? (
                           <div className="space-y-2">

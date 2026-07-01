@@ -302,6 +302,7 @@ export const noteShares = pgTable("note_shares", {
     .notNull()
     .references(() => notes.id),
   code: text("code").unique(),
+  passwordHash: text("password_hash"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
 

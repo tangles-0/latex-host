@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from "crypto";
+
+import bcrypt from "bcryptjs";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { remark } from "remark";
 import stripMarkdown from "strip-markdown";
@@ -65,6 +67,17 @@ export type MediaEntry = {
 type BlobMediaEntry = Omit<MediaEntry, "kind"> & { kind: BlobMediaKind };
 
 const SHARE_CODE_LENGTH = 8;
+const NOTE_SHARE_PASSWORD_HASH_ROUNDS = 12;
+
+export type NoteSharePublicMeta = {
+  id: string;
+  code: string;
+  mediaId: string;
+  fileName: string;
+  updatedAt: string;
+  hasPassword: boolean;
+  accessTokenSeed: string;
+};
 
 function normalizePreviewStatus(
   value: string | null | undefined,
@@ -1371,7 +1384,9 @@ export async function getShareForUserByMedia(
   kind: MediaKind,
   mediaId: string,
   userId: string,
-): Promise<{ id: string; code?: string | null } | undefined> {
+): Promise<
+  { id: string; code?: string | null; hasPassword?: boolean } | undefined
+> {
   if (kind === "image") {
     const [row] = await db
       .select({ id: shares.id, code: shares.code })
@@ -1412,17 +1427,36 @@ export async function getShareForUserByMedia(
     return row;
   }
   const [row] = await db
-    .select({ id: noteShares.id, code: noteShares.code })
+    .select({
+      id: noteShares.id,
+      code: noteShares.code,
+      passwordHash: noteShares.passwordHash,
+    })
     .from(noteShares)
     .where(and(eq(noteShares.noteId, mediaId), eq(noteShares.userId, userId)))
     .limit(1);
-  return row;
+  return row
+    ? {
+        id: row.id,
+        code: row.code,
+        hasPassword: Boolean(row.passwordHash),
+      }
+    : undefined;
 }
 
 export async function getShareByCode(
   kind: MediaKind,
   code: string,
-): Promise<{ id: string; mediaId: string; code?: string | null } | undefined> {
+): Promise<
+  | {
+      id: string;
+      mediaId: string;
+      code?: string | null;
+      hasPassword?: boolean;
+      accessTokenSeed?: string;
+    }
+  | undefined
+> {
   if (kind === "image") {
     const [row] = await db
       .select({ id: shares.id, mediaId: shares.imageId, code: shares.code })
@@ -1472,11 +1506,72 @@ export async function getShareByCode(
       id: noteShares.id,
       mediaId: noteShares.noteId,
       code: noteShares.code,
+      passwordHash: noteShares.passwordHash,
     })
     .from(noteShares)
     .where(eq(noteShares.code, code))
     .limit(1);
-  return row;
+  return row
+    ? {
+        id: row.id,
+        mediaId: row.mediaId,
+        code: row.code,
+        hasPassword: Boolean(row.passwordHash),
+        accessTokenSeed: row.passwordHash ?? row.id,
+      }
+    : undefined;
+}
+
+export async function getNoteSharePublicMeta(
+  code: string,
+): Promise<NoteSharePublicMeta | undefined> {
+  const [row] = await db
+    .select({
+      id: noteShares.id,
+      code: noteShares.code,
+      mediaId: noteShares.noteId,
+      passwordHash: noteShares.passwordHash,
+      baseName: notes.baseName,
+      originalFileName: notes.originalFileName,
+      updatedAt: notes.updatedAt,
+    })
+    .from(noteShares)
+    .innerJoin(notes, eq(notes.id, noteShares.noteId))
+    .where(eq(noteShares.code, code))
+    .limit(1);
+
+  if (!row?.code) {
+    return undefined;
+  }
+
+  return {
+    id: row.id,
+    code: row.code,
+    mediaId: row.mediaId,
+    fileName: row.originalFileName || row.baseName,
+    updatedAt: row.updatedAt.toISOString(),
+    hasPassword: Boolean(row.passwordHash),
+    accessTokenSeed: row.passwordHash ?? row.id,
+  };
+}
+
+export async function verifyNoteSharePassword(
+  code: string,
+  password: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ passwordHash: noteShares.passwordHash })
+    .from(noteShares)
+    .where(eq(noteShares.code, code))
+    .limit(1);
+
+  if (!row) {
+    return false;
+  }
+  if (!row.passwordHash) {
+    return true;
+  }
+  return bcrypt.compare(password, row.passwordHash);
 }
 
 export async function getSharedMediaByCodeAndExt(
@@ -1594,16 +1689,41 @@ export async function createShareForMedia(
   kind: MediaKind,
   mediaId: string,
   userId: string,
-): Promise<{ id: string; code: string } | undefined> {
+  options?: { password?: string | null },
+): Promise<{ id: string; code: string; hasPassword?: boolean } | undefined> {
   const media = await getMediaForUser(kind, mediaId, userId);
   if (!media) {
     return undefined;
   }
   const existing = await getShareForUserByMedia(kind, mediaId, userId);
+  const hasPasswordOption =
+    kind === "note" && options ? "password" in options : false;
   if (existing?.code) {
-    return { id: existing.id, code: existing.code };
+    if (hasPasswordOption) {
+      const updated = await updateNoteSharePasswordForUser(
+        mediaId,
+        userId,
+        options?.password ?? null,
+      );
+      return updated
+        ? {
+            id: updated.id,
+            code: updated.code,
+            hasPassword: updated.hasPassword,
+          }
+        : undefined;
+    }
+    return {
+      id: existing.id,
+      code: existing.code,
+      hasPassword: existing.hasPassword,
+    };
   }
   const code = await generateShareCode(kind);
+  const passwordHash =
+    hasPasswordOption && options?.password
+      ? await bcrypt.hash(options.password, NOTE_SHARE_PASSWORD_HASH_ROUNDS)
+      : null;
   if (kind === "image") {
     if (existing) {
       const [row] = await db
@@ -1683,10 +1803,20 @@ export async function createShareForMedia(
   if (existing) {
     const [row] = await db
       .update(noteShares)
-      .set({ code })
+      .set({ code, passwordHash })
       .where(eq(noteShares.id, existing.id))
-      .returning({ id: noteShares.id, code: noteShares.code });
-    return row ? { id: row.id, code: row.code ?? code } : undefined;
+      .returning({
+        id: noteShares.id,
+        code: noteShares.code,
+        passwordHash: noteShares.passwordHash,
+      });
+    return row
+      ? {
+          id: row.id,
+          code: row.code ?? code,
+          hasPassword: Boolean(row.passwordHash),
+        }
+      : undefined;
   }
   const id = randomUUID();
   await db.insert(noteShares).values({
@@ -1694,9 +1824,39 @@ export async function createShareForMedia(
     userId,
     noteId: mediaId,
     code,
+    passwordHash,
     createdAt: new Date(),
   });
-  return { id, code };
+  return { id, code, hasPassword: Boolean(passwordHash) };
+}
+
+export async function updateNoteSharePasswordForUser(
+  mediaId: string,
+  userId: string,
+  password: string | null,
+): Promise<{ id: string; code: string; hasPassword: boolean } | undefined> {
+  const passwordHash = password
+    ? await bcrypt.hash(password, NOTE_SHARE_PASSWORD_HASH_ROUNDS)
+    : null;
+  const [row] = await db
+    .update(noteShares)
+    .set({ passwordHash })
+    .where(and(eq(noteShares.noteId, mediaId), eq(noteShares.userId, userId)))
+    .returning({
+      id: noteShares.id,
+      code: noteShares.code,
+      passwordHash: noteShares.passwordHash,
+    });
+
+  if (!row?.code) {
+    return undefined;
+  }
+
+  return {
+    id: row.id,
+    code: row.code,
+    hasPassword: Boolean(row.passwordHash),
+  };
 }
 
 export async function deleteShareForMedia(

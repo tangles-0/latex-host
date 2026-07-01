@@ -8,9 +8,9 @@ import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
-import { LightFolderTimes } from '@energiz3r/icon-library/Icons/Light/LightFolderTimes';
-import { LightFolderOpen } from '@energiz3r/icon-library/Icons/Light/LightFolderOpen';
-import { LightFilePlus } from '@energiz3r/icon-library/Icons/Light/LightFilePlus';
+import { LightFolderTimes } from "@energiz3r/icon-library/Icons/Light/LightFolderTimes";
+import { LightFolderOpen } from "@energiz3r/icon-library/Icons/Light/LightFolderOpen";
+import { LightFilePlus } from "@energiz3r/icon-library/Icons/Light/LightFilePlus";
 
 const HIDE_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-hide-album-images";
 
@@ -290,8 +290,14 @@ export default function GalleryTabs({
                 onClick={() => setHideAlbumImages((current) => !current)}
                 className="flex-1 flex rounded border border-neutral-200 px-3 py-1 sm:flex-none items-center justify-center gap-1"
               >
-                {hideAlbumImages ? <LightFolderTimes className="h-4 w-4" fill="currentColor" /> : <LightFolderOpen className="h-4 w-4" fill="currentColor" />}
-                <span className="hidden lg:inline">{hideAlbumImages ? "show album files" : "hide album files"}</span>
+                {hideAlbumImages ? (
+                  <LightFolderTimes className="h-4 w-4" fill="currentColor" />
+                ) : (
+                  <LightFolderOpen className="h-4 w-4" fill="currentColor" />
+                )}
+                <span className="hidden lg:inline">
+                  {hideAlbumImages ? "show album files" : "hide album files"}
+                </span>
               </button>
               <button
                 type="button"
@@ -300,7 +306,9 @@ export default function GalleryTabs({
                 className="flex-1 flex rounded border border-neutral-200 px-3 py-1 disabled:opacity-50 sm:flex-none items-center justify-center gap-1"
               >
                 <LightFilePlus className="h-4 w-4" fill="currentColor" />
-                <span className="hidden md:inline">{isCreatingNote ? "Creating..." : "new note"}</span>
+                <span className="hidden md:inline">
+                  {isCreatingNote ? "Creating..." : "new note"}
+                </span>
               </button>
             </>
           ) : null}
@@ -314,7 +322,7 @@ export default function GalleryTabs({
               className="flex-1 flex rounded border border-neutral-200 px-3 py-1 sm:flex-none items-center justify-center gap-1"
             >
               <LightFilePlus className="h-4 w-4" fill="currentColor" />
-              <span className="">new note</span>
+              <span className="">new album</span>
             </button>
           ) : null}
         </div>
