@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
-import { getGroupLimits, getUserGroupInfo } from "@/lib/metadata-store";
-import { getNoteForUser, updateNoteForUser } from "@/lib/media-store";
+import {
+  getGroupLimits,
+  getUserGroupInfo,
+  isAdminUser,
+} from "@/lib/metadata-store";
+import { getNote, getNoteForUser, updateNoteForUser } from "@/lib/media-store";
 
 export const runtime = "nodejs";
 
@@ -14,7 +18,10 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const { noteId } = await params;
-  const note = await getNoteForUser(noteId, userId);
+  let note = await getNoteForUser(noteId, userId);
+  if (!note && (await isAdminUser(userId))) {
+    note = await getNote(noteId);
+  }
   if (!note) {
     return NextResponse.json({ error: "Note not found." }, { status: 404 });
   }

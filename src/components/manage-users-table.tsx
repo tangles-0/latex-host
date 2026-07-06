@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type UserStats = {
@@ -103,7 +104,15 @@ export default function ManageUsersTable({ users }: { users: UserStats[] }) {
           <tbody>
             {items.map((user) => (
               <tr key={user.id} className="border-t border-neutral-200">
-                <td className="px-3 py-2">{user.username}</td>
+                <td className="px-3 py-2">
+                  <Link
+                    href={`/admin/users/${user.id}/gallery`}
+                    className="underline"
+                    title={`Browse ${user.username}'s files`}
+                  >
+                    {user.username}
+                  </Link>
+                </td>
                 <td className="px-3 py-2">{user.email}</td>
                 <td className="px-3 py-2">{user.groupName ?? "—"}</td>
                 <td className="px-3 py-2">{user.imageCount}</td>

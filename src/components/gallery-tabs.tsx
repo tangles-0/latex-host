@@ -82,12 +82,16 @@ export default function GalleryTabs({
   initialTab = "files",
   isAdmin,
   actions,
+  readOnly = false,
+  albumHrefBase = "/album",
 }: {
   albums: AlbumInfo[];
   media: GalleryImage[];
   initialTab?: "albums" | "files";
   isAdmin?: boolean;
   actions?: ReactNode;
+  readOnly?: boolean;
+  albumHrefBase?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -299,20 +303,24 @@ export default function GalleryTabs({
                   {hideAlbumImages ? "show album files" : "hide album files"}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => setCreateNoteRequestId((current) => current + 1)}
-                disabled={isCreatingNote}
-                className="flex-1 flex rounded border border-neutral-200 px-3 py-1 disabled:opacity-50 sm:flex-none items-center justify-center gap-1"
-              >
-                <LightFilePlus className="h-4 w-4" fill="currentColor" />
-                <span className="hidden md:inline">
-                  {isCreatingNote ? "Creating..." : "new note"}
-                </span>
-              </button>
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCreateNoteRequestId((current) => current + 1)
+                  }
+                  disabled={isCreatingNote}
+                  className="flex-1 flex rounded border border-neutral-200 px-3 py-1 disabled:opacity-50 sm:flex-none items-center justify-center gap-1"
+                >
+                  <LightFilePlus className="h-4 w-4" fill="currentColor" />
+                  <span className="hidden md:inline">
+                    {isCreatingNote ? "Creating..." : "new note"}
+                  </span>
+                </button>
+              )}
             </>
           ) : null}
-          {activeTab === "albums" ? (
+          {activeTab === "albums" && !readOnly ? (
             <button
               type="button"
               onClick={() => {
@@ -370,7 +378,7 @@ export default function GalleryTabs({
               {albumPreviews.map((album) => (
                 <div key={album.id} className="relative">
                   <Link
-                    href={`/album/${album.id}`}
+                    href={`${albumHrefBase}/${album.id}`}
                     className="block rounded-md border border-neutral-200 p-3"
                   >
                     <div className="grid grid-cols-3 gap-2">
@@ -415,34 +423,38 @@ export default function GalleryTabs({
                       in album
                     </div>
                   </Link>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setRenameError(null);
-                      setAlbumToRename({ id: album.id, name: album.name });
-                      setRenameAlbumName(album.name);
-                    }}
-                    className="tile-control absolute right-10 top-2 rounded p-1 text-[11px]"
-                    aria-label="rename album"
-                    title="rename album"
-                  >
-                    <LightPencil className="h-4 w-4" fill="currentColor" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setAlbumToDelete({ id: album.id, name: album.name });
-                    }}
-                    className="tile-control absolute right-2 top-2 rounded p-1"
-                    aria-label="delete album"
-                    title="rm -rf this album"
-                  >
-                    <LightTrashAlt className="h-4 w-4" fill="currentColor" />
-                  </button>
+                  {readOnly ? null : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setRenameError(null);
+                          setAlbumToRename({ id: album.id, name: album.name });
+                          setRenameAlbumName(album.name);
+                        }}
+                        className="tile-control absolute right-10 top-2 rounded p-1 text-[11px]"
+                        aria-label="rename album"
+                        title="rename album"
+                      >
+                        <LightPencil className="h-4 w-4" fill="currentColor" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setAlbumToDelete({ id: album.id, name: album.name });
+                        }}
+                        className="tile-control absolute right-2 top-2 rounded p-1"
+                        aria-label="delete album"
+                        title="rm -rf this album"
+                      >
+                        <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -564,6 +576,7 @@ export default function GalleryTabs({
           hideImagesInAlbums={hideAlbumImages}
           kindFilter={fileTypeFilter}
           isAdmin={isAdmin}
+          readOnly={readOnly}
         />
       )}
     </div>

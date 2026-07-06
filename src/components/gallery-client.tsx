@@ -185,6 +185,7 @@ export default function GalleryClient({
   hideImagesInAlbums = false,
   kindFilter = "all",
   isAdmin = false,
+  readOnly = false,
 }: {
   media: GalleryImage[];
   onImagesChange?: (next: GalleryImage[]) => void;
@@ -196,6 +197,7 @@ export default function GalleryClient({
   hideImagesInAlbums?: boolean;
   kindFilter?: GalleryKindFilter;
   isAdmin?: boolean;
+  readOnly?: boolean;
 }) {
   const [items, setItems] = useState<GalleryImage[]>(media);
   const [active, setActive] = useState<GalleryImage | null>(null);
@@ -350,6 +352,9 @@ export default function GalleryClient({
   }, [showAlbumImages, showAlbumImageToggle]);
 
   useEffect(() => {
+    if (readOnly) {
+      return;
+    }
     function isInternalImageDrag(event: DragEvent): boolean {
       const types = event.dataTransfer?.types;
       return Boolean(
@@ -1125,6 +1130,9 @@ export default function GalleryClient({
       if (image.kind === "note") {
         await loadNote(image.id);
       }
+      if (readOnly) {
+        return;
+      }
       const response = await fetch(
         `/api/media-shares?kind=${encodeURIComponent(image.kind)}&mediaId=${encodeURIComponent(image.id)}`,
       );
@@ -1650,7 +1658,7 @@ export default function GalleryClient({
   }
 
   async function moveActiveImage(delta: -1 | 1) {
-    if (!active || !inAlbumContext || isSavingOrder) {
+    if (readOnly || !active || !inAlbumContext || isSavingOrder) {
       return;
     }
     const index = items.findIndex((item) => item.id === active.id);
@@ -1683,6 +1691,7 @@ export default function GalleryClient({
 
   async function moveImageByDrag(targetImageId: string) {
     if (
+      readOnly ||
       !uploadAlbumId ||
       !draggedImageId ||
       draggedImageId === targetImageId ||
@@ -1956,6 +1965,9 @@ export default function GalleryClient({
   }, [createNoteRequestId]);
 
   useEffect(() => {
+    if (readOnly) {
+      return;
+    }
     const pending = items.filter((item) =>
       isPreviewPollingStatus(item.previewStatus),
     );
@@ -2277,6 +2289,21 @@ export default function GalleryClient({
   }
 
   function renderNoteEditor() {
+    if (readOnly) {
+      return (
+        <div
+          className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
+        >
+          {isLoadingNote ? (
+            <div className="flex min-h-[320px] items-center justify-center text-sm text-neutral-500">
+              Loading note...
+            </div>
+          ) : (
+            <NoteMarkdown content={noteContentDraft} />
+          )}
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -2463,9 +2490,9 @@ export default function GalleryClient({
             {pagedDisplayItems.map((image) => (
               <div
                 key={image.id}
-                draggable={inAlbumContext}
+                draggable={inAlbumContext && !readOnly}
                 onDragStart={(event) => {
-                  if (!inAlbumContext) {
+                  if (!inAlbumContext || readOnly) {
                     return;
                   }
                   setAlbumEditError(null);
@@ -2512,28 +2539,32 @@ export default function GalleryClient({
                 } ${draggedImageId === image.id ? "opacity-70" : ""}`}
               >
                 <SharePill isShared={image.shared} absolutePosition />
-                <FancyCheckbox
-                  className="tile-control absolute left-1 top-1 z-10 text-xs"
-                  checked={selected.has(image.id)}
-                  onChange={(checked) => {
-                    const next = new Set(selected);
-                    if (checked) {
-                      next.add(image.id);
-                    } else {
-                      next.delete(image.id);
-                    }
-                    setSelected(next);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setImageToDelete(image)}
-                  className="tile-control absolute right-1 top-1 z-10 rounded p-1"
-                  aria-label="Delete image"
-                  title="Delete image"
-                >
-                  <LightTrashAlt className="h-4 w-4" fill="currentColor" />
-                </button>
+                {readOnly ? null : (
+                  <>
+                    <FancyCheckbox
+                      className="tile-control absolute left-1 top-1 z-10 text-xs"
+                      checked={selected.has(image.id)}
+                      onChange={(checked) => {
+                        const next = new Set(selected);
+                        if (checked) {
+                          next.add(image.id);
+                        } else {
+                          next.delete(image.id);
+                        }
+                        setSelected(next);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setImageToDelete(image)}
+                      className="tile-control absolute right-1 top-1 z-10 rounded p-1"
+                      aria-label="Delete image"
+                      title="Delete image"
+                    >
+                      <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => openModal(image)}
@@ -2716,42 +2747,48 @@ export default function GalleryClient({
             {isNoteFullscreen ? (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-2">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    {(["markdown", "preview"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setNoteEditorMode(mode)}
-                        className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
-                      >
-                        {mode === "markdown" ? "markdown" : "preview"}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-600">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={autosaveEnabled}
-                        onChange={(event) =>
-                          setAutosaveEnabled(event.target.checked)
-                        }
-                      />
-                      Auto-save every 30s
-                    </label>
-                    <div>
-                      {noteIsDirty ? "Unsaved changes" : "All changes saved"}
+                  {readOnly ? null : (
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      {(["markdown", "preview"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setNoteEditorMode(mode)}
+                          className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
+                        >
+                          {mode === "markdown" ? "markdown" : "preview"}
+                        </button>
+                      ))}
                     </div>
-                  </div>
+                  )}
+                  {readOnly ? null : (
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-600">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={autosaveEnabled}
+                          onChange={(event) =>
+                            setAutosaveEnabled(event.target.checked)
+                          }
+                        />
+                        Auto-save every 30s
+                      </label>
+                      <div>
+                        {noteIsDirty ? "Unsaved changes" : "All changes saved"}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void saveActiveNote()}
-                      disabled={isSavingNote || !noteIsDirty}
-                      className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                    >
-                      {isSavingNote ? "Saving..." : "Save"}
-                    </button>
+                    {readOnly ? null : (
+                      <button
+                        type="button"
+                        onClick={() => void saveActiveNote()}
+                        disabled={isSavingNote || !noteIsDirty}
+                        className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                      >
+                        {isSavingNote ? "Saving..." : "Save"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() =>
@@ -2787,7 +2824,7 @@ export default function GalleryClient({
                     <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
                       Loading note...
                     </div>
-                  ) : noteEditorMode === "markdown" ? (
+                  ) : noteEditorMode === "markdown" && !readOnly ? (
                     <NoteRichEditor
                       value={noteContentDraft}
                       onChange={setNoteContentDraft}
@@ -2812,7 +2849,11 @@ export default function GalleryClient({
                   <div>
                     <h2 className="text-lg font-semibold">file details</h2>
                     <div className="mt-1 flex items-center gap-2">
-                      {isEditingOriginalFileName ? (
+                      {readOnly ? (
+                        <p className="text-xs text-neutral-500">
+                          {activeDisplayName}
+                        </p>
+                      ) : isEditingOriginalFileName ? (
                         <>
                           <input
                             value={originalFileNameDraft}
@@ -2890,7 +2931,7 @@ export default function GalleryClient({
                         fill="currentColor"
                       />
                     </button>
-                    {inAlbumContext ? (
+                    {inAlbumContext && !readOnly ? (
                       <>
                         <button
                           type="button"
@@ -2918,7 +2959,7 @@ export default function GalleryClient({
                         </button>
                       </>
                     ) : null}
-                    {isImageActive ? (
+                    {isImageActive && !readOnly ? (
                       <>
                         <button
                           type="button"
@@ -2967,14 +3008,16 @@ export default function GalleryClient({
                     ) : null}
                     {isNoteActive ? (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => void saveActiveNote()}
-                          disabled={isSavingNote || !noteIsDirty}
-                          className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
-                        >
-                          {isSavingNote ? "Saving..." : "Save"}
-                        </button>
+                        {readOnly ? null : (
+                          <button
+                            type="button"
+                            onClick={() => void saveActiveNote()}
+                            disabled={isSavingNote || !noteIsDirty}
+                            className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                          >
+                            {isSavingNote ? "Saving..." : "Save"}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() =>
@@ -3011,18 +3054,20 @@ export default function GalleryClient({
                             fill="currentColor"
                           />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => void openNoteHistory()}
-                          className="rounded border border-neutral-200 px-2 py-1 text-xs"
-                          aria-label="Open note history"
-                          title="Open note history"
-                        >
-                          <LightHistory
-                            className="h-4 w-4"
-                            fill="currentColor"
-                          />
-                        </button>
+                        {readOnly ? null : (
+                          <button
+                            type="button"
+                            onClick={() => void openNoteHistory()}
+                            className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                            aria-label="Open note history"
+                            title="Open note history"
+                          >
+                            <LightHistory
+                              className="h-4 w-4"
+                              fill="currentColor"
+                            />
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button
@@ -3118,7 +3163,7 @@ export default function GalleryClient({
                         ext={active.ext}
                         mimeType={active.mimeType}
                         onRegenerateThumbnail={
-                          active.kind === "video"
+                          active.kind === "video" && !readOnly
                             ? () => void regenerateVideoThumbnail()
                             : undefined
                         }
@@ -3154,24 +3199,28 @@ export default function GalleryClient({
                         ) : null}
                       </div>
                       <div className="justify-self-center">
-                        <SharePill isShared={Boolean(share)} shouldShowOff />
+                        {readOnly ? null : (
+                          <SharePill isShared={Boolean(share)} shouldShowOff />
+                        )}
                       </div>
                       <div className="justify-self-end">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void (share
-                              ? disableShare(active)
-                              : enableShare(active))
-                          }
-                          className={`rounded px-3 py-1 text-xs ${
-                            share
-                              ? "bg-black text-white"
-                              : "border border-neutral-200"
-                          }`}
-                        >
-                          {share ? "disable" : "enable"}
-                        </button>
+                        {readOnly ? null : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void (share
+                                ? disableShare(active)
+                                : enableShare(active))
+                            }
+                            className={`rounded px-3 py-1 text-xs ${
+                              share
+                                ? "bg-black text-white"
+                                : "border border-neutral-200"
+                            }`}
+                          >
+                            {share ? "disable" : "enable"}
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -3196,7 +3245,7 @@ export default function GalleryClient({
                       <p className="text-xs text-red-600">{noteSaveError}</p>
                     ) : null}
 
-                    {active.kind === "note" ? (
+                    {active.kind === "note" && !readOnly ? (
                       noteModalView === "note" ? (
                         <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
                           <label className="flex items-center gap-2">
@@ -3218,7 +3267,7 @@ export default function GalleryClient({
                       ) : null
                     ) : null}
 
-                    {inAlbumContext ? (
+                    {inAlbumContext && !readOnly ? (
                       <div className="space-y-2 rounded border border-neutral-200 p-3">
                         <label className="text-xs font-medium text-neutral-600">
                           Caption (album only)
@@ -3433,7 +3482,7 @@ export default function GalleryClient({
                           </div>
                         ) : null}
                       </div>
-                    ) : (
+                    ) : readOnly ? null : (
                       <p className="text-xs text-neutral-500 text-center">
                         Share links are disabled for this file.
                       </p>

@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { getMediaForUser } from "@/lib/media-store";
+import { getMedia, getMediaForUser } from "@/lib/media-store";
+import { isAdminUser } from "@/lib/metadata-store";
 import {
   contentTypeForExt,
   isBlobMediaKind,
@@ -134,7 +135,10 @@ export async function GET(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const media = await getMediaForUser(parsedKind, mediaId, userId);
+  let media = await getMediaForUser(parsedKind, mediaId, userId);
+  if (!media && (await isAdminUser(userId))) {
+    media = await getMedia(parsedKind, mediaId);
+  }
   if (!media) {
     return new Response("Not found", { status: 404 });
   }

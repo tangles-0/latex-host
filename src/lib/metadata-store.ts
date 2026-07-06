@@ -905,6 +905,21 @@ export async function listUsersWithStats(): Promise<UserStats[]> {
   });
 }
 
+export async function getUserById(
+  userId: string,
+): Promise<{ id: string; username: string; email: string } | undefined> {
+  const [row] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row;
+}
+
 export async function isAdminUser(userId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: users.id })
