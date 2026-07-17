@@ -4,6 +4,7 @@ import { getMedia, mediaIsInAlbum } from "@/lib/media-store";
 import {
   contentTypeForExt,
   isBlobMediaKind,
+  parseSizedFileName,
   type BlobMediaKind,
 } from "@/lib/media-types";
 import {
@@ -29,13 +30,11 @@ function parseKind(kind: string): BlobMediaKind | null {
 function parseFileName(
   fileName: string,
 ): { baseName: string; size: "original" | "sm" | "lg"; ext: string } | null {
-  const match = /^(.*?)(-sm|-lg)?\.([a-zA-Z0-9]+)$/.exec(fileName);
-  if (!match) {
+  const parsed = parseSizedFileName(fileName);
+  if (!parsed || parsed.size === "x640") {
     return null;
   }
-  const suffix = match[2];
-  const size = suffix === "-sm" ? "sm" : suffix === "-lg" ? "lg" : "original";
-  return { baseName: match[1], size, ext: match[3].toLowerCase() };
+  return parsed;
 }
 
 function parseByteRange(

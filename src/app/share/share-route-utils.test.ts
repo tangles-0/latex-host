@@ -24,6 +24,19 @@ describe("parseShareFileName", () => {
     expect(parseShareFileName("bad name.png")).toBeNull();
     expect(parseShareFileName("no-ext")).toBeNull();
   });
+
+  it("keeps compound archive extensions", () => {
+    expect(parseShareFileName("AbC123.tar.gz")).toEqual({
+      code: "AbC123",
+      size: "original",
+      ext: "tar.gz",
+    });
+    expect(parseShareFileName("AbC123.tar.bz2")).toEqual({
+      code: "AbC123",
+      size: "original",
+      ext: "tar.bz2",
+    });
+  });
 });
 
 describe("parseByteRange", () => {

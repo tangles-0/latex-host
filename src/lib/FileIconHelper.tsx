@@ -33,6 +33,10 @@ export function isAudioExtension(ext?: string): boolean {
   return AUDIO_EXTENSIONS.has(normalizeExt(ext));
 }
 
+export function isArchiveExtension(ext?: string): boolean {
+  return ARCHIVE_EXTENSIONS.has(normalizeExt(ext));
+}
+
 export function getFileIconForExtension(ext?: string): IconComponent {
   const normalized = normalizeExt(ext);
 

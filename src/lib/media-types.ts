@@ -94,6 +94,16 @@ export const AUDIO_EXTENSIONS = new Set([
   "wma",
 ]);
 
+/** Multi-segment archive suffixes; longer forms first for matching. */
+export const COMPOUND_ARCHIVE_EXTENSIONS = [
+  "tar.gz",
+  "tar.bz2",
+  "tar.xz",
+  "tar.zst",
+  "tar.lzma",
+  "tar.lz",
+] as const;
+
 export const ARCHIVE_EXTENSIONS = new Set([
   "zip",
   "7z",
@@ -106,6 +116,7 @@ export const ARCHIVE_EXTENSIONS = new Set([
   "tgz",
   "tbz2",
   "txz",
+  ...COMPOUND_ARCHIVE_EXTENSIONS,
 ]);
 
 export const CODE_EXTENSIONS = new Set([
@@ -231,12 +242,77 @@ const EXT_TO_MIME: Record<string, string> = {
   gz: "application/gzip",
   tar: "application/x-tar",
   rar: "application/vnd.rar",
+  "tar.gz": "application/gzip",
+  "tar.bz2": "application/x-bzip2",
+  "tar.xz": "application/x-xz",
+  "tar.zst": "application/zstd",
+  "tar.lzma": "application/x-lzma",
+  "tar.lz": "application/x-lzip",
 };
 
 export function extFromFileName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  for (const compound of COMPOUND_ARCHIVE_EXTENSIONS) {
+    const suffix = `.${compound}`;
+    if (lower.endsWith(suffix) && lower.length > suffix.length) {
+      return compound;
+    }
+  }
   const idx = fileName.lastIndexOf(".");
   if (idx < 0) return "";
   return fileName.slice(idx + 1).toLowerCase();
+}
+
+/** Stem + extension, preserving compound archive suffixes like tar.gz. */
+export function splitFileName(
+  fileName: string,
+): { stem: string; ext: string } | null {
+  const ext = extFromFileName(fileName);
+  if (!ext) {
+    return null;
+  }
+  const stem = fileName.slice(0, fileName.length - ext.length - 1);
+  if (!stem) {
+    return null;
+  }
+  return { stem, ext };
+}
+
+export type SizedMediaFileName = {
+  baseName: string;
+  size: "original" | "sm" | "lg" | "x640";
+  ext: string;
+};
+
+/**
+ * Parse `baseName[-sm|-lg|-640].ext`, including compound archive extensions
+ * (e.g. `uuid.tar.gz`).
+ */
+export function parseSizedFileName(
+  fileName: string,
+  options?: { allowX640?: boolean },
+): SizedMediaFileName | null {
+  const split = splitFileName(fileName);
+  if (!split) {
+    return null;
+  }
+  const { stem, ext } = split;
+  if (!/^[a-z0-9]+(?:\.[a-z0-9]+)*$/i.test(ext)) {
+    return null;
+  }
+
+  const sizePattern = options?.allowX640
+    ? /^(.*?)(-sm|-lg|-640)$/
+    : /^(.*?)(-sm|-lg)$/;
+  const sizeMatch = sizePattern.exec(stem);
+  if (sizeMatch?.[1]) {
+    const suffix = sizeMatch[2];
+    const size =
+      suffix === "-sm" ? "sm" : suffix === "-lg" ? "lg" : ("x640" as const);
+    return { baseName: sizeMatch[1], size, ext };
+  }
+
+  return { baseName: stem, size: "original", ext };
 }
 
 export function mediaKindFromType(

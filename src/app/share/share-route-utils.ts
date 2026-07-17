@@ -1,3 +1,5 @@
+import { splitFileName } from "@/lib/media-types";
+
 export type ParsedShareFileName = {
   code: string;
   size: "original" | "sm" | "lg" | "x640";
@@ -5,16 +7,27 @@ export type ParsedShareFileName = {
 };
 
 export function parseShareFileName(fileName: string): ParsedShareFileName | null {
-  const match = /^([A-Za-z0-9]+)(-sm|-lg|-640)?\.([a-zA-Z0-9]+)$/.exec(fileName);
+  const split = splitFileName(fileName);
+  if (!split) {
+    return null;
+  }
+
+  const match = /^([A-Za-z0-9]+)(-sm|-lg|-640)?$/.exec(split.stem);
   if (!match) {
     return null;
   }
 
   const suffix = match[2];
   const size =
-    suffix === "-sm" ? "sm" : suffix === "-lg" ? "lg" : suffix === "-640" ? "x640" : "original";
+    suffix === "-sm"
+      ? "sm"
+      : suffix === "-lg"
+        ? "lg"
+        : suffix === "-640"
+          ? "x640"
+          : "original";
 
-  return { code: match[1], size, ext: match[3].toLowerCase() };
+  return { code: match[1], size, ext: split.ext };
 }
 
 export function parseByteRange(rangeHeader: string, total: number): { start: number; end: number } | null {

@@ -2,6 +2,7 @@
 
 import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
 import {
+  isArchiveExtension,
   isAudioExtension,
   renderFileIconForExtension,
 } from "@/lib/FileIconHelper";
@@ -104,12 +105,21 @@ export function FileViewerContent({
       </div>
     );
   }
+  const downloadLabel = isArchiveExtension(ext)
+    ? "Download archive"
+    : "Download file";
   return (
-    <div className="flex sm:max-h-[60vh] min-h-[320px] w-full items-center justify-center rounded border border-neutral-200 bg-neutral-50">
+    <a
+      href={fullUrl}
+      download
+      className="flex sm:max-h-[60vh] min-h-[320px] w-full items-center justify-center rounded border border-neutral-200 bg-neutral-50 hover:bg-neutral-100"
+      aria-label={downloadLabel}
+      title={downloadLabel}
+    >
       {renderFileIconForExtension(ext, {
         className: iconClass,
         fill: "currentColor",
       })}
-    </div>
+    </a>
   );
 }
