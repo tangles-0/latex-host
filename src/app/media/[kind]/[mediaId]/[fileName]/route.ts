@@ -10,6 +10,10 @@ import {
   type BlobMediaKind,
 } from "@/lib/media-types";
 import {
+  applyAttachmentDisposition,
+  resolveDownloadFileName,
+} from "@/lib/download-file-name";
+import {
   getMediaBufferSize,
   getMediaSignedUrl,
   getMediaRangeStream,
@@ -69,14 +73,25 @@ function parseKind(kind: string): BlobMediaKind | null {
   return isBlobMediaKind(kind) ? kind : null;
 }
 
+function isDownloadRequested(request: NextRequest): boolean {
+  return request.nextUrl.searchParams.get("download") === "true";
+}
+
 function parseFileName(
   fileName: string,
 ): { baseName: string; size: "original" | "sm" | "lg"; ext: string } | null {
   const parsed = parseSizedFileName(fileName);
-  if (!parsed || parsed.size === "x640") {
+  if (!parsed) {
     return null;
   }
-  return parsed;
+  if (parsed.size === "sm" || parsed.size === "lg" || parsed.size === "original") {
+    return {
+      baseName: parsed.baseName,
+      size: parsed.size,
+      ext: parsed.ext,
+    };
+  }
+  return null;
 }
 
 function parseByteRange(
@@ -122,6 +137,7 @@ export async function GET(
   }: { params: Promise<{ kind: string; mediaId: string; fileName: string }> },
 ): Promise<Response> {
   const { kind, mediaId, fileName } = await params;
+  const downloadRequested = isDownloadRequested(request);
   const parsedKind = parseKind(kind);
   const parsed = parseFileName(fileName);
   if (!parsedKind || !parsed) {
@@ -158,6 +174,12 @@ export async function GET(
         : parsedKind === "image"
           ? media.ext
           : "png";
+    const downloadFileName = resolveDownloadFileName({
+      requestedFileName: fileName,
+      preferredFileName: media.originalFileName,
+      requestedSize,
+      responseExt,
+    });
     const sizeBytes = sizeBytesForVariant(media, requestedSize);
     const etag = buildVariantEtag({
       mediaId: media.id,
@@ -168,7 +190,7 @@ export async function GET(
     const uploadedAt = new Date(media.uploadedAt);
     const lastModified = uploadedAt.toUTCString();
     const baseCacheHeaders = privateCacheHeaders(etag, lastModified);
-    if (requestHasEtag(request, etag)) {
+    if (requestHasEtag(request, etag) && !downloadRequested) {
       return new Response(null, {
         status: 304,
         headers: baseCacheHeaders,
@@ -186,13 +208,7 @@ export async function GET(
       (parsedKind === "video" ||
         (parsedKind === "other" &&
           (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
-    if (usesS3StorageBackend()) {
-      const responseExt =
-        requestedSize === "original"
-          ? media.ext
-          : parsedKind === "image"
-            ? media.ext
-            : "png";
+    if (usesS3StorageBackend() && !downloadRequested) {
       const signedUrl = await getMediaSignedUrl({
         kind: parsedKind,
         baseName: media.baseName,
@@ -203,7 +219,7 @@ export async function GET(
       });
       return Response.redirect(signedUrl, 307);
     }
-    if (isRangeStreamableOriginal) {
+    if (isRangeStreamableOriginal && !downloadRequested) {
       const total = await getMediaBufferSize({
         kind: parsedKind,
         baseName: media.baseName,
@@ -251,13 +267,17 @@ export async function GET(
       size: requestedSize,
       uploadedAt: new Date(media.uploadedAt),
     });
-    return new Response(stream, {
-      headers: {
-        "Content-Type": contentTypeForExt(responseExt),
-        ...(isRangeStreamableOriginal ? { "Accept-Ranges": "bytes" } : {}),
-        ...baseCacheHeaders,
-      },
+    const headers = new Headers({
+      "Content-Type": contentTypeForExt(responseExt),
+      ...(isRangeStreamableOriginal && !downloadRequested
+        ? { "Accept-Ranges": "bytes" }
+        : {}),
+      ...baseCacheHeaders,
     });
+    if (downloadRequested) {
+      applyAttachmentDisposition(headers, downloadFileName);
+    }
+    return new Response(stream, { headers });
   } catch {
     return new Response("Not found", { status: 404 });
   }

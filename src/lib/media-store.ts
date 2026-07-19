@@ -1051,6 +1051,7 @@ export async function listMediaForAlbum(
   for (const row of noteRows) {
     mediaByKey.set(`note:${row.media.id}`, {
       ...mapNoteRow(row.media),
+      content: row.media.content,
       shared: Boolean(row.shareId),
     });
   }

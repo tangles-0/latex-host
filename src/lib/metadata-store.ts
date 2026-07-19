@@ -36,8 +36,18 @@ import {
 export type Album = {
   id: string;
   name: string;
+  displayAsDownloadPage: boolean;
   createdAt: string;
 };
+
+function mapAlbumRow(row: typeof albums.$inferSelect): Album {
+  return {
+    id: row.id,
+    name: row.name,
+    displayAsDownloadPage: row.displayAsDownloadPage,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
 
 export type ImageEntry = {
   id: string;
@@ -156,11 +166,7 @@ export async function listAlbums(userId: string): Promise<Album[]> {
     .from(albums)
     .where(eq(albums.userId, userId))
     .orderBy(desc(albums.createdAt));
-  return rows.map((album) => ({
-    id: album.id,
-    name: album.name,
-    createdAt: album.createdAt.toISOString(),
-  }));
+  return rows.map(mapAlbumRow);
 }
 
 export async function createAlbum(name: string, userId: string): Promise<Album> {
@@ -170,10 +176,16 @@ export async function createAlbum(name: string, userId: string): Promise<Album> 
     id: albumId,
     userId,
     name,
+    displayAsDownloadPage: false,
     createdAt,
   });
 
-  return { id: albumId, name, createdAt: createdAt.toISOString() };
+  return {
+    id: albumId,
+    name,
+    displayAsDownloadPage: false,
+    createdAt: createdAt.toISOString(),
+  };
 }
 
 export async function getAlbumForUser(
@@ -190,11 +202,7 @@ export async function getAlbumForUser(
     return undefined;
   }
 
-  return {
-    id: row.id,
-    name: row.name,
-    createdAt: row.createdAt.toISOString(),
-  };
+  return mapAlbumRow(row);
 }
 
 export async function renameAlbumForUser(
@@ -202,9 +210,28 @@ export async function renameAlbumForUser(
   userId: string,
   name: string,
 ): Promise<Album | undefined> {
+  return updateAlbumForUser(albumId, userId, { name });
+}
+
+export async function updateAlbumForUser(
+  albumId: string,
+  userId: string,
+  updates: { name?: string; displayAsDownloadPage?: boolean },
+): Promise<Album | undefined> {
+  const patch: { name?: string; displayAsDownloadPage?: boolean } = {};
+  if (typeof updates.name === "string") {
+    patch.name = updates.name;
+  }
+  if (typeof updates.displayAsDownloadPage === "boolean") {
+    patch.displayAsDownloadPage = updates.displayAsDownloadPage;
+  }
+  if (Object.keys(patch).length === 0) {
+    return getAlbumForUser(albumId, userId);
+  }
+
   const [row] = await db
     .update(albums)
-    .set({ name })
+    .set(patch)
     .where(and(eq(albums.id, albumId), eq(albums.userId, userId)))
     .returning();
 
@@ -212,11 +239,7 @@ export async function renameAlbumForUser(
     return undefined;
   }
 
-  return {
-    id: row.id,
-    name: row.name,
-    createdAt: row.createdAt.toISOString(),
-  };
+  return mapAlbumRow(row);
 }
 
 export async function deleteAlbumForUser(
@@ -253,11 +276,7 @@ export async function getAlbumPublic(albumId: string): Promise<Album | undefined
     return undefined;
   }
 
-  return {
-    id: row.id,
-    name: row.name,
-    createdAt: row.createdAt.toISOString(),
-  };
+  return mapAlbumRow(row);
 }
 
 export async function addImage(

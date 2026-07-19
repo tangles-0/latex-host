@@ -29,6 +29,11 @@ import {
   parseByteRange,
   parseShareFileName,
 } from "@/app/share/share-route-utils";
+import {
+  applyAttachmentDisposition,
+  ensureFileExtension,
+  resolveDownloadFileName,
+} from "@/lib/download-file-name";
 
 export const runtime = "nodejs";
 const PUBLIC_SHARE_CACHE_SECONDS = Math.max(
@@ -67,55 +72,6 @@ function publicCacheHeaders(ext: string): Headers {
 
 function isDownloadRequested(request: NextRequest): boolean {
   return request.nextUrl.searchParams.get("download") === "true";
-}
-
-function sanitizeDownloadFileName(fileName: string): string {
-  const sanitized = fileName
-    .replace(/[/\\]/g, "-")
-    .replace(/[\r\n]+/g, " ")
-    .trim();
-  return sanitized || "download";
-}
-
-function ensureFileExtension(fileName: string, ext: string): string {
-  const normalizedExt = ext.toLowerCase();
-  return fileName.toLowerCase().endsWith(`.${normalizedExt}`)
-    ? fileName
-    : `${fileName}.${normalizedExt}`;
-}
-
-function buildAttachmentDisposition(fileName: string): string {
-  const safeFileName = sanitizeDownloadFileName(fileName);
-  const asciiFallback = safeFileName
-    .replace(/[^\x20-\x7E]/g, "_")
-    .replace(/["\\]/g, "_");
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`;
-}
-
-function applyAttachmentDisposition(
-  headers: Headers,
-  fileName: string,
-): Headers {
-  headers.set("Content-Disposition", buildAttachmentDisposition(fileName));
-  return headers;
-}
-
-function resolveDownloadFileName(input: {
-  requestedFileName: string;
-  preferredFileName?: string;
-  requestedSize: "original" | "sm" | "lg";
-  responseExt: string;
-}): string {
-  if (input.requestedSize !== "original") {
-    return sanitizeDownloadFileName(input.requestedFileName);
-  }
-  const preferred = input.preferredFileName?.trim();
-  if (!preferred) {
-    return sanitizeDownloadFileName(input.requestedFileName);
-  }
-  return sanitizeDownloadFileName(
-    ensureFileExtension(preferred, input.responseExt),
-  );
 }
 
 function isDocumentNavigation(request: NextRequest): boolean {

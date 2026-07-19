@@ -8,6 +8,7 @@ import {
 } from "@/lib/metadata-store";
 import { listMediaForAlbum } from "@/lib/media-store";
 import GalleryClient from "@/components/gallery-client";
+import { AlbumDownloadList } from "@/components/album-download-list";
 import PageHeader from "@/components/ui/page-header";
 
 export default async function AdminUserAlbumPage({
@@ -50,14 +51,18 @@ export default async function AdminUserAlbumPage({
         }}
       />
 
-      <GalleryClient
-        media={media}
-        showAlbumImageToggle={false}
-        showCreateNoteButton={false}
-        uploadAlbumId={albumId}
-        isAdmin
-        readOnly
-      />
+      {album.displayAsDownloadPage ? (
+        <AlbumDownloadList items={media} />
+      ) : (
+        <GalleryClient
+          media={media}
+          showAlbumImageToggle={false}
+          showCreateNoteButton={false}
+          uploadAlbumId={albumId}
+          isAdmin
+          readOnly
+        />
+      )}
     </main>
   );
 }

@@ -14,6 +14,10 @@ import {
   getMediaStream,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
+import {
+  applyAttachmentDisposition,
+  resolveDownloadFileName,
+} from "@/lib/download-file-name";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
 
@@ -31,10 +35,17 @@ function parseFileName(
   fileName: string,
 ): { baseName: string; size: "original" | "sm" | "lg"; ext: string } | null {
   const parsed = parseSizedFileName(fileName);
-  if (!parsed || parsed.size === "x640") {
+  if (!parsed) {
     return null;
   }
-  return parsed;
+  if (parsed.size === "sm" || parsed.size === "lg" || parsed.size === "original") {
+    return {
+      baseName: parsed.baseName,
+      size: parsed.size,
+      ext: parsed.ext,
+    };
+  }
+  return null;
 }
 
 function parseByteRange(
@@ -97,6 +108,10 @@ function publicCacheHeaders(ext: string): Headers {
   });
 }
 
+function isDownloadRequested(request: NextRequest): boolean {
+  return request.nextUrl.searchParams.get("download") === "true";
+}
+
 export async function GET(
   request: NextRequest,
   {
@@ -111,6 +126,7 @@ export async function GET(
   },
 ): Promise<Response> {
   const { shareId, kind, mediaId, fileName } = await params;
+  const downloadRequested = isDownloadRequested(request);
   const rate = await consumeRequestRateLimit({
     namespace: "public-share-album-media",
     key: `${shareId}:${mediaId}`,
@@ -161,19 +177,25 @@ export async function GET(
       parsed.size !== "original"
         ? "original"
         : parsed.size;
+    const responseExt =
+      requestedSize === "original"
+        ? media.ext
+        : parsedKind === "image"
+          ? media.ext
+          : "png";
+    const downloadFileName = resolveDownloadFileName({
+      requestedFileName: fileName,
+      preferredFileName: media.originalFileName,
+      requestedSize,
+      responseExt,
+    });
 
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (parsedKind === "video" ||
         (parsedKind === "other" &&
           (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
-    if (usesS3StorageBackend()) {
-      const responseExt =
-        requestedSize === "original"
-          ? media.ext
-          : parsedKind === "image"
-            ? media.ext
-            : "png";
+    if (usesS3StorageBackend() && !downloadRequested) {
       const signedUrl = await getMediaSignedUrl({
         kind: parsedKind,
         baseName: media.baseName,
@@ -193,7 +215,7 @@ export async function GET(
       );
     }
 
-    if (isRangeStreamableOriginal) {
+    if (isRangeStreamableOriginal && !downloadRequested) {
       const uploadedAt = new Date(media.uploadedAt);
       const total = await getMediaBufferSize({
         kind: parsedKind,
@@ -246,15 +268,12 @@ export async function GET(
       size: requestedSize,
       uploadedAt: new Date(media.uploadedAt),
     });
-    const responseExt =
-      requestedSize === "original"
-        ? media.ext
-        : parsedKind === "image"
-          ? media.ext
-          : "png";
     const headers = publicCacheHeaders(responseExt);
-    if (isRangeStreamableOriginal) {
+    if (isRangeStreamableOriginal && !downloadRequested) {
       headers.set("Accept-Ranges", "bytes");
+    }
+    if (downloadRequested) {
+      applyAttachmentDisposition(headers, downloadFileName);
     }
     return withPublicCors(new Response(stream, { headers }));
   } catch {

@@ -29,6 +29,13 @@ export default async function AlbumSharePage({
     notFound();
   }
 
-  return <AlbumShareView shareId={shareId} albumName={album.name} media={media} />;
+  return (
+    <AlbumShareView
+      shareId={shareId}
+      albumName={album.name}
+      media={media}
+      isDisplayAsDownloadPage={album.displayAsDownloadPage}
+    />
+  );
 }
 

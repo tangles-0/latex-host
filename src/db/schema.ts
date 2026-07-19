@@ -80,6 +80,9 @@ export const albums = pgTable("albums", {
     .notNull()
     .references(() => users.id),
   name: text("name").notNull(),
+  displayAsDownloadPage: boolean("display_as_download_page")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
 
