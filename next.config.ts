@@ -11,6 +11,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  serverExternalPackages: ["openpgp"],
   eslint: {
     ignoreDuringBuilds: true,
   },

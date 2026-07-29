@@ -1,0 +1,483 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import NoteRichEditor from "@/components/note-rich-editor";
+import Panel from "@/components/ui/panel";
+import { encryptPlaintextToPublicKey } from "@/lib/pgp-client";
+import { isValidFingerprint, normalizeFingerprint } from "@/lib/pgp-fingerprint";
+
+type ThreadSummary = {
+  senderHash: string;
+  lastMessageAt: string;
+  unreadCount: number;
+  messageCount: number;
+  isMuted: boolean;
+};
+
+type MessageSummary = {
+  id: string;
+  senderHash: string;
+  size: number;
+  createdAt: string;
+  readAt: string | null;
+};
+
+type MessageDetail = MessageSummary & {
+  ciphertext: string;
+};
+
+function formatWhen(value: string): string {
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
+export default function MessagesClient({
+  initialHasClaimedKey,
+  initialThreads,
+}: {
+  initialHasClaimedKey: boolean;
+  initialThreads: ThreadSummary[];
+}) {
+  const [hasClaimedKey, setHasClaimedKey] = useState(initialHasClaimedKey);
+  const [threads, setThreads] = useState(initialThreads);
+  const [selectedHash, setSelectedHash] = useState<string | null>(null);
+  const [threadMessages, setThreadMessages] = useState<MessageSummary[]>([]);
+  const [isThreadMuted, setIsThreadMuted] = useState(false);
+  const [activeMessage, setActiveMessage] = useState<MessageDetail | null>(null);
+  const [isComposeOpen, setIsComposeOpen] = useState(false);
+  const [recipientFingerprint, setRecipientFingerprint] = useState("");
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [isLoadingThread, setIsLoadingThread] = useState(false);
+  const [isLoadingMessage, setIsLoadingMessage] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [showMuted, setShowMuted] = useState(false);
+
+  const visibleThreads = threads.filter((thread) => (showMuted ? thread.isMuted : !thread.isMuted));
+
+  async function refreshThreads() {
+    const response = await fetch("/api/messages");
+    const payload = (await response.json()) as {
+      hasClaimedKey?: boolean;
+      threads?: ThreadSummary[];
+      error?: string;
+    };
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to load messages.");
+    }
+    setHasClaimedKey(Boolean(payload.hasClaimedKey));
+    setThreads(
+      (payload.threads ?? []).map((thread) => ({
+        ...thread,
+        lastMessageAt:
+          typeof thread.lastMessageAt === "string"
+            ? thread.lastMessageAt
+            : new Date(thread.lastMessageAt).toISOString(),
+      })),
+    );
+  }
+
+  async function openThread(senderHash: string) {
+    setError(null);
+    setSelectedHash(senderHash);
+    setActiveMessage(null);
+    setIsComposeOpen(false);
+    setIsLoadingThread(true);
+    try {
+      const response = await fetch(`/api/messages/threads/${encodeURIComponent(senderHash)}`);
+      const payload = (await response.json()) as {
+        messages?: MessageSummary[];
+        isMuted?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to load thread.");
+      }
+      setThreadMessages(
+        (payload.messages ?? []).map((message) => ({
+          ...message,
+          createdAt:
+            typeof message.createdAt === "string"
+              ? message.createdAt
+              : new Date(message.createdAt).toISOString(),
+          readAt: message.readAt
+            ? typeof message.readAt === "string"
+              ? message.readAt
+              : new Date(message.readAt).toISOString()
+            : null,
+        })),
+      );
+      setIsThreadMuted(Boolean(payload.isMuted));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load thread.");
+    } finally {
+      setIsLoadingThread(false);
+    }
+  }
+
+  async function openMessage(messageId: string) {
+    setError(null);
+    setIsLoadingMessage(true);
+    try {
+      const response = await fetch(`/api/messages/${encodeURIComponent(messageId)}`);
+      const payload = (await response.json()) as { message?: MessageDetail; error?: string };
+      if (!response.ok || !payload.message) {
+        throw new Error(payload.error ?? "Failed to open message.");
+      }
+      const message = {
+        ...payload.message,
+        createdAt:
+          typeof payload.message.createdAt === "string"
+            ? payload.message.createdAt
+            : new Date(payload.message.createdAt).toISOString(),
+        readAt: payload.message.readAt
+          ? typeof payload.message.readAt === "string"
+            ? payload.message.readAt
+            : new Date(payload.message.readAt).toISOString()
+          : null,
+      };
+      const previous = threadMessages.find((item) => item.id === message.id);
+      const becameRead = Boolean(previous && !previous.readAt && message.readAt);
+      setActiveMessage(message);
+      setThreadMessages((current) =>
+        current.map((item) =>
+          item.id === message.id ? { ...item, readAt: message.readAt } : item,
+        ),
+      );
+      if (becameRead) {
+        setThreads((current) =>
+          current.map((thread) =>
+            thread.senderHash === message.senderHash
+              ? { ...thread, unreadCount: Math.max(0, thread.unreadCount - 1) }
+              : thread,
+          ),
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open message.");
+    } finally {
+      setIsLoadingMessage(false);
+    }
+  }
+
+  async function toggleMute() {
+    if (!selectedHash) {
+      return;
+    }
+    setError(null);
+    const nextMuted = !isThreadMuted;
+    try {
+      const response = await fetch("/api/messages/mute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderHash: selectedHash, muted: nextMuted }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to update mute.");
+      }
+      setIsThreadMuted(nextMuted);
+      setThreads((current) =>
+        current.map((thread) =>
+          thread.senderHash === selectedHash ? { ...thread, isMuted: nextMuted } : thread,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update mute.");
+    }
+  }
+
+  async function sendMessage() {
+    setError(null);
+    setInfo(null);
+    const fingerprint = normalizeFingerprint(recipientFingerprint);
+    if (!isValidFingerprint(fingerprint)) {
+      setError("Enter a valid 40-character PGP fingerprint.");
+      return;
+    }
+    if (!body.trim()) {
+      setError("Message body is required.");
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const keyResponse = await fetch(`/api/pgp/keys/${encodeURIComponent(fingerprint)}`);
+      const keyPayload = (await keyResponse.json()) as {
+        publicKeyArmored?: string;
+        error?: string;
+      };
+      if (!keyResponse.ok || !keyPayload.publicKeyArmored) {
+        throw new Error(keyPayload.error ?? "Recipient public key not found.");
+      }
+
+      const ciphertext = await encryptPlaintextToPublicKey(body, keyPayload.publicKeyArmored);
+      const response = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientFingerprint: fingerprint, ciphertext }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to send message.");
+      }
+
+      setBody("");
+      setInfo("Encrypted message sent.");
+      setIsComposeOpen(false);
+      await refreshThreads();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message.");
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  if (!hasClaimedKey) {
+    return (
+      <Panel>
+        <h2 className="text-base font-semibold">Inbox unavailable</h2>
+        <p className="mt-2 text-sm text-neutral-600">
+          Claim a PGP key on your Account page before you can view messages. Until then, this page
+          will not show whether any mail exists.
+        </p>
+        <Link
+          href="/account"
+          className="mt-4 inline-flex rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white"
+        >
+          Go to Account
+        </Link>
+      </Panel>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      {info ? <p className="text-sm text-neutral-600">{info}</p> : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setIsComposeOpen(true);
+              setSelectedHash(null);
+              setActiveMessage(null);
+            }}
+            className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white"
+          >
+            Compose
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowMuted((value) => !value)}
+            className="rounded border border-neutral-200 px-3 py-1.5 text-sm"
+          >
+            {showMuted ? "Show inbox" : "Show muted"}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            void refreshThreads().catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : "Failed to refresh.");
+            });
+          }}
+          className="rounded border border-neutral-200 px-3 py-1.5 text-sm"
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+        <Panel className="min-h-[24rem] overflow-hidden p-0">
+          <div className="border-b border-neutral-200 px-4 py-3 text-xs font-medium uppercase tracking-wide text-neutral-500">
+            {showMuted ? "Muted threads" : "Conversations"}
+          </div>
+          {visibleThreads.length === 0 ? (
+            <div className="px-4 py-8 text-sm text-neutral-500">
+              {showMuted ? "No muted threads." : "No messages yet."}
+            </div>
+          ) : (
+            <ul>
+              {visibleThreads.map((thread) => {
+                const isActive = selectedHash === thread.senderHash;
+                return (
+                  <li
+                    key={thread.senderHash}
+                    className="border-b border-neutral-200 last:border-b-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openThread(thread.senderHash);
+                      }}
+                      className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition ${
+                        isActive ? "bg-neutral-100" : "hover:bg-neutral-50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="break-all font-mono text-[11px] leading-snug">
+                          Sender: {thread.senderHash}
+                        </span>
+                        {thread.unreadCount > 0 ? (
+                          <span className="shrink-0 rounded-full bg-black px-2 py-0.5 text-[10px] text-white">
+                            {thread.unreadCount}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="text-[11px] text-neutral-500">
+                        {formatWhen(thread.lastMessageAt)} · {thread.messageCount} msg
+                        {thread.messageCount === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel className="min-h-[24rem]">
+          {isComposeOpen ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold">New encrypted message</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsComposeOpen(false)}
+                  className="text-xs text-neutral-500 underline"
+                >
+                  Cancel
+                </button>
+              </div>
+              <label className="block text-xs text-neutral-500">
+                Recipient fingerprint
+                <input
+                  value={recipientFingerprint}
+                  onChange={(event) => setRecipientFingerprint(event.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-sm outline-none"
+                  placeholder="40-character fingerprint"
+                />
+              </label>
+              <div>
+                <div className="mb-1 text-xs text-neutral-500">Message (markdown)</div>
+                <NoteRichEditor value={body} onChange={setBody} layoutMode="windowed" />
+              </div>
+              <p className="text-xs text-neutral-500">
+                The body is encrypted in your browser to the recipient&apos;s public key before
+                upload. Plaintext never reaches the server.
+              </p>
+              <button
+                type="button"
+                disabled={isSending}
+                onClick={() => {
+                  void sendMessage();
+                }}
+                className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                {isSending ? "Encrypting & sending…" : "Encrypt & send"}
+              </button>
+            </div>
+          ) : null}
+
+          {!isComposeOpen && !selectedHash ? (
+            <div className="flex h-full min-h-[20rem] flex-col items-center justify-center text-center text-sm text-neutral-500">
+              <p>Select a conversation, or compose a new encrypted message.</p>
+            </div>
+          ) : null}
+
+          {!isComposeOpen && selectedHash ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold">Sender: {selectedHash}</h2>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Pairwise hash for your inbox only — other recipients see a different label.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void toggleMute();
+                  }}
+                  className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
+                >
+                  {isThreadMuted ? "Unmute" : "Mute"}
+                </button>
+              </div>
+
+              {isLoadingThread ? (
+                <p className="text-sm text-neutral-500">Loading thread…</p>
+              ) : (
+                <ul className="space-y-2">
+                  {threadMessages.map((message) => {
+                    const isUnread = !message.readAt;
+                    const isOpen = activeMessage?.id === message.id;
+                    return (
+                      <li key={message.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void openMessage(message.id);
+                          }}
+                          className={`w-full rounded border px-3 py-2 text-left text-sm transition ${
+                            isOpen
+                              ? "border-neutral-300 bg-neutral-50"
+                              : "border-neutral-200 hover:bg-neutral-50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={isUnread ? "font-semibold" : ""}>
+                              {formatWhen(message.createdAt)}
+                            </span>
+                            <span className="text-xs text-neutral-500">
+                              {isUnread ? "Unread" : "Read"} · {message.size} B
+                            </span>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {isLoadingMessage ? (
+                <p className="text-sm text-neutral-500">Opening message…</p>
+              ) : null}
+
+              {activeMessage ? (
+                <div className="space-y-2 border-t border-neutral-200 pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
+                    <span>Encrypted contents (decrypt offline with your private key)</span>
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(activeMessage.ciphertext);
+                        setInfo("Ciphertext copied.");
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <pre className="max-h-[28rem] overflow-auto rounded border border-neutral-200 bg-neutral-50 p-3 font-mono text-[11px] leading-relaxed">
+                    {activeMessage.ciphertext}
+                  </pre>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </Panel>
+      </div>
+    </div>
+  );
+}

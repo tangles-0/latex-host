@@ -363,3 +363,92 @@ export const youtubeIngests = pgTable("youtube_ingests", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });
+
+export const userPgpKeys = pgTable(
+  "user_pgp_keys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    fingerprint: text("fingerprint").notNull(),
+    publicKeyArmored: text("public_key_armored").notNull(),
+    status: text("status").notNull().default("pending"),
+    verifyCodeHash: text("verify_code_hash"),
+    verifyChallengeCiphertext: text("verify_challenge_ciphertext"),
+    verifyExpiresAt: timestamp("verify_expires_at", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    userPgpKeysUserUnique: uniqueIndex("user_pgp_keys_user_id_unique").on(table.userId),
+    userPgpKeysFingerprintIdx: index("user_pgp_keys_fingerprint_idx").on(table.fingerprint),
+  }),
+);
+
+export const senderHashes = pgTable(
+  "sender_hashes",
+  {
+    id: text("id").primaryKey(),
+    recipientFingerprint: text("recipient_fingerprint").notNull(),
+    senderUserId: text("sender_user_id")
+      .notNull()
+      .references(() => users.id),
+    displayHash: text("display_hash").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    senderHashesPairUnique: uniqueIndex("sender_hashes_recipient_sender_unique").on(
+      table.recipientFingerprint,
+      table.senderUserId,
+    ),
+    senderHashesDisplayUnique: uniqueIndex("sender_hashes_recipient_display_unique").on(
+      table.recipientFingerprint,
+      table.displayHash,
+    ),
+  }),
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    recipientFingerprint: text("recipient_fingerprint").notNull(),
+    senderUserId: text("sender_user_id")
+      .notNull()
+      .references(() => users.id),
+    senderHash: text("sender_hash").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    size: integer("size").notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    readAt: timestamp("read_at", { mode: "date" }),
+  },
+  (table) => ({
+    messagesRecipientCreatedIdx: index("messages_recipient_created_idx").on(
+      table.recipientFingerprint,
+      table.createdAt,
+    ),
+    messagesRecipientSenderHashIdx: index("messages_recipient_sender_hash_idx").on(
+      table.recipientFingerprint,
+      table.senderHash,
+    ),
+  }),
+);
+
+export const messageMutes = pgTable(
+  "message_mutes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    senderHash: text("sender_hash").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    messageMutesUserHashUnique: uniqueIndex("message_mutes_user_sender_hash_unique").on(
+      table.userId,
+      table.senderHash,
+    ),
+  }),
+);

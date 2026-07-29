@@ -12,6 +12,8 @@ import { listMediaForUser } from "@/lib/media-store";
 import GalleryTabs from "@/components/gallery-tabs";
 import PatchNoteBanner from "@/components/patch-note-banner";
 import PageHeader from "@/components/ui/page-header";
+import { LightCog } from "@energiz3r/icon-library/Icons/Light/LightCog";
+import { LightInbox } from "@energiz3r/icon-library/Icons/Light/LightInbox";
 import { LightSignOut } from "@energiz3r/icon-library/Icons/Light/LightSignOut";
 import { LightUpload } from "@energiz3r/icon-library/Icons/Light/LightUpload";
 import { LightUserSecret } from "@energiz3r/icon-library/Icons/Light/LightUserSecret";
@@ -74,6 +76,14 @@ export default async function GalleryPage({
             <Link href="/upload" className={headerButtonClass}>
               <LightUpload className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
               upload
+            </Link>
+            <Link href="/messages" className={headerButtonClass}>
+              <LightInbox className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
+              messages
+            </Link>
+            <Link href="/account" className={headerButtonClass}>
+              <LightCog className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
+              account
             </Link>
             {isAdmin ? (
               <Link href="/admin" className={headerButtonClass}>

@@ -880,12 +880,35 @@ body {
   border-color: var(--theme-alert-danger-border);
 }
 
+[data-theme] .border-red-300,
+[data-theme] .border-red-400 {
+  border-color: var(--theme-alert-danger-border);
+}
+
 [data-theme] .bg-red-50 {
   background-color: var(--theme-alert-danger-bg);
 }
 
-[data-theme] .text-red-700 {
+[data-theme] .text-red-600,
+[data-theme] .text-red-700,
+[data-theme] .text-red-800 {
   color: var(--theme-alert-danger);
+}
+
+[data-theme] .text-amber-800 {
+  color: var(--theme-alert-warning);
+}
+
+[data-theme] .bg-neutral-900 {
+  background-color: var(--theme-button-bg);
+}
+
+[data-theme] .border-neutral-800 {
+  border-color: var(--theme-button-border);
+}
+
+[data-theme] .border-neutral-400 {
+  border-color: var(--theme-border-strong);
 }
 
 [data-theme] .tile-control {
