@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import { setThreadMuted } from "@/lib/messaging-store";
-import { hasTrustedOrigin } from "@/lib/request-security";
+import { isAuthError, requireRequestAuth, requireTrustedMutation } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "messages:read" });
+  if (isAuthError(auth)) {
+    return auth;
   }
-  if (!hasTrustedOrigin(request)) {
-    return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
+  const originError = requireTrustedMutation(request, auth);
+  if (originError) {
+    return originError;
   }
 
   const payload = (await request.json()) as {
@@ -27,7 +27,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    await setThreadMuted(userId, senderHash, payload.muted);
+    await setThreadMuted(auth.userId, senderHash, payload.muted);
     return NextResponse.json({ ok: true, senderHash, isMuted: payload.muted });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update mute.";

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import { getMessageAndMarkRead } from "@/lib/messaging-store";
+import { isAuthError, requireRequestAuth } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ messageId: string }> },
 ): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "messages:read" });
+  if (isAuthError(auth)) {
+    return auth;
   }
 
   const { messageId } = await context.params;
@@ -18,7 +18,7 @@ export async function GET(
     return NextResponse.json({ error: "Message not found." }, { status: 404 });
   }
 
-  const message = await getMessageAndMarkRead(userId, messageId.trim());
+  const message = await getMessageAndMarkRead(auth.userId, messageId.trim());
   if (!message) {
     return NextResponse.json({ error: "Message not found." }, { status: 404 });
   }

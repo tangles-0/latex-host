@@ -83,9 +83,9 @@ Requirements:
 
 ## API surface the TUI needs
 
-### Already implemented (session cookie today — extend for Bearer)
+### Messaging APIs (session cookie **or** Bearer access token)
 
-These exist for the web app; TUI requires the same JSON contracts with **Bearer token** auth accepted alongside (or instead of) session:
+These exist for the web app and accept `Authorization: Bearer <access_token>` (scopes enforced) as well as browser sessions:
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -98,17 +98,18 @@ These exist for the web app; TUI requires the same JSON contracts with **Bearer 
 | `GET` | `/api/pgp/keys/:fingerprint` | Lookup registered public key for encrypt-to |
 | `GET` | `/api/account/pgp-key` | Own key status (optional for TUI status bar) |
 
-### New APIs required for TUI auth
+### Device auth APIs (implemented)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/device/code` | Start device flow |
-| `GET`/`POST` | `/api/device/poll` | Poll for approval; return tokens when ready |
+| `POST` | `/api/device/code` | Start device flow (`device_name` optional) |
+| `POST` | `/api/device/poll` | Poll with `device_code`; returns tokens when approved |
 | `POST` | `/api/device/approve` | Browser session approves `user_code` |
-| `GET` | `/api/account/devices` | List active devices/tokens for Account UI |
-| `DELETE` | `/api/account/devices/:id` | Revoke |
+| `POST` | `/api/device/token` | Refresh (`grant_type=refresh_token`) |
+| `GET` | `/api/account/devices` | List devices (browser session) |
+| `DELETE` | `/api/account/devices/:id` | Revoke (browser session) |
 
-Exact paths may vary; behavior above is normative.
+Approve UI: Account page (`/account?device_code=ABCD-EFGH`).
 
 ### Payload rules (unchanged)
 
@@ -200,9 +201,9 @@ When building the device API:
 
 ## Acceptance criteria
 
-- [ ] User can approve a TUI device from a browser session without sharing password with the TUI binary beyond normal login in the browser.
-- [ ] TUI can list threads and decrypt messages using only a local secret key file.
-- [ ] Private key never appears in HTTP requests, server logs, or the database.
-- [ ] Reply in an existing thread works without re-pasting the peer’s public key (via reply-key API), provided they have a registered key.
-- [ ] User can revoke the device from the web UI and the TUI loses API access on next refresh/use.
-- [ ] Unclaimed PGP key accounts still cannot see inbox contents (same as web).
+- [x] User can approve a TUI device from a browser session without sharing password with the TUI binary beyond normal login in the browser. *(server + Account UI done; Go TUI client still to build)*
+- [ ] TUI can list threads and decrypt messages using only a local secret key file. *(API ready; Go client pending)*
+- [x] Private key never appears in HTTP requests, server logs, or the database.
+- [x] Reply in an existing thread works without re-pasting the peer’s public key (via reply-key API), provided they have a registered key.
+- [x] User can revoke the device from the web UI and the TUI loses API access on next refresh/use.
+- [x] Unclaimed PGP key accounts still cannot see inbox contents (same as web).

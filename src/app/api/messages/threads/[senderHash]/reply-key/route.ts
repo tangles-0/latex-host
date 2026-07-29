@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import { getReplyPublicKeyForThread } from "@/lib/messaging-store";
+import { isAuthError, requireRequestAuth } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ senderHash: string }> },
 ): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "pgp:read" });
+  if (isAuthError(auth)) {
+    return auth;
   }
 
   const { senderHash: raw } = await context.params;
@@ -19,7 +19,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid sender hash." }, { status: 400 });
   }
 
-  const key = await getReplyPublicKeyForThread(userId, senderHash);
+  const key = await getReplyPublicKeyForThread(auth.userId, senderHash);
   if (!key) {
     return NextResponse.json(
       {

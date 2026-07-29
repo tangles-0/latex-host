@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import { listThreadMessages } from "@/lib/messaging-store";
+import { isAuthError, requireRequestAuth } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ senderHash: string }> },
 ): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "messages:read" });
+  if (isAuthError(auth)) {
+    return auth;
   }
 
   const { senderHash: raw } = await context.params;
@@ -19,7 +19,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid sender hash." }, { status: 400 });
   }
 
-  const result = await listThreadMessages(userId, senderHash);
+  const result = await listThreadMessages(auth.userId, senderHash);
   if (!result.hasClaimedKey) {
     return NextResponse.json({ hasClaimedKey: false, messages: [], isMuted: false });
   }

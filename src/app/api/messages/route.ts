@@ -1,34 +1,34 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import { listMessageThreads, sendEncryptedMessage } from "@/lib/messaging-store";
 import { PGP_MAX_CIPHERTEXT_BYTES, mapPgpError } from "@/lib/pgp";
+import { isAuthError, requireRequestAuth, requireTrustedMutation } from "@/lib/request-auth";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
-import { hasTrustedOrigin } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
-export async function GET(): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+export async function GET(request: Request): Promise<NextResponse> {
+  const auth = await requireRequestAuth(request, { scope: "messages:read" });
+  if (isAuthError(auth)) {
+    return auth;
   }
 
-  const result = await listMessageThreads(userId);
+  const result = await listMessageThreads(auth.userId);
   return NextResponse.json(result);
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "messages:send" });
+  if (isAuthError(auth)) {
+    return auth;
   }
-  if (!hasTrustedOrigin(request)) {
-    return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
+  const originError = requireTrustedMutation(request, auth);
+  if (originError) {
+    return originError;
   }
 
   const rate = await consumeRequestRateLimit({
     namespace: "messages-send",
-    key: userId,
+    key: auth.userId,
     limit: 30,
     windowSeconds: 60,
   });
@@ -64,7 +64,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const message = await sendEncryptedMessage({
-      senderUserId: userId,
+      senderUserId: auth.userId,
       recipientFingerprint,
       ciphertext,
     });

@@ -452,3 +452,44 @@ export const messageMutes = pgTable(
     ),
   }),
 );
+
+export const deviceAuthCodes = pgTable(
+  "device_auth_codes",
+  {
+    id: text("id").primaryKey(),
+    deviceCodeHash: text("device_code_hash").notNull().unique(),
+    userCode: text("user_code").notNull().unique(),
+    deviceName: text("device_name"),
+    status: text("status").notNull().default("pending"),
+    userId: text("user_id").references(() => users.id),
+    apiDeviceId: text("api_device_id"),
+    expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+    intervalSeconds: integer("interval_seconds").notNull().default(5),
+    lastPollAt: timestamp("last_poll_at", { mode: "date" }),
+    approvedAt: timestamp("approved_at", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    deviceAuthCodesStatusIdx: index("device_auth_codes_status_idx").on(table.status),
+  }),
+);
+
+export const apiDevices = pgTable(
+  "api_devices",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    name: text("name").notNull().default("TUI"),
+    refreshTokenHash: text("refresh_token_hash").notNull().unique(),
+    scopes: text("scopes").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { mode: "date" }),
+    expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+    revokedAt: timestamp("revoked_at", { mode: "date" }),
+  },
+  (table) => ({
+    apiDevicesUserIdx: index("api_devices_user_id_idx").on(table.userId),
+  }),
+);

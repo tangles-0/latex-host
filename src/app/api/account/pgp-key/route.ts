@@ -6,18 +6,19 @@ import {
   savePendingPgpKey,
 } from "@/lib/messaging-store";
 import { PGP_MAX_PUBLIC_KEY_BYTES, mapPgpError } from "@/lib/pgp";
+import { isAuthError, requireRequestAuth } from "@/lib/request-auth";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { hasTrustedOrigin } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
-export async function GET(): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+export async function GET(request: Request): Promise<NextResponse> {
+  const auth = await requireRequestAuth(request, { scope: "pgp:read" });
+  if (isAuthError(auth)) {
+    return auth;
   }
 
-  const key = await getUserPgpKey(userId);
+  const key = await getUserPgpKey(auth.userId);
   return NextResponse.json({ key });
 }
 

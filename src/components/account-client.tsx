@@ -15,23 +15,61 @@ type PgpKeyState = {
   updatedAt: string | Date;
 } | null;
 
+type DeviceRow = {
+  id: string;
+  name: string;
+  scopes: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  isRevoked: boolean;
+};
+
+function formatWhen(value: string | null): string {
+  if (!value) {
+    return "—";
+  }
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
 export default function AccountClient({
   username,
   email,
   initialKey,
+  initialDevices,
+  initialDeviceCode = "",
 }: {
   username: string;
   email: string;
   initialKey: PgpKeyState;
+  initialDevices: DeviceRow[];
+  initialDeviceCode?: string;
 }) {
   const [key, setKey] = useState<PgpKeyState>(initialKey);
+  const [devices, setDevices] = useState(initialDevices);
   const [publicKeyArmored, setPublicKeyArmored] = useState("");
   const [verifyCode, setVerifyCode] = useState("");
+  const [deviceCode, setDeviceCode] = useState(initialDeviceCode);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isDeletingKey, setIsDeletingKey] = useState(false);
+  const [isApprovingDevice, setIsApprovingDevice] = useState(false);
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+
+  async function refreshDevices() {
+    const response = await fetch("/api/account/devices");
+    const payload = (await response.json()) as { devices?: DeviceRow[]; error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to load devices.");
+    }
+    setDevices(payload.devices ?? []);
+  }
 
   async function saveKey() {
     setError(null);
@@ -127,6 +165,65 @@ export default function AccountClient({
     }
   }
 
+  async function approveDevice() {
+    setError(null);
+    setInfo(null);
+    setIsApprovingDevice(true);
+    try {
+      const response = await fetch("/api/device/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_code: deviceCode.trim() }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        deviceName?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to approve device.");
+      }
+      setDeviceCode("");
+      setInfo(
+        `Approved device${payload.deviceName ? ` “${payload.deviceName}”` : ""}. The TUI can finish login now.`,
+      );
+      await refreshDevices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to approve device.");
+    } finally {
+      setIsApprovingDevice(false);
+    }
+  }
+
+  async function revokeDevice(deviceId: string) {
+    const confirmed = window.confirm(
+      "Revoke this device? It will lose API access on the next request/refresh.",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setRevokingDeviceId(deviceId);
+    try {
+      const response = await fetch(`/api/account/devices/${encodeURIComponent(deviceId)}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to revoke device.");
+      }
+      setInfo("Device revoked.");
+      await refreshDevices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke device.");
+    } finally {
+      setRevokingDeviceId(null);
+    }
+  }
+
+  const activeDevices = devices.filter((device) => !device.isRevoked);
+
   return (
     <div className="space-y-6">
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
@@ -144,6 +241,84 @@ export default function AccountClient({
             <dd>{email}</dd>
           </div>
         </dl>
+      </Panel>
+
+      <Panel>
+        <h2 className="text-base font-semibold">TUI / device login</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Approve a code shown by the Go TUI (or other API client). Tokens never include your
+          private key.
+        </p>
+        <label className="mt-4 block text-xs text-neutral-500">
+          Device code
+          <input
+            value={deviceCode}
+            onChange={(event) => setDeviceCode(event.target.value.toUpperCase())}
+            className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-sm outline-none"
+            placeholder="ABCD-EFGH"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={12}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={isApprovingDevice || !deviceCode.trim()}
+          onClick={() => {
+            void approveDevice();
+          }}
+          className="mt-3 rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
+        >
+          {isApprovingDevice ? "Approving…" : "Approve device"}
+        </button>
+
+        <div className="mt-6 border-t border-neutral-200 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium">Authorized devices</h3>
+            <button
+              type="button"
+              className="text-xs text-neutral-500 underline"
+              onClick={() => {
+                void refreshDevices().catch((err: unknown) => {
+                  setError(err instanceof Error ? err.message : "Failed to refresh devices.");
+                });
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+          {activeDevices.length === 0 ? (
+            <p className="mt-3 text-sm text-neutral-500">No active devices.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {activeDevices.map((device) => (
+                <li
+                  key={device.id}
+                  className="flex flex-wrap items-start justify-between gap-3 rounded border border-neutral-200 px-3 py-2 text-sm"
+                >
+                  <div className="space-y-1">
+                    <div className="font-medium">{device.name}</div>
+                    <div className="text-xs text-neutral-500">
+                      Created {formatWhen(device.createdAt)} · Last used{" "}
+                      {formatWhen(device.lastUsedAt)}
+                    </div>
+                    <div className="text-xs text-neutral-500">Scopes: {device.scopes}</div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={revokingDeviceId === device.id}
+                    onClick={() => {
+                      void revokeDevice(device.id);
+                    }}
+                    className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-700 disabled:opacity-50"
+                  >
+                    {revokingDeviceId === device.id ? "Revoking…" : "Revoke"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </Panel>
 
       <Panel>
