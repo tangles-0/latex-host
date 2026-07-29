@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import {
   deleteUserPgpKey,
   getUserPgpKey,
   savePendingPgpKey,
 } from "@/lib/messaging-store";
 import { PGP_MAX_PUBLIC_KEY_BYTES, mapPgpError } from "@/lib/pgp";
-import { isAuthError, requireRequestAuth } from "@/lib/request-auth";
+import { isAuthError, requireRequestAuth, requireTrustedMutation } from "@/lib/request-auth";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
-import { hasTrustedOrigin } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -23,17 +21,18 @@ export async function GET(request: Request): Promise<NextResponse> {
 }
 
 export async function PUT(request: Request): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "pgp:write" });
+  if (isAuthError(auth)) {
+    return auth;
   }
-  if (!hasTrustedOrigin(request)) {
-    return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
+  const originError = requireTrustedMutation(request, auth);
+  if (originError) {
+    return originError;
   }
 
   const rate = await consumeRequestRateLimit({
     namespace: "pgp-key-save",
-    key: userId,
+    key: auth.userId,
     limit: 10,
     windowSeconds: 60,
   });
@@ -58,7 +57,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const key = await savePendingPgpKey(userId, publicKeyArmored);
+    const key = await savePendingPgpKey(auth.userId, publicKeyArmored);
     return NextResponse.json({ key });
   } catch (error) {
     return NextResponse.json(
@@ -69,16 +68,17 @@ export async function PUT(request: Request): Promise<NextResponse> {
 }
 
 export async function DELETE(request: Request): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "pgp:write" });
+  if (isAuthError(auth)) {
+    return auth;
   }
-  if (!hasTrustedOrigin(request)) {
-    return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
+  const originError = requireTrustedMutation(request, auth);
+  if (originError) {
+    return originError;
   }
 
   try {
-    await deleteUserPgpKey(userId);
+    await deleteUserPgpKey(auth.userId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to delete key.";

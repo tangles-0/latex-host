@@ -1,24 +1,24 @@
 import { NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/auth";
 import { verifyPgpKeyOwnership } from "@/lib/messaging-store";
 import { isValidVerifyCodeFormat } from "@/lib/pgp";
+import { isAuthError, requireRequestAuth, requireTrustedMutation } from "@/lib/request-auth";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
-import { hasTrustedOrigin } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const auth = await requireRequestAuth(request, { scope: "pgp:write" });
+  if (isAuthError(auth)) {
+    return auth;
   }
-  if (!hasTrustedOrigin(request)) {
-    return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
+  const originError = requireTrustedMutation(request, auth);
+  if (originError) {
+    return originError;
   }
 
   const rate = await consumeRequestRateLimit({
     namespace: "pgp-key-verify",
-    key: userId,
+    key: auth.userId,
     limit: 20,
     windowSeconds: 60,
   });
@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const key = await verifyPgpKeyOwnership(userId, code);
+    const key = await verifyPgpKeyOwnership(auth.userId, code);
     return NextResponse.json({ key });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Verification failed.";

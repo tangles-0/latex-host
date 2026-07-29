@@ -10,14 +10,14 @@ import { db } from "@/db";
 import { apiDevices, deviceAuthCodes } from "@/db/schema";
 import { getSessionUserId } from "@/lib/auth";
 
-const DEFAULT_SCOPES = "messages:read messages:send pgp:read";
+const DEFAULT_SCOPES = "messages:read messages:send pgp:read pgp:write";
 const ACCESS_TOKEN_TTL_SECONDS = 30 * 60;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEVICE_CODE_TTL_MS = 15 * 60 * 1000;
 const POLL_INTERVAL_SECONDS = 5;
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-export type ApiScope = "messages:read" | "messages:send" | "pgp:read";
+export type ApiScope = "messages:read" | "messages:send" | "pgp:read" | "pgp:write";
 
 export type RequestAuth = {
   userId: string;
@@ -85,6 +85,15 @@ export function parseScopes(scopes: string): Set<string> {
       .map((part) => part.trim())
       .filter(Boolean),
   );
+}
+
+/** Expand stored device scopes with any newly added defaults (e.g. pgp:write). */
+export function mergeDefaultScopes(scopes: string): string {
+  const set = parseScopes(scopes);
+  for (const scope of parseScopes(DEFAULT_SCOPES)) {
+    set.add(scope);
+  }
+  return Array.from(set).join(" ");
 }
 
 export function hasScope(auth: RequestAuth, scope: ApiScope): boolean {
@@ -451,26 +460,28 @@ export async function refreshDeviceTokens(refreshToken: string): Promise<{
 
   const { token: nextRefresh, tokenHash: nextHash } = createOpaqueToken();
   const now = new Date();
+  const scopes = mergeDefaultScopes(device.scopes);
   await db
     .update(apiDevices)
     .set({
       refreshTokenHash: nextHash,
       lastUsedAt: now,
       expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_MS),
+      scopes,
     })
     .where(eq(apiDevices.id, device.id));
 
   const access = signAccessToken({
     userId: device.userId,
     deviceId: device.id,
-    scopes: device.scopes,
+    scopes,
   });
 
   return {
     accessToken: access.accessToken,
     refreshToken: nextRefresh,
     expiresIn: access.expiresIn,
-    scope: device.scopes,
+    scope: scopes,
     tokenType: "Bearer",
   };
 }
