@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import NoteRichEditor from "@/components/note-rich-editor";
 import Panel from "@/components/ui/panel";
-import { encryptPlaintextToPublicKey } from "@/lib/pgp-client";
-import { isValidFingerprint, normalizeFingerprint } from "@/lib/pgp-fingerprint";
+import {
+  encryptPlaintextToPublicKey,
+  validatePublicKeyArmored,
+} from "@/lib/pgp-client";
 
 type ThreadSummary = {
   senderHash: string;
@@ -49,12 +51,18 @@ export default function MessagesClient({
   const [isThreadMuted, setIsThreadMuted] = useState(false);
   const [activeMessage, setActiveMessage] = useState<MessageDetail | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
-  const [recipientFingerprint, setRecipientFingerprint] = useState("");
+  const [isReplying, setIsReplying] = useState(false);
+  const [recipientPublicKey, setRecipientPublicKey] = useState("");
+  const [resolvedRecipientFingerprint, setResolvedRecipientFingerprint] = useState<string | null>(
+    null,
+  );
+  const [isRecipientKeyLocked, setIsRecipientKeyLocked] = useState(false);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
+  const [isLoadingReplyKey, setIsLoadingReplyKey] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [showMuted, setShowMuted] = useState(false);
 
@@ -82,11 +90,20 @@ export default function MessagesClient({
     );
   }
 
+  function resetComposeState() {
+    setIsComposeOpen(false);
+    setIsReplying(false);
+    setRecipientPublicKey("");
+    setResolvedRecipientFingerprint(null);
+    setIsRecipientKeyLocked(false);
+    setBody("");
+  }
+
   async function openThread(senderHash: string) {
     setError(null);
     setSelectedHash(senderHash);
     setActiveMessage(null);
-    setIsComposeOpen(false);
+    resetComposeState();
     setIsLoadingThread(true);
     try {
       const response = await fetch(`/api/messages/threads/${encodeURIComponent(senderHash)}`);
@@ -192,14 +209,44 @@ export default function MessagesClient({
     }
   }
 
+  async function startReply() {
+    if (!selectedHash) {
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setIsLoadingReplyKey(true);
+    try {
+      const response = await fetch(
+        `/api/messages/threads/${encodeURIComponent(selectedHash)}/reply-key`,
+      );
+      const payload = (await response.json()) as {
+        fingerprint?: string;
+        publicKeyArmored?: string;
+        error?: string;
+      };
+      if (!response.ok || !payload.publicKeyArmored || !payload.fingerprint) {
+        throw new Error(
+          payload.error ??
+            "This sender has no public key registered, so you cannot encrypt a reply yet.",
+        );
+      }
+      setRecipientPublicKey(payload.publicKeyArmored);
+      setResolvedRecipientFingerprint(payload.fingerprint);
+      setIsRecipientKeyLocked(true);
+      setIsReplying(true);
+      setIsComposeOpen(false);
+      setActiveMessage(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to prepare reply.");
+    } finally {
+      setIsLoadingReplyKey(false);
+    }
+  }
+
   async function sendMessage() {
     setError(null);
     setInfo(null);
-    const fingerprint = normalizeFingerprint(recipientFingerprint);
-    if (!isValidFingerprint(fingerprint)) {
-      setError("Enter a valid 40-character PGP fingerprint.");
-      return;
-    }
     if (!body.trim()) {
       setError("Message body is required.");
       return;
@@ -207,29 +254,41 @@ export default function MessagesClient({
 
     setIsSending(true);
     try {
-      const keyResponse = await fetch(`/api/pgp/keys/${encodeURIComponent(fingerprint)}`);
+      const validated = await validatePublicKeyArmored(recipientPublicKey);
+      setResolvedRecipientFingerprint(validated.fingerprint);
+
+      // Ensure this key is registered on the app (pending or claimed) so delivery can route.
+      const keyResponse = await fetch(
+        `/api/pgp/keys/${encodeURIComponent(validated.fingerprint)}`,
+      );
       const keyPayload = (await keyResponse.json()) as {
         publicKeyArmored?: string;
+        fingerprint?: string;
         error?: string;
       };
-      if (!keyResponse.ok || !keyPayload.publicKeyArmored) {
-        throw new Error(keyPayload.error ?? "Recipient public key not found.");
+      if (!keyResponse.ok) {
+        throw new Error(
+          keyPayload.error ??
+            "That public key is not registered here yet. The recipient must save it on their Account page first.",
+        );
       }
 
-      const ciphertext = await encryptPlaintextToPublicKey(body, keyPayload.publicKeyArmored);
+      const ciphertext = await encryptPlaintextToPublicKey(body, validated.publicKeyArmored);
       const response = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipientFingerprint: fingerprint, ciphertext }),
+        body: JSON.stringify({
+          recipientFingerprint: validated.fingerprint,
+          ciphertext,
+        }),
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to send message.");
       }
 
-      setBody("");
-      setInfo("Encrypted message sent.");
-      setIsComposeOpen(false);
+      setInfo(isReplying ? "Reply sent." : "Encrypted message sent.");
+      resetComposeState();
       await refreshThreads();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message.");
@@ -237,6 +296,81 @@ export default function MessagesClient({
       setIsSending(false);
     }
   }
+
+  const composeForm = (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">
+          {isReplying ? "Reply in conversation" : "New encrypted message"}
+        </h2>
+        <button
+          type="button"
+          onClick={() => {
+            resetComposeState();
+          }}
+          className="text-xs text-neutral-500 underline"
+        >
+          Cancel
+        </button>
+      </div>
+      {isRecipientKeyLocked ? (
+        <div className="space-y-1 text-xs text-neutral-500">
+          <p>Recipient key loaded from this conversation — no need to paste it again.</p>
+          {resolvedRecipientFingerprint ? (
+            <p>
+              Fingerprint:{" "}
+              <code className="break-all font-mono">{resolvedRecipientFingerprint}</code>
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <label className="block text-xs text-neutral-500">
+            Recipient public key
+            <textarea
+              value={recipientPublicKey}
+              onChange={(event) => {
+                setRecipientPublicKey(event.target.value);
+                setResolvedRecipientFingerprint(null);
+              }}
+              spellCheck={false}
+              className="mt-1 min-h-[140px] w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs outline-none"
+              placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
+            />
+          </label>
+          {resolvedRecipientFingerprint ? (
+            <p className="text-xs text-neutral-500">
+              Fingerprint:{" "}
+              <code className="break-all font-mono">{resolvedRecipientFingerprint}</code>
+            </p>
+          ) : (
+            <p className="text-xs text-neutral-500">
+              Paste the armored public key they shared with you. We&apos;ll encrypt to it and route
+              by its fingerprint.
+            </p>
+          )}
+        </>
+      )}
+      <div>
+        <div className="mb-1 text-xs text-neutral-500">Message (markdown)</div>
+        <NoteRichEditor value={body} onChange={setBody} layoutMode="windowed" />
+      </div>
+      <p className="text-xs text-neutral-500">
+        The body is encrypted in your browser to that public key before upload. Plaintext never
+        reaches the server.
+      </p>
+      <button
+        type="button"
+        disabled={isSending || !recipientPublicKey.trim() || !body.trim()}
+        onClick={() => {
+          void sendMessage();
+        }}
+        className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
+      >
+        {isSending ? "Encrypting & sending…" : isReplying ? "Encrypt & reply" : "Encrypt & send"}
+      </button>
+    </div>
+  );
 
   if (!hasClaimedKey) {
     return (
@@ -266,9 +400,10 @@ export default function MessagesClient({
           <button
             type="button"
             onClick={() => {
-              setIsComposeOpen(true);
+              resetComposeState();
               setSelectedHash(null);
               setActiveMessage(null);
+              setIsComposeOpen(true);
             }}
             className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white"
           >
@@ -345,49 +480,7 @@ export default function MessagesClient({
         </Panel>
 
         <Panel className="min-h-[24rem]">
-          {isComposeOpen ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold">New encrypted message</h2>
-                <button
-                  type="button"
-                  onClick={() => setIsComposeOpen(false)}
-                  className="text-xs text-neutral-500 underline"
-                >
-                  Cancel
-                </button>
-              </div>
-              <label className="block text-xs text-neutral-500">
-                Recipient fingerprint
-                <input
-                  value={recipientFingerprint}
-                  onChange={(event) => setRecipientFingerprint(event.target.value)}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-sm outline-none"
-                  placeholder="40-character fingerprint"
-                />
-              </label>
-              <div>
-                <div className="mb-1 text-xs text-neutral-500">Message (markdown)</div>
-                <NoteRichEditor value={body} onChange={setBody} layoutMode="windowed" />
-              </div>
-              <p className="text-xs text-neutral-500">
-                The body is encrypted in your browser to the recipient&apos;s public key before
-                upload. Plaintext never reaches the server.
-              </p>
-              <button
-                type="button"
-                disabled={isSending}
-                onClick={() => {
-                  void sendMessage();
-                }}
-                className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                {isSending ? "Encrypting & sending…" : "Encrypt & send"}
-              </button>
-            </div>
-          ) : null}
+          {isComposeOpen ? composeForm : null}
 
           {!isComposeOpen && !selectedHash ? (
             <div className="flex h-full min-h-[20rem] flex-col items-center justify-center text-center text-sm text-neutral-500">
@@ -404,16 +497,32 @@ export default function MessagesClient({
                     Pairwise hash for your inbox only — other recipients see a different label.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void toggleMute();
-                  }}
-                  className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
-                >
-                  {isThreadMuted ? "Unmute" : "Mute"}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={isLoadingReplyKey}
+                    onClick={() => {
+                      void startReply();
+                    }}
+                    className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                  >
+                    {isLoadingReplyKey ? "Loading key…" : "Reply"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void toggleMute();
+                    }}
+                    className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
+                  >
+                    {isThreadMuted ? "Unmute" : "Mute"}
+                  </button>
+                </div>
               </div>
+
+              {isReplying ? (
+                <div className="rounded border border-neutral-200 p-4">{composeForm}</div>
+              ) : null}
 
               {isLoadingThread ? (
                 <p className="text-sm text-neutral-500">Loading thread…</p>

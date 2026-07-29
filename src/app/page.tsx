@@ -4,6 +4,7 @@ import { getAppSettings, getLatestPatchNote, getUserUploadStats } from "@/lib/me
 import AuthForms from "@/components/auth-forms";
 import AlertBanner from "@/components/ui/alert-banner";
 import TextLink from "@/components/ui/text-link";
+import GalleryEntryLink from "@/components/gallery-entry-link";
 import { BrandsGithub } from '@energiz3r/icon-library/Icons/Brands/BrandsGithub';
 import Link from "next/link";
 import PatchNoteMarkdown from "@/components/patch-note-markdown";
@@ -98,13 +99,12 @@ export default async function Home() {
             {userStats?.otherFileCount ?? 0} other files uploaded using{" "}
             {formatBytes(userStats?.totalBytes ?? 0)} of spinning rust
           </p>
-          <TextLink
+          <GalleryEntryLink
             href="/gallery"
-            variant="loud"
-            className="inline-flex items-center gap-1 text-lg font-medium"
+            className="inline-flex items-center gap-1 text-lg font-medium text-emerald-900 underline"
           >
             clk here 2 go 2 ur gallery <span aria-hidden="true">&gt;</span>
-          </TextLink>
+          </GalleryEntryLink>
         </section>
       ) : (
         <>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import GalleryLoadingModal from "@/components/gallery-loading-modal";
 
 function getFormString(formData: FormData, key: string): string | null {
   const value = formData.get(key);
@@ -15,6 +16,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
   const [signInError, setSignInError] = useState<string | null>(null);
   const [forgotError, setForgotError] = useState<string | null>(null);
   const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
+  const [isLoadingGallery, setIsLoadingGallery] = useState(false);
   const router = useRouter();
 
   async function handleSignUp(event: React.FormEvent<HTMLFormElement>) {
@@ -66,6 +68,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
       return;
     }
 
+    setIsLoadingGallery(true);
     await signIn("credentials", {
       email,
       password,
@@ -97,6 +100,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
       return;
     }
 
+    setIsLoadingGallery(true);
     router.push("/gallery");
   }
 
@@ -135,6 +139,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
 
   return (
     <section className="space-y-4 rounded-md border border-neutral-200 p-4">
+      {isLoadingGallery ? <GalleryLoadingModal /> : null}
       <div className="flex flex-wrap gap-2 text-xs">
         <button
           type="button"

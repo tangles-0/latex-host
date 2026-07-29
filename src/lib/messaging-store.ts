@@ -483,6 +483,74 @@ export async function listThreadMessages(
   };
 }
 
+/** Public key for replying to a thread sender (resolved server-side from pairwise hash). */
+export async function getReplyPublicKeyForThread(
+  userId: string,
+  senderHash: string,
+): Promise<{ fingerprint: string; publicKeyArmored: string } | null> {
+  const claimed = await getClaimedPgpKeyForUser(userId);
+  if (!claimed) {
+    return null;
+  }
+
+  const [hashRow] = await db
+    .select({
+      senderUserId: senderHashes.senderUserId,
+    })
+    .from(senderHashes)
+    .where(
+      and(
+        eq(senderHashes.recipientFingerprint, claimed.fingerprint),
+        eq(senderHashes.displayHash, senderHash),
+      ),
+    )
+    .limit(1);
+  if (!hashRow) {
+    return null;
+  }
+
+  // Confirm this hash actually has messages in the caller's inbox.
+  const [owned] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.recipientFingerprint, claimed.fingerprint),
+        eq(messages.senderHash, senderHash),
+      ),
+    )
+    .limit(1);
+  if (!owned) {
+    return null;
+  }
+
+  const [claimedKey] = await db
+    .select({
+      fingerprint: userPgpKeys.fingerprint,
+      publicKeyArmored: userPgpKeys.publicKeyArmored,
+    })
+    .from(userPgpKeys)
+    .where(
+      and(eq(userPgpKeys.userId, hashRow.senderUserId), eq(userPgpKeys.status, "claimed")),
+    )
+    .limit(1);
+  if (claimedKey) {
+    return claimedKey;
+  }
+
+  const [pendingKey] = await db
+    .select({
+      fingerprint: userPgpKeys.fingerprint,
+      publicKeyArmored: userPgpKeys.publicKeyArmored,
+    })
+    .from(userPgpKeys)
+    .where(
+      and(eq(userPgpKeys.userId, hashRow.senderUserId), eq(userPgpKeys.status, "pending")),
+    )
+    .limit(1);
+  return pendingKey ?? null;
+}
+
 export async function getMessageAndMarkRead(
   userId: string,
   messageId: string,

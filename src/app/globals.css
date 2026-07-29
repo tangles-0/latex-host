@@ -1368,3 +1368,222 @@ body {
 [data-theme] .easter-egg {
   animation: latex-pulse 0.5s ease-in-out;
 }
+
+/* Gallery loading modal */
+.gallery-loading-overlay {
+  animation: gallery-loading-fade-in 220ms ease-out;
+}
+
+.gallery-loading-backdrop {
+  background:
+    radial-gradient(
+      ellipse 80% 55% at 50% 40%,
+      color-mix(in srgb, var(--theme-alert-success) 18%, transparent) 0%,
+      transparent 70%
+    ),
+    color-mix(in srgb, var(--theme-bg) 55%, black 45%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.gallery-loading-card {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--theme-border-strong) 70%, transparent),
+    0 24px 60px color-mix(in srgb, black 45%, transparent),
+    var(--theme-glow);
+  animation: gallery-loading-card-in 380ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gallery-loading-scanline {
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    color-mix(in srgb, var(--theme-text) 4%, transparent) 2px,
+    color-mix(in srgb, var(--theme-text) 4%, transparent) 3px
+  );
+  opacity: 0.35;
+  mix-blend-mode: soft-light;
+  animation: gallery-loading-scan 3.2s linear infinite;
+}
+
+.gallery-loading-orbits {
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--theme-alert-success) 45%, transparent));
+}
+
+.gallery-loading-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  border-top-color: color-mix(in srgb, var(--theme-alert-success) 90%, white 10%);
+  border-right-color: color-mix(in srgb, var(--theme-text) 35%, transparent);
+}
+
+.gallery-loading-ring-a {
+  animation: gallery-loading-spin 1.4s linear infinite;
+}
+
+.gallery-loading-ring-b {
+  inset: 10px;
+  border-top-color: color-mix(in srgb, var(--theme-link) 85%, white 15%);
+  border-right-color: transparent;
+  border-bottom-color: color-mix(in srgb, var(--theme-text-muted) 40%, transparent);
+  animation: gallery-loading-spin 2.1s linear infinite reverse;
+}
+
+.gallery-loading-ring-c {
+  inset: 20px;
+  border-width: 1px;
+  border-top-color: color-mix(in srgb, var(--theme-text) 55%, transparent);
+  border-left-color: color-mix(in srgb, var(--theme-alert-success) 50%, transparent);
+  animation: gallery-loading-spin 1.1s linear infinite;
+}
+
+.gallery-loading-core {
+  position: absolute;
+  inset: 34px;
+  border-radius: 9999px;
+  background:
+    radial-gradient(
+      circle at 35% 30%,
+      color-mix(in srgb, white 55%, var(--theme-alert-success) 45%),
+      color-mix(in srgb, var(--theme-alert-success) 70%, var(--theme-panel) 30%) 55%,
+      color-mix(in srgb, var(--theme-panel) 80%, black 20%) 100%
+    );
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--theme-alert-success) 55%, transparent),
+    inset 0 0 10px color-mix(in srgb, white 25%, transparent);
+  animation: gallery-loading-core-pulse 1.6s ease-in-out infinite;
+}
+
+.gallery-loading-spark-orbit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.gallery-loading-spark-orbit-a {
+  animation: gallery-loading-spin 1.4s linear infinite;
+}
+
+.gallery-loading-spark-orbit-b {
+  inset: 10px;
+  animation: gallery-loading-spin 2.1s linear infinite reverse;
+}
+
+.gallery-loading-spark-orbit-c {
+  inset: 20px;
+  animation: gallery-loading-spin 1.1s linear infinite;
+}
+
+.gallery-loading-spark {
+  margin-top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--theme-alert-success) 70%, white 30%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-alert-success) 80%, transparent);
+}
+
+.gallery-loading-spark-sm {
+  margin-top: -2px;
+  width: 4px;
+  height: 4px;
+}
+
+.gallery-loading-spark-xs {
+  margin-top: -1.5px;
+  width: 3px;
+  height: 3px;
+  background: color-mix(in srgb, var(--theme-link) 60%, white 40%);
+}
+
+.gallery-loading-message {
+  animation: gallery-loading-message-in 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gallery-loading-track {
+  background: color-mix(in srgb, var(--theme-border) 80%, var(--theme-text) 20%);
+}
+
+.gallery-loading-bar {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--theme-alert-success) 85%, white 15%),
+    color-mix(in srgb, var(--theme-link) 70%, white 30%),
+    transparent
+  );
+  animation: gallery-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes gallery-loading-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gallery-loading-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gallery-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gallery-loading-core-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes gallery-loading-scan {
+  from {
+    transform: translateY(-8%);
+  }
+  to {
+    transform: translateY(8%);
+  }
+}
+
+@keyframes gallery-loading-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes gallery-loading-shimmer {
+  0% {
+    transform: translateX(-140%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
