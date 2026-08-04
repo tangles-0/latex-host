@@ -8,6 +8,7 @@ import { isValidVerifyCodeFormat } from "@/lib/pgp-verify-code";
 type PgpKeyState = {
   id: string;
   fingerprint: string;
+  publicKeyArmored: string;
   status: "pending" | "claimed";
   verifyChallengeCiphertext: string | null;
   verifyExpiresAt: string | Date | null;
@@ -61,6 +62,7 @@ export default function AccountClient({
   const [isDeletingKey, setIsDeletingKey] = useState(false);
   const [isApprovingDevice, setIsApprovingDevice] = useState(false);
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+  const [didCopyPublicKey, setDidCopyPublicKey] = useState(false);
 
   async function refreshDevices() {
     const response = await fetch("/api/account/devices");
@@ -347,6 +349,24 @@ export default function AccountClient({
             <div>
               <div className="text-xs text-neutral-500">Fingerprint</div>
               <code className="mt-1 block break-all font-mono text-xs">{key.fingerprint}</code>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(key.publicKeyArmored).then(() => {
+                    setDidCopyPublicKey(true);
+                    setInfo("Public key copied to clipboard.");
+                    window.setTimeout(() => setDidCopyPublicKey(false), 2000);
+                  });
+                }}
+                className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-xs text-white"
+              >
+                {didCopyPublicKey ? "Copied" : "Copy public key"}
+              </button>
+              <span className="text-xs text-neutral-500">
+                Share this with people who want to message you.
+              </span>
             </div>
             {key.hasUserIdsWarning ? (
               <p className="text-xs text-amber-700">

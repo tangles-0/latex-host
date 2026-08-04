@@ -23,7 +23,7 @@ type GroupLimitRow = {
 };
 
 type MimeCategory = {
-  id: "image" | "video" | "document" | "file";
+  id: "image" | "video" | "document" | "code" | "config" | "software" | "file";
   label: string;
   types: string[];
 };
@@ -75,6 +75,149 @@ const MIME_CATEGORIES: MimeCategory[] = [
       "application/vnd.oasis.opendocument.presentation",
       "text/markdown",
       "application/json",
+    ],
+  },
+  {
+    id: "code",
+    label: "Code / Markup",
+    types: [
+      "text/*",
+      "text/javascript",
+      "application/javascript",
+      "text/typescript",
+      "application/typescript",
+      "text/x-python",
+      "application/x-python-code",
+      "text/x-ruby",
+      "text/x-go",
+      "text/x-rustsrc",
+      "text/x-c",
+      "text/x-c++src",
+      "text/x-csharp",
+      "text/x-java-source",
+      "text/x-kotlin",
+      "text/x-swift",
+      "application/x-httpd-php",
+      "application/x-sh",
+      "text/x-shellscript",
+      "application/x-powershell",
+      "application/sql",
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".jsx",
+      ".ts",
+      ".tsx",
+      ".py",
+      ".rb",
+      ".go",
+      ".rs",
+      ".c",
+      ".h",
+      ".cpp",
+      ".hpp",
+      ".cs",
+      ".java",
+      ".kt",
+      ".kts",
+      ".swift",
+      ".php",
+      ".sh",
+      ".bash",
+      ".zsh",
+      ".fish",
+      ".ps1",
+      ".sql",
+      ".lua",
+      ".r",
+      ".dart",
+      ".scala",
+      ".pl",
+      ".pm",
+      ".vb",
+    ],
+  },
+  {
+    id: "config",
+    label: "Config / Data",
+    types: [
+      "application/xml",
+      "text/xml",
+      "text/html",
+      "text/css",
+      "text/x-scss",
+      "text/x-sass",
+      "text/x-less",
+      "application/yaml",
+      "text/yaml",
+      "text/x-yaml",
+      "application/toml",
+      "application/x-ndjson",
+      "application/graphql",
+      ".jsonc",
+      ".yaml",
+      ".yml",
+      ".toml",
+      ".ini",
+      ".env",
+      ".xml",
+      ".html",
+      ".htm",
+      ".css",
+      ".scss",
+      ".sass",
+      ".less",
+      ".graphql",
+      ".gql",
+      ".proto",
+      ".tf",
+      ".tfvars",
+      ".dockerfile",
+      ".gitignore",
+      ".dockerignore",
+      ".npmrc",
+      ".editorconfig",
+    ],
+  },
+  {
+    id: "software",
+    label: "Software / Packages",
+    types: [
+      "application/wasm",
+      "application/java-archive",
+      "application/vnd.android.package-archive",
+      "application/x-msdownload",
+      "application/vnd.microsoft.portable-executable",
+      "application/x-msi",
+      "application/x-sharedlib",
+      "application/x-executable",
+      "application/x-mach-binary",
+      "application/x-debian-package",
+      "application/vnd.debian.binary-package",
+      "application/x-rpm",
+      "application/x-apple-diskimage",
+      "application/x-iso9660-image",
+      "application/x-sqlite3",
+      ".wasm",
+      ".jar",
+      ".war",
+      ".ear",
+      ".apk",
+      ".ipa",
+      ".deb",
+      ".rpm",
+      ".msi",
+      ".exe",
+      ".dll",
+      ".so",
+      ".dylib",
+      ".dmg",
+      ".pkg",
+      ".iso",
+      ".appimage",
+      ".sqlite",
+      ".sqlite3",
+      ".db",
     ],
   },
   {
@@ -144,11 +287,11 @@ function MimeTypePicker({
   return (
     <div className="space-y-2 rounded border border-neutral-200 p-2">
       <p className="text-[11px] text-neutral-500">
-        Select allowed MIME types. If none are selected, uploads are unrestricted.
+        Select allowed MIME types or file extensions. If none are selected, uploads are unrestricted.
       </p>
       <div className="space-y-2">
         {MIME_CATEGORIES.map((category) => (
-          <details key={category.id} className="rounded border border-neutral-100 p-2" open>
+          <details key={category.id} className="rounded border border-neutral-100 p-2">
             <summary className="cursor-pointer text-xs font-medium">{category.label}</summary>
             <div className="mt-2 grid gap-1 sm:grid-cols-2">
               {category.types.map((type) => {
@@ -375,8 +518,8 @@ export default function ManageLimitsClient({
     <div className="space-y-4">
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
 
-      <section className="rounded border border-neutral-200 p-4">
-        <h2 className="text-sm font-medium">Ungrouped users (default)</h2>
+      <details className="rounded border border-neutral-200 p-4">
+        <summary className="cursor-pointer text-sm font-medium">Ungrouped users (default)</summary>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           <div className="space-y-2 md:col-span-3">
             <div className="text-xs font-medium">Per-type max file sizes</div>
@@ -442,14 +585,14 @@ export default function ManageLimitsClient({
         >
           Save default limits
         </button>
-      </section>
+      </details>
 
-      <section className="rounded border border-neutral-200 p-4">
-        <h2 className="text-sm font-medium">Groups</h2>
+      <details className="rounded border border-neutral-200 p-4">
+        <summary className="cursor-pointer text-sm font-medium">Groups</summary>
         <div className="mt-4 space-y-4">
           {rows.map((row) => (
-            <div key={row.groupId} className="rounded border border-neutral-100 p-3">
-              <div className="text-xs font-medium">{row.groupName}</div>
+            <details key={row.groupId} className="rounded border border-neutral-100 p-3">
+              <summary className="cursor-pointer text-xs font-medium">{row.groupName}</summary>
               <div className="mt-3 grid gap-3 md:grid-cols-4">
                 <div className="space-y-2 md:col-span-3">
                   <div className="text-xs font-medium">Per-type max file sizes</div>
@@ -519,13 +662,13 @@ export default function ManageLimitsClient({
               >
                 Save limits
               </button>
-            </div>
+            </details>
           ))}
           {rows.length === 0 ? (
             <p className="text-xs text-neutral-500">No groups to configure yet.</p>
           ) : null}
         </div>
-      </section>
+      </details>
     </div>
   );
 }

@@ -26,6 +26,7 @@ export type PgpKeyStatus = "pending" | "claimed";
 export type UserPgpKeySummary = {
   id: string;
   fingerprint: string;
+  publicKeyArmored: string;
   status: PgpKeyStatus;
   verifyChallengeCiphertext: string | null;
   verifyExpiresAt: Date | null;
@@ -69,6 +70,7 @@ export async function getUserPgpKey(userId: string): Promise<UserPgpKeySummary |
   return {
     id: row.id,
     fingerprint: row.fingerprint,
+    publicKeyArmored: row.publicKeyArmored,
     status: asPgpStatus(row.status),
     verifyChallengeCiphertext: row.verifyChallengeCiphertext,
     verifyExpiresAt: row.verifyExpiresAt,
@@ -207,6 +209,7 @@ export async function savePendingPgpKey(
   return {
     id,
     fingerprint: parsed.fingerprint,
+    publicKeyArmored: parsed.publicKeyArmored,
     status: "pending",
     verifyChallengeCiphertext: challenge,
     verifyExpiresAt: expiresAt,
@@ -278,6 +281,7 @@ export async function verifyPgpKeyOwnership(
   return {
     id: row.id,
     fingerprint: row.fingerprint,
+    publicKeyArmored: row.publicKeyArmored,
     status: "claimed",
     verifyChallengeCiphertext: null,
     verifyExpiresAt: null,

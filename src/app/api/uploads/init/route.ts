@@ -12,6 +12,7 @@ import {
   type BlobMediaKind,
 } from "@/lib/media-types";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
+import { isAllowedUploadType } from "@/lib/upload-allowlist";
 import {
   getBlobMultipartClientState,
   initUploadSession,
@@ -24,18 +25,6 @@ export const runtime = "nodejs";
 // - local/server-proxied uploads stay under function body caps
 // - blob multipart uploads are raised above the 5 MB minimum
 const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
-
-function isAllowedType(allowed: string[], mime: string): boolean {
-  if (allowed.length === 0) {
-    return true;
-  }
-  return allowed.some((type) => {
-    if (type.endsWith("/*")) {
-      return mime.startsWith(type.replace("/*", "/"));
-    }
-    return mime === type;
-  });
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const isWorkerRequest = isWorkerIngestAuthorized(request);
@@ -115,7 +104,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
   const groupLimits = await getGroupLimits(groupInfo.groupId);
-  if (!isAllowedType(groupLimits.allowedTypes, mimeType)) {
+  if (!isAllowedUploadType({ allowed: groupLimits.allowedTypes, mimeType, ext })) {
     return NextResponse.json(
       { error: "File type is not allowed." },
       { status: 415 },

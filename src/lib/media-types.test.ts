@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   contentTypeForExt,
   extFromFileName,
+  mediaKindFromType,
   parseSizedFileName,
   splitFileName,
 } from "@/lib/media-types";
@@ -70,5 +71,12 @@ describe("contentTypeForExt", () => {
   it("maps compound archive extensions", () => {
     expect(contentTypeForExt("tar.gz")).toBe("application/gzip");
     expect(contentTypeForExt("tar.bz2")).toBe("application/x-bzip2");
+  });
+});
+
+describe("mediaKindFromType", () => {
+  it("treats known source-code extensions as documents", () => {
+    expect(mediaKindFromType("video/mp2t", "ts")).toBe("document");
+    expect(mediaKindFromType("application/octet-stream", "py")).toBe("document");
   });
 });

@@ -147,13 +147,16 @@ export const CODE_EXTENSIONS = new Set([
   "h",
   "cpp",
   "hpp",
+  "cs",
   "java",
   "kt",
+  "kts",
   "swift",
   "php",
   "sh",
   "bash",
   "zsh",
+  "fish",
   "ps1",
   "sql",
   "lua",
@@ -161,7 +164,20 @@ export const CODE_EXTENSIONS = new Set([
   "dart",
   "scala",
   "pl",
+  "pm",
   "vb",
+  "sass",
+  "env",
+  "graphql",
+  "gql",
+  "proto",
+  "tf",
+  "tfvars",
+  "dockerfile",
+  "gitignore",
+  "dockerignore",
+  "npmrc",
+  "editorconfig",
 ]);
 
 export const DOCUMENT_EXTENSIONS = new Set([
@@ -322,21 +338,22 @@ export function mediaKindFromType(
   if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(ext)) {
     return "image";
   }
-  if (mimeType.startsWith("video/") || VIDEO_EXTENSIONS.has(ext)) {
-    return "video";
-  }
-  if (mimeType.startsWith("audio/")) {
-    return "other";
-  }
   if (
     mimeType.startsWith("text/") ||
     mimeType.includes("pdf") ||
     mimeType.includes("document") ||
     mimeType.includes("spreadsheet") ||
     mimeType.includes("presentation") ||
-    DOCUMENT_EXTENSIONS.has(ext)
+    DOCUMENT_EXTENSIONS.has(ext) ||
+    CODE_EXTENSIONS.has(ext)
   ) {
     return "document";
+  }
+  if (mimeType.startsWith("video/") || VIDEO_EXTENSIONS.has(ext)) {
+    return "video";
+  }
+  if (mimeType.startsWith("audio/")) {
+    return "other";
   }
   return "other";
 }

@@ -14,6 +14,7 @@ import {
   updateMediaPreviewForUser,
 } from "@/lib/media-store";
 import {
+  contentTypeForExt,
   extFromFileName,
   isLocalTextPreviewDocument,
   isThumbnailServiceSupported,
@@ -25,6 +26,7 @@ import {
   storeImageOriginalFromBuffer,
 } from "@/lib/media-storage";
 import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
+import { isAllowedUploadType } from "@/lib/upload-allowlist";
 
 export const runtime = "nodejs";
 
@@ -65,18 +67,6 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Media not found." }, { status: 404 });
   }
   return NextResponse.json({ media });
-}
-
-function isAllowedType(allowed: string[], mime: string): boolean {
-  if (allowed.length === 0) {
-    return true;
-  }
-  return allowed.some((type) => {
-    if (type.endsWith("/*")) {
-      return mime.startsWith(type.replace("/*", "/"));
-    }
-    return mime === type;
-  });
 }
 
 function checkRateLimit(
@@ -134,12 +124,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "File is required." }, { status: 400 });
   }
-  if (!file.type) {
-    return NextResponse.json(
-      { error: "File type is required." },
-      { status: 400 },
-    );
-  }
   const ext = extFromFileName(file.name);
   if (!ext) {
     return NextResponse.json(
@@ -147,8 +131,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 400 },
     );
   }
-  const kind = mediaKindFromType(file.type, ext);
-  if (!isAllowedType(groupLimits.allowedTypes, file.type)) {
+  const mimeType = file.type || contentTypeForExt(ext);
+  const kind = mediaKindFromType(mimeType, ext);
+  if (!isAllowedUploadType({ allowed: groupLimits.allowedTypes, mimeType, ext })) {
     return NextResponse.json(
       { error: "File type is not allowed." },
       { status: 415 },
@@ -190,7 +175,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const canUseThumbnailService = isThumbnailServiceSupported({
     kind,
-    mimeType: file.type,
+    mimeType,
     ext,
     fileSizeBytes: file.size,
   });
@@ -202,13 +187,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         ? await storeImageOriginalFromBuffer({
             buffer,
             ext,
-            mimeType: file.type,
+            mimeType,
             uploadedAt,
           })
         : await storeImageMediaFromBuffer({
             buffer,
             ext,
-            mimeType: file.type,
+            mimeType,
             uploadedAt,
           })
       : await storeGenericMediaFromBuffer({
@@ -220,11 +205,11 @@ export async function POST(request: Request): Promise<NextResponse> {
                 : "other",
           buffer,
           ext,
-          mimeType: file.type,
+          mimeType,
           uploadedAt,
           deferPreview:
             canUseThumbnailService &&
-            !isLocalTextPreviewDocument(file.type, ext),
+            !isLocalTextPreviewDocument(mimeType, ext),
         });
 
   const media = await addMediaForUser({

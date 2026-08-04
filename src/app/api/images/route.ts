@@ -10,6 +10,7 @@ import {
 } from "@/lib/metadata-store";
 import { storeImageAndThumbnails } from "@/lib/storage";
 import { getSessionUserId } from "@/lib/auth";
+import { isAllowedUploadType } from "@/lib/upload-allowlist";
 
 export const runtime = "nodejs";
 
@@ -19,18 +20,6 @@ type RateLimitEntry = {
 };
 
 const rateLimitStore = new Map<string, RateLimitEntry>();
-
-function isAllowedType(allowed: string[], mime: string): boolean {
-  if (allowed.length === 0) {
-    return true;
-  }
-  return allowed.some((type) => {
-    if (type.endsWith("/*")) {
-      return mime.startsWith(type.replace("/*", "/"));
-    }
-    return mime === type;
-  });
-}
 
 function checkRateLimit(userId: string, limitPerMinute: number): { allowed: boolean; count: number } {
   if (limitPerMinute <= 0) {
@@ -69,7 +58,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const formData = await request.formData();
   const file = formData.get("file");
-  const albumId = formData.get("albumId")?.toString() || undefined;
+  const albumIdValue = formData.get("albumId");
+  const albumId = typeof albumIdValue === "string" ? albumIdValue.trim() || undefined : undefined;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Image file is required." }, { status: 400 });
@@ -79,7 +69,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "File must be an image." }, { status: 400 });
   }
 
-  if (!isAllowedType(groupLimits.allowedTypes, file.type)) {
+  if (!isAllowedUploadType({ allowed: groupLimits.allowedTypes, mimeType: file.type })) {
     return NextResponse.json({ error: "File type is not allowed." }, { status: 415 });
   }
 
@@ -95,7 +85,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (isAdmin && defaultLimits.rateLimitPerMinute > 0) {
     const adminRate = checkRateLimit(`admin:${userId}`, defaultLimits.rateLimitPerMinute);
     if (!adminRate.allowed) {
-      // eslint-disable-next-line no-console
       console.warn(
         `Admin user ${userId} exceeded default rate limit (${defaultLimits.rateLimitPerMinute}/min).`,
       );
