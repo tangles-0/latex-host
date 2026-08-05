@@ -2005,6 +2005,31 @@ export async function updateVideoPreviewForUser(input: {
   return mapVideoRow(row);
 }
 
+export async function updateDocumentContentMetadataForUser(input: {
+  userId: string;
+  mediaId: string;
+  sizeOriginal: number;
+  sizeSm: number;
+  sizeLg: number;
+  previewStatus: PreviewStatus;
+  previewError?: string | null;
+}): Promise<MediaEntry | undefined> {
+  const [row] = await db
+    .update(documents)
+    .set({
+      sizeOriginal: input.sizeOriginal,
+      sizeSm: input.sizeSm,
+      sizeLg: input.sizeLg,
+      previewStatus: input.previewStatus,
+      previewError: input.previewError ?? null,
+    })
+    .where(
+      and(eq(documents.userId, input.userId), eq(documents.id, input.mediaId)),
+    )
+    .returning();
+  return row ? mapDocumentRow(row) : undefined;
+}
+
 export async function updateMediaPreviewForUser(input: {
   userId: string;
   kind: Exclude<MediaKind, "note">;

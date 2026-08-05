@@ -29,10 +29,11 @@ import { ImageViewerContent } from "./viewers/image-viewer-content";
 import { FileViewerContent } from "./viewers/file-viewer-content";
 import NoteMarkdown from "./note-markdown";
 import NoteRichEditor from "./note-rich-editor";
+import CodeFileEditor from "./code-file-editor";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
-import { isRiskyShareFile } from "@/lib/media-types";
+import { isEditableTextDocument, isRiskyShareFile } from "@/lib/media-types";
 import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
@@ -40,6 +41,7 @@ const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
 const GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
+const CODE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-code-autosave";
 const PREVIEW_POLL_MAX_MS = 2 * 60 * 1000;
 
 type PreviewStatus = "pending" | "started" | "complete" | "error";
@@ -155,7 +157,7 @@ function extractClipboardImageFiles(event: ClipboardEvent): File[] {
 type RotationDirection = "left" | "right";
 type NoteEditorMode = "markdown" | "preview";
 type NoteModalView = "note" | "history" | "history-preview";
-type NoteWindowMode = "windowed" | "large" | "fullscreen";
+type EditorWindowMode = "windowed" | "large" | "fullscreen";
 type GalleryKindFilter = "all" | MediaKind;
 const PAGE_SIZE = 24;
 
@@ -163,6 +165,11 @@ type NoteDetails = {
   id: string;
   content: string;
   updatedAt?: string;
+};
+
+type CodeFileDetails = {
+  id: string;
+  content: string;
 };
 
 type NoteHistorySummary = {
@@ -275,11 +282,19 @@ export default function GalleryClient({
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [autosaveEnabled, setAutosaveEnabled] = useState(true);
-  const [noteWindowMode, setNoteWindowMode] =
-    useState<NoteWindowMode>("windowed");
+  const [editorWindowMode, setEditorWindowMode] =
+    useState<EditorWindowMode>("windowed");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [activeCodeFile, setActiveCodeFile] = useState<CodeFileDetails | null>(
+    null,
+  );
+  const [isLoadingCodeFile, setIsLoadingCodeFile] = useState(false);
+  const [codeContentDraft, setCodeContentDraft] = useState("");
+  const [codeSaveError, setCodeSaveError] = useState<string | null>(null);
+  const [isSavingCodeFile, setIsSavingCodeFile] = useState(false);
   const dragCounter = useRef(0);
   const lastSavedNoteContentRef = useRef("");
+  const lastSavedCodeContentRef = useRef("");
   const lastHandledCreateNoteRequestIdRef = useRef(createNoteRequestId ?? 0);
   const uploadModalDismissTimeoutRef = useRef<number | null>(null);
   const isGalleryModalOpenRef = useRef(false);
@@ -564,24 +579,37 @@ export default function GalleryClient({
       : false;
   const activeDisplayName = active?.originalFileName || active?.baseName || "";
   const isNoteActive = active?.kind === "note";
+  const isCodeFileActive = Boolean(
+    active &&
+      active.kind === "document" &&
+      isEditableTextDocument(active.mimeType ?? "", active.ext),
+  );
+  const isTextEditorActive = isNoteActive || isCodeFileActive;
   const noteIsDirty =
     isNoteActive && activeNote
       ? noteContentDraft !== lastSavedNoteContentRef.current
       : false;
-  const isNoteLarge = isNoteActive && noteWindowMode === "large";
-  const isNoteFullscreen = isNoteActive && noteWindowMode === "fullscreen";
-  const isNoteExpanded = isNoteLarge || isNoteFullscreen;
+  const codeIsDirty =
+    isCodeFileActive && activeCodeFile
+      ? codeContentDraft !== lastSavedCodeContentRef.current
+      : false;
+  const editorIsDirty = noteIsDirty || codeIsDirty;
+  const isEditorLarge = isTextEditorActive && editorWindowMode === "large";
+  const isEditorFullscreen =
+    isTextEditorActive && editorWindowMode === "fullscreen";
+  const isEditorExpanded = isEditorLarge || isEditorFullscreen;
+  const isNoteLarge = isNoteActive && isEditorLarge;
 
-  function nextNoteWindowMode(mode: NoteWindowMode): NoteWindowMode {
+  function nextEditorWindowMode(mode: EditorWindowMode): EditorWindowMode {
     if (mode === "windowed") return "large";
     if (mode === "large") return "fullscreen";
     return "windowed";
   }
 
-  function noteWindowModeButtonLabel(mode: NoteWindowMode): string {
-    return nextNoteWindowMode(mode) === "large"
+  function editorWindowModeButtonLabel(mode: EditorWindowMode): string {
+    return nextEditorWindowMode(mode) === "large"
       ? "Large"
-      : nextNoteWindowMode(mode) === "fullscreen"
+      : nextEditorWindowMode(mode) === "fullscreen"
         ? "Fullscreen"
         : "Windowed";
   }
@@ -592,6 +620,10 @@ export default function GalleryClient({
 
   function noteAutosaveStorageKey(noteId: string): string {
     return `${NOTE_AUTOSAVE_STORAGE_KEY_PREFIX}:${noteId}`;
+  }
+
+  function codeAutosaveStorageKey(mediaId: string): string {
+    return `${CODE_AUTOSAVE_STORAGE_KEY_PREFIX}:${mediaId}`;
   }
 
   function noteDownloadFileName(name?: string): string {
@@ -903,7 +935,7 @@ export default function GalleryClient({
     if (!active || active.kind !== "note") {
       return;
     }
-    await handlePendingNoteBefore(async () => {
+    await handlePendingEditorBefore(async () => {
       setNoteModalView("history");
       setSelectedNoteHistory(null);
       await loadNoteHistory(active.id);
@@ -1083,21 +1115,149 @@ export default function GalleryClient({
     }
   }
 
-  async function handlePendingNoteBefore(action: () => void | Promise<void>) {
-    if (!isNoteActive || !activeNote || !noteIsDirty) {
-      await action();
-      return;
+  async function loadCodeFile(mediaId: string) {
+    setIsLoadingCodeFile(true);
+    setCodeSaveError(null);
+    try {
+      const response = await fetch(
+        `/api/media/content?mediaId=${encodeURIComponent(mediaId)}`,
+        { cache: "no-store" },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        content?: string;
+      };
+      if (!response.ok || typeof payload.content !== "string") {
+        throw new Error(payload.error ?? "Unable to load file.");
+      }
+      setActiveCodeFile({ id: mediaId, content: payload.content });
+      setCodeContentDraft(payload.content);
+      lastSavedCodeContentRef.current = payload.content;
+      setLastSavedAt(null);
+      try {
+        setAutosaveEnabled(
+          window.localStorage.getItem(codeAutosaveStorageKey(mediaId)) !== "0",
+        );
+      } catch {
+        setAutosaveEnabled(true);
+      }
+    } catch (error) {
+      setCodeSaveError(
+        error instanceof Error ? error.message : "Unable to load file.",
+      );
+    } finally {
+      setIsLoadingCodeFile(false);
     }
-    if (autosaveEnabled) {
-      const saved = await saveActiveNote({ silent: true });
-      if (!saved) {
+  }
+
+  async function saveActiveCodeFile(options?: {
+    silent?: boolean;
+  }): Promise<boolean> {
+    if (
+      !active ||
+      active.kind !== "document" ||
+      !activeCodeFile ||
+      isSavingCodeFile ||
+      !codeIsDirty
+    ) {
+      return true;
+    }
+    setIsSavingCodeFile(true);
+    setCodeSaveError(null);
+    try {
+      const response = await fetch("/api/media/content", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaId: active.id,
+          content: codeContentDraft,
+        }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        content?: string;
+        media?: GalleryImage;
+      };
+      if (!response.ok || typeof payload.content !== "string" || !payload.media) {
+        throw new Error(payload.error ?? "Unable to save file.");
+      }
+      const savedAt = new Date().toISOString();
+      setActiveCodeFile({ id: active.id, content: payload.content });
+      lastSavedCodeContentRef.current = payload.content;
+      setLastSavedAt(savedAt);
+      setItems((current) =>
+        current.map((item) =>
+          item.id === payload.media!.id
+            ? {
+                ...item,
+                sizeOriginal: payload.media!.sizeOriginal,
+                sizeSm: payload.media!.sizeSm,
+                sizeLg: payload.media!.sizeLg,
+                previewStatus: payload.media!.previewStatus,
+              }
+            : item,
+        ),
+      );
+      setActive((current) =>
+        current?.id === payload.media!.id
+          ? {
+              ...current,
+              sizeOriginal: payload.media!.sizeOriginal,
+              sizeSm: payload.media!.sizeSm,
+              sizeLg: payload.media!.sizeLg,
+              previewStatus: payload.media!.previewStatus,
+            }
+          : current,
+      );
+      setImageVersionBumps((current) => ({
+        ...current,
+        [payload.media!.id]: (current[payload.media!.id] ?? 0) + 1,
+      }));
+      if (!options?.silent) {
+        pushMessage("Saved file.", "success");
+      }
+      return true;
+    } catch (error) {
+      setCodeSaveError(
+        error instanceof Error ? error.message : "Unable to save file.",
+      );
+      return false;
+    } finally {
+      setIsSavingCodeFile(false);
+    }
+  }
+
+  async function handlePendingEditorBefore(action: () => void | Promise<void>) {
+    if (isNoteActive && activeNote && noteIsDirty) {
+      if (autosaveEnabled) {
+        const saved = await saveActiveNote({ silent: true });
+        if (!saved) {
+          return;
+        }
+        await action();
+        return;
+      }
+      const shouldDiscard = window.confirm("Discard unsaved note changes?");
+      if (!shouldDiscard) {
         return;
       }
       await action();
       return;
     }
-    const shouldDiscard = window.confirm("Discard unsaved note changes?");
-    if (!shouldDiscard) {
+    if (isCodeFileActive && activeCodeFile && codeIsDirty) {
+      if (autosaveEnabled) {
+        const saved = await saveActiveCodeFile({ silent: true });
+        if (!saved) {
+          return;
+        }
+        await action();
+        return;
+      }
+      const shouldDiscard = window.confirm("Discard unsaved file changes?");
+      if (!shouldDiscard) {
+        return;
+      }
+      await action();
       return;
     }
     await action();
@@ -1123,6 +1283,11 @@ export default function GalleryClient({
     setActiveNote(null);
     setNoteContentDraft("");
     lastSavedNoteContentRef.current = "";
+    setActiveCodeFile(null);
+    setCodeContentDraft("");
+    lastSavedCodeContentRef.current = "";
+    setCodeSaveError(null);
+    setIsLoadingCodeFile(false);
     setLastSavedAt(null);
     setNoteEditorMode("markdown");
     setNoteModalView("note");
@@ -1130,11 +1295,16 @@ export default function GalleryClient({
     setNoteHistoryError(null);
     setNoteHistoryEntries([]);
     setSelectedNoteHistory(null);
-    setNoteWindowMode("windowed");
+    setEditorWindowMode("windowed");
 
     try {
       if (image.kind === "note") {
         await loadNote(image.id);
+      } else if (
+        image.kind === "document" &&
+        isEditableTextDocument(image.mimeType ?? "", image.ext)
+      ) {
+        await loadCodeFile(image.id);
       }
       if (readOnly) {
         return;
@@ -1199,9 +1369,15 @@ export default function GalleryClient({
     setNoteContentDraft("");
     setNoteSaveError(null);
     setIsSavingNote(false);
+    setActiveCodeFile(null);
+    setIsLoadingCodeFile(false);
+    setCodeContentDraft("");
+    setCodeSaveError(null);
+    setIsSavingCodeFile(false);
+    lastSavedCodeContentRef.current = "";
     setLastSavedAt(null);
     setNoteEditorMode("markdown");
-    setNoteWindowMode("windowed");
+    setEditorWindowMode("windowed");
   }
 
   async function regenerateVideoThumbnail() {
@@ -1278,7 +1454,7 @@ export default function GalleryClient({
     if (!previous) {
       return;
     }
-    void handlePendingNoteBefore(() => openModal(previous));
+    void handlePendingEditorBefore(() => openModal(previous));
   }
 
   function openNextImage() {
@@ -1289,7 +1465,7 @@ export default function GalleryClient({
     if (!next) {
       return;
     }
-    void handlePendingNoteBefore(() => openModal(next));
+    void handlePendingEditorBefore(() => openModal(next));
   }
 
   async function copyText(text: string, label: string) {
@@ -2150,16 +2326,32 @@ export default function GalleryClient({
   ]);
 
   useEffect(() => {
-    if (!active || active.kind !== "note") {
+    if (!active) {
       return;
     }
-    try {
-      window.localStorage.setItem(
-        noteAutosaveStorageKey(active.id),
-        autosaveEnabled ? "1" : "0",
-      );
-    } catch {
-      // ignore storage errors
+    if (active.kind === "note") {
+      try {
+        window.localStorage.setItem(
+          noteAutosaveStorageKey(active.id),
+          autosaveEnabled ? "1" : "0",
+        );
+      } catch {
+        // ignore storage errors
+      }
+      return;
+    }
+    if (
+      active.kind === "document" &&
+      isEditableTextDocument(active.mimeType ?? "", active.ext)
+    ) {
+      try {
+        window.localStorage.setItem(
+          codeAutosaveStorageKey(active.id),
+          autosaveEnabled ? "1" : "0",
+        );
+      } catch {
+        // ignore storage errors
+      }
     }
   }, [active, autosaveEnabled]);
 
@@ -2180,6 +2372,25 @@ export default function GalleryClient({
     isNoteActive,
     noteContentDraft,
     noteIsDirty,
+  ]);
+
+  useEffect(() => {
+    if (!isCodeFileActive || !activeCodeFile || !autosaveEnabled) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      if (codeIsDirty) {
+        void saveActiveCodeFile({ silent: true });
+      }
+    }, 30000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeCodeFile,
+    autosaveEnabled,
+    codeContentDraft,
+    codeIsDirty,
+    isCodeFileActive,
   ]);
 
   useEffect(() => {
@@ -2217,7 +2428,7 @@ export default function GalleryClient({
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        void handlePendingNoteBefore(() => {
+        void handlePendingEditorBefore(() => {
           closeModal();
         });
       }
@@ -2237,6 +2448,10 @@ export default function GalleryClient({
     noteIsDirty,
     activeNote,
     isNoteActive,
+    codeContentDraft,
+    codeIsDirty,
+    activeCodeFile,
+    isCodeFileActive,
   ]);
 
   function renderNoteHistoryList() {
@@ -2404,7 +2619,7 @@ export default function GalleryClient({
           <NoteRichEditor
             value={noteContentDraft}
             onChange={setNoteContentDraft}
-            layoutMode={noteWindowMode}
+            layoutMode={editorWindowMode}
           />
         ) : (
           <div
@@ -2414,6 +2629,38 @@ export default function GalleryClient({
           </div>
         )}
       </div>
+    );
+  }
+
+  function renderCodeFileEditor() {
+    if (!active) {
+      return null;
+    }
+    if (isLoadingCodeFile) {
+      return (
+        <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+          Loading file...
+        </div>
+      );
+    }
+    if (codeSaveError && !activeCodeFile) {
+      return (
+        <div className="rounded border border-neutral-200 p-4 text-xs text-red-600">
+          {codeSaveError}
+        </div>
+      );
+    }
+    return (
+      <CodeFileEditor
+        value={codeContentDraft}
+        onChange={setCodeContentDraft}
+        ext={active.ext}
+        readOnly={readOnly}
+        layoutMode={editorWindowMode}
+        onSave={() => {
+          void saveActiveCodeFile();
+        }}
+      />
     );
   }
 
@@ -2787,13 +3034,13 @@ export default function GalleryClient({
       {active ? (
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 ${
-            isNoteFullscreen ? "" : "sm:px-4 sm:py-6"
+            isEditorFullscreen ? "" : "sm:px-4 sm:py-6"
           }`}
           onClick={(event) => {
             if (event.target !== event.currentTarget) {
               return;
             }
-            void handlePendingNoteBefore(() => {
+            void handlePendingEditorBefore(() => {
               closeModal();
             });
           }}
@@ -2819,7 +3066,7 @@ export default function GalleryClient({
             }
             if (event.key === "Escape") {
               event.preventDefault();
-              void handlePendingNoteBefore(() => {
+              void handlePendingEditorBefore(() => {
                 closeModal();
               });
             }
@@ -2827,15 +3074,15 @@ export default function GalleryClient({
         >
           <div
             className={`w-full bg-white text-sm ${
-              isNoteFullscreen
+              isEditorFullscreen
                 ? "flex h-full max-h-none max-w-none flex-col overflow-hidden rounded-none"
-                : `${isNoteExpanded ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} overflow-y-auto overflow-x-hidden`
+                : `${isEditorExpanded ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} overflow-y-auto overflow-x-hidden`
             }`}
           >
-            {isNoteFullscreen ? (
+            {isEditorFullscreen ? (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-2">
-                  {readOnly ? null : (
+                  {isNoteActive && !readOnly ? (
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       {(["markdown", "preview"] as const).map((mode) => (
                         <button
@@ -2847,6 +3094,10 @@ export default function GalleryClient({
                           {mode === "markdown" ? "markdown" : "preview"}
                         </button>
                       ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-neutral-500">
+                      {activeDisplayName}
                     </div>
                   )}
                   {readOnly ? null : (
@@ -2862,12 +3113,14 @@ export default function GalleryClient({
                         Auto-save every 30s
                       </label>
                       <div>
-                        {noteIsDirty ? "Unsaved changes" : "All changes saved"}
+                        {editorIsDirty
+                          ? "Unsaved changes"
+                          : "All changes saved"}
                       </div>
                     </div>
                   )}
                   <div className="flex items-center gap-2">
-                    {readOnly ? null : (
+                    {readOnly ? null : isNoteActive ? (
                       <button
                         type="button"
                         onClick={() => void saveActiveNote()}
@@ -2876,22 +3129,31 @@ export default function GalleryClient({
                       >
                         {isSavingNote ? "Saving..." : "Save"}
                       </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void saveActiveCodeFile()}
+                        disabled={isSavingCodeFile || !codeIsDirty}
+                        className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                      >
+                        {isSavingCodeFile ? "Saving..." : "Save"}
+                      </button>
                     )}
                     <button
                       type="button"
                       onClick={() =>
-                        setNoteWindowMode((current) =>
-                          nextNoteWindowMode(current),
+                        setEditorWindowMode((current) =>
+                          nextEditorWindowMode(current),
                         )
                       }
                       className="rounded border border-neutral-200 px-2 py-1 text-xs"
                     >
-                      {noteWindowModeButtonLabel(noteWindowMode)}
+                      {editorWindowModeButtonLabel(editorWindowMode)}
                     </button>
                     <button
                       type="button"
                       onClick={() =>
-                        void handlePendingNoteBefore(() => {
+                        void handlePendingEditorBefore(() => {
                           closeModal();
                         })
                       }
@@ -2908,20 +3170,27 @@ export default function GalleryClient({
                   {noteSaveError ? (
                     <p className="mb-3 text-xs text-red-600">{noteSaveError}</p>
                   ) : null}
-                  {isLoadingNote ? (
-                    <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
-                      Loading note...
-                    </div>
-                  ) : noteEditorMode === "markdown" && !readOnly ? (
-                    <NoteRichEditor
-                      value={noteContentDraft}
-                      onChange={setNoteContentDraft}
-                      layoutMode={noteWindowMode}
-                    />
+                  {codeSaveError ? (
+                    <p className="mb-3 text-xs text-red-600">{codeSaveError}</p>
+                  ) : null}
+                  {isNoteActive ? (
+                    isLoadingNote ? (
+                      <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+                        Loading note...
+                      </div>
+                    ) : noteEditorMode === "markdown" && !readOnly ? (
+                      <NoteRichEditor
+                        value={noteContentDraft}
+                        onChange={setNoteContentDraft}
+                        layoutMode={editorWindowMode}
+                      />
+                    ) : (
+                      <div className="min-h-0 flex-1 overflow-y-auto rounded border border-neutral-200 p-4">
+                        <NoteMarkdown content={noteContentDraft} />
+                      </div>
+                    )
                   ) : (
-                    <div className="min-h-0 flex-1 overflow-y-auto rounded border border-neutral-200 p-4">
-                      <NoteMarkdown content={noteContentDraft} />
-                    </div>
+                    renderCodeFileEditor()
                   )}
                 </div>
               </>
@@ -3109,13 +3378,13 @@ export default function GalleryClient({
                         <button
                           type="button"
                           onClick={() =>
-                            setNoteWindowMode((current) =>
-                              nextNoteWindowMode(current),
+                            setEditorWindowMode((current) =>
+                              nextEditorWindowMode(current),
                             )
                           }
                           className="rounded border border-neutral-200 px-2 py-1 text-xs"
                         >
-                          {noteWindowModeButtonLabel(noteWindowMode)}
+                          {editorWindowModeButtonLabel(editorWindowMode)}
                         </button>
                         <button
                           type="button"
@@ -3157,6 +3426,52 @@ export default function GalleryClient({
                           </button>
                         )}
                       </>
+                    ) : isCodeFileActive ? (
+                      <>
+                        {readOnly ? null : (
+                          <button
+                            type="button"
+                            onClick={() => void saveActiveCodeFile()}
+                            disabled={isSavingCodeFile || !codeIsDirty}
+                            className="rounded border border-neutral-200 px-2 py-1 text-xs disabled:opacity-50"
+                          >
+                            {isSavingCodeFile ? "Saving..." : "Save"}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditorWindowMode((current) =>
+                              nextEditorWindowMode(current),
+                            )
+                          }
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                        >
+                          {editorWindowModeButtonLabel(editorWindowMode)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const downloadUrl = `/media/${active.kind}/${active.id}/${active.baseName}.${active.ext}`;
+                            const link = document.createElement("a");
+                            link.href = downloadUrl;
+                            link.download =
+                              active.originalFileName ||
+                              `${active.baseName}.${active.ext}`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                          aria-label="Download file"
+                          title="Download file"
+                        >
+                          <LightDownload
+                            className="h-4 w-4"
+                            fill="currentColor"
+                          />
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"
@@ -3182,7 +3497,7 @@ export default function GalleryClient({
                     <button
                       type="button"
                       onClick={() =>
-                        void handlePendingNoteBefore(() => {
+                        void handlePendingEditorBefore(() => {
                           closeModal();
                         })
                       }
@@ -3235,6 +3550,8 @@ export default function GalleryClient({
                       />
                     ) : active.kind === "note" ? (
                       renderNoteEditor()
+                    ) : isCodeFileActive ? (
+                      renderCodeFileEditor()
                     ) : (
                       <FileViewerContent
                         isAdmin={isAdmin}
@@ -3273,14 +3590,17 @@ export default function GalleryClient({
                             ? `${active.width}×${active.height}`
                             : active.kind === "note"
                               ? "markdown"
-                              : "n/a"}
+                              : isCodeFileActive
+                                ? "text"
+                                : "n/a"}
                         </div>
                         <div>File size: {formatBytes(active.sizeOriginal)}</div>
                         <div>
                           Uploaded:{" "}
                           {new Date(active.uploadedAt).toLocaleString()}
                         </div>
-                        {active.kind === "note" && lastSavedAt ? (
+                        {(active.kind === "note" || isCodeFileActive) &&
+                        lastSavedAt ? (
                           <div>
                             Last saved: {new Date(lastSavedAt).toLocaleString()}
                           </div>
@@ -3332,6 +3652,9 @@ export default function GalleryClient({
                     {noteSaveError ? (
                       <p className="text-xs text-red-600">{noteSaveError}</p>
                     ) : null}
+                    {codeSaveError ? (
+                      <p className="text-xs text-red-600">{codeSaveError}</p>
+                    ) : null}
 
                     {active.kind === "note" && !readOnly ? (
                       noteModalView === "note" ? (
@@ -3353,6 +3676,27 @@ export default function GalleryClient({
                           </div>
                         </div>
                       ) : null
+                    ) : null}
+
+                    {isCodeFileActive && !readOnly ? (
+                      <div className="space-y-2 rounded border border-neutral-200 p-3 text-xs text-neutral-600">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={autosaveEnabled}
+                            onChange={(event) =>
+                              setAutosaveEnabled(event.target.checked)
+                            }
+                          />
+                          Auto-save every 30s
+                        </label>
+                        <div>
+                          {codeIsDirty ? "Unsaved changes" : "All changes saved"}
+                        </div>
+                        <div className="text-[11px] text-neutral-500">
+                          Edit with the VS Code (Monaco) editor. Ctrl/Cmd+S saves.
+                        </div>
+                      </div>
                     ) : null}
 
                     {inAlbumContext && !readOnly ? (

@@ -765,6 +765,76 @@ export async function storeImageOriginalFromStoredUpload(input: {
   };
 }
 
+export async function overwriteTextDocumentContent(input: {
+  baseName: string;
+  ext: string;
+  mimeType: string;
+  uploadedAt: Date;
+  content: string;
+}): Promise<{
+  sizeOriginal: number;
+  sizeSm: number;
+  sizeLg: number;
+  previewStatus: "complete" | "error";
+}> {
+  const buffer = Buffer.from(input.content, "utf8");
+  const originalKey = buildStorageKey(
+    "document",
+    input.baseName,
+    input.ext,
+    "original",
+    input.uploadedAt,
+  );
+  await writeKey(originalKey, input.ext, buffer);
+
+  const preview = await tryGenerateDocumentPreview(
+    buffer,
+    input.ext,
+    input.mimeType,
+  );
+  if (!preview) {
+    return {
+      sizeOriginal: buffer.length,
+      sizeSm: 0,
+      sizeLg: 0,
+      previewStatus: "error",
+    };
+  }
+
+  const lgBuffer = await sharp(preview)
+    .resize({ width: 1024, withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  const smBuffer = await sharp(lgBuffer)
+    .resize({ width: 320, withoutEnlargement: true })
+    .png()
+    .toBuffer();
+
+  const smKey = buildStorageKey(
+    "document",
+    input.baseName,
+    "png",
+    "sm",
+    input.uploadedAt,
+  );
+  const lgKey = buildStorageKey(
+    "document",
+    input.baseName,
+    "png",
+    "lg",
+    input.uploadedAt,
+  );
+  await writeKey(smKey, "png", smBuffer);
+  await writeKey(lgKey, "png", lgBuffer);
+
+  return {
+    sizeOriginal: buffer.length,
+    sizeSm: smBuffer.length,
+    sizeLg: lgBuffer.length,
+    previewStatus: "complete",
+  };
+}
+
 export async function getMediaBuffer(input: {
   kind: BlobMediaKind;
   baseName: string;

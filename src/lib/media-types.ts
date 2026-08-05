@@ -372,6 +372,106 @@ export function isTextPreviewDocument(mimeType: string, ext: string): boolean {
   );
 }
 
+/** Max UTF-8 bytes accepted for in-browser text/code editing (Monaco). */
+export const MAX_EDITABLE_TEXT_DOCUMENT_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Uploaded documents that can be opened in the gallery text/code editor.
+ * Excludes office/PDF binaries even if somehow marked text/*.
+ */
+export function isEditableTextDocument(mimeType: string, ext: string): boolean {
+  const normalizedMime = mimeType.toLowerCase();
+  const normalizedExt = ext.toLowerCase();
+  if (
+    PDF_EXTENSIONS.has(normalizedExt) ||
+    THUMBNAIL_SERVICE_DOCUMENT_EXTENSIONS.has(normalizedExt) ||
+    SPREADSHEET_EXTENSIONS.has(normalizedExt) ||
+    PRESENTATION_EXTENSIONS.has(normalizedExt)
+  ) {
+    return false;
+  }
+  if (
+    normalizedMime.includes("pdf") ||
+    normalizedMime.includes("msword") ||
+    normalizedMime.includes("officedocument") ||
+    normalizedMime.includes("opendocument") ||
+    normalizedMime.includes("ms-excel") ||
+    normalizedMime.includes("powerpoint")
+  ) {
+    return false;
+  }
+  return isTextPreviewDocument(normalizedMime, normalizedExt);
+}
+
+/** Monaco language id for a file extension (best-effort). */
+export function monacoLanguageFromExt(ext: string): string {
+  const normalized = ext.toLowerCase();
+  const map: Record<string, string> = {
+    md: "markdown",
+    markdown: "markdown",
+    json: "json",
+    jsonc: "json",
+    yaml: "yaml",
+    yml: "yaml",
+    toml: "ini",
+    ini: "ini",
+    xml: "xml",
+    html: "html",
+    css: "css",
+    scss: "scss",
+    less: "less",
+    sass: "scss",
+    js: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    py: "python",
+    rb: "ruby",
+    go: "go",
+    rs: "rust",
+    c: "c",
+    h: "c",
+    cpp: "cpp",
+    hpp: "cpp",
+    cs: "csharp",
+    java: "java",
+    kt: "kotlin",
+    kts: "kotlin",
+    swift: "swift",
+    php: "php",
+    sh: "shell",
+    bash: "shell",
+    zsh: "shell",
+    fish: "shell",
+    ps1: "powershell",
+    sql: "sql",
+    lua: "lua",
+    r: "r",
+    dart: "dart",
+    scala: "scala",
+    pl: "perl",
+    pm: "perl",
+    graphql: "graphql",
+    gql: "graphql",
+    proto: "protobuf",
+    dockerfile: "dockerfile",
+    txt: "plaintext",
+    text: "plaintext",
+    csv: "plaintext",
+    tsv: "plaintext",
+    env: "ini",
+    gitignore: "plaintext",
+    dockerignore: "plaintext",
+    npmrc: "ini",
+    editorconfig: "ini",
+    tf: "plaintext",
+    tfvars: "plaintext",
+  };
+  return map[normalized] ?? "plaintext";
+}
+
 /** @deprecated Prefer isTextPreviewDocument — kept for call-site compatibility. */
 export const isLocalTextPreviewDocument = isTextPreviewDocument;
 
