@@ -1939,6 +1939,63 @@ export default function GalleryClient({
     setIsAddModalOpen(false);
   }
 
+  async function handleRemoveFromAlbum() {
+    if (!uploadAlbumId) {
+      setBulkError("Album id is missing.");
+      return;
+    }
+    const ok = await runBulkAction("removeFromAlbum", {
+      albumId: uploadAlbumId,
+    });
+    if (!ok) return;
+    setItems((current) => current.filter((image) => !selected.has(image.id)));
+    if (active && selected.has(active.id)) {
+      closeModal();
+    }
+    setSelected(new Set());
+  }
+
+  function removeImageFromLocalState(image: GalleryImage) {
+    setItems((current) => current.filter((item) => item.id !== image.id));
+    setSelected((current) => {
+      if (!current.has(image.id)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(image.id);
+      return next;
+    });
+    if (active?.id === image.id) {
+      closeModal();
+    }
+    setImageToDelete(null);
+  }
+
+  async function removeSingleImageFromAlbum(image: GalleryImage) {
+    if (!uploadAlbumId) {
+      setDeleteError("Album id is missing.");
+      return;
+    }
+    setDeleteError(null);
+    const response = await fetch("/api/media/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "removeFromAlbum",
+        albumId: uploadAlbumId,
+        mediaItems: [{ id: image.id, kind: image.kind }],
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setDeleteError(payload.error ?? "Unable to remove image from album.");
+      return;
+    }
+
+    removeImageFromLocalState(image);
+  }
+
   async function deleteSingleImage(image: GalleryImage) {
     setDeleteError(null);
     const response = await fetch("/api/media/bulk", {
@@ -1956,19 +2013,7 @@ export default function GalleryClient({
       return;
     }
 
-    setItems((current) => current.filter((item) => item.id !== image.id));
-    setSelected((current) => {
-      if (!current.has(image.id)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(image.id);
-      return next;
-    });
-    if (active?.id === image.id) {
-      closeModal();
-    }
-    setImageToDelete(null);
+    removeImageFromLocalState(image);
   }
 
   useEffect(() => {
@@ -2456,17 +2501,27 @@ export default function GalleryClient({
       {selectedIds.length > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded border border-neutral-200 px-4 py-2 text-xs">
           <span>{selectedIds.length} selected</span>
-          <button
-            type="button"
-            onClick={() => {
-              setBulkError(null);
-              setIsAddModalOpen(true);
-              void fetchAlbums();
-            }}
-            className="rounded border border-neutral-200 px-3 py-1"
-          >
-            Add to album
-          </button>
+          {inAlbumContext ? (
+            <button
+              type="button"
+              onClick={() => void handleRemoveFromAlbum()}
+              className="rounded border border-neutral-200 px-3 py-1"
+            >
+              Remove from album
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setBulkError(null);
+                setIsAddModalOpen(true);
+                void fetchAlbums();
+              }}
+              className="rounded border border-neutral-200 px-3 py-1"
+            >
+              Add to album
+            </button>
+          )}
           <button
             type="button"
             onClick={handleDisableSharing}
@@ -3576,12 +3631,14 @@ export default function GalleryClient({
           <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
             <h3 className="text-lg font-semibold">Delete image?</h3>
             <p className="mt-1 text-xs text-neutral-500">
-              This will permanently delete the file and its share links.
+              {inAlbumContext
+                ? "Delete permanently, or remove this file from the album only."
+                : "This will permanently delete the file and its share links."}
             </p>
             {deleteError ? (
               <p className="mt-2 text-xs text-red-600">{deleteError}</p>
             ) : null}
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setImageToDelete(null)}
@@ -3589,6 +3646,15 @@ export default function GalleryClient({
               >
                 Cancel
               </button>
+              {inAlbumContext ? (
+                <button
+                  type="button"
+                  onClick={() => void removeSingleImageFromAlbum(imageToDelete)}
+                  className="rounded border border-neutral-200 px-3 py-1 text-xs"
+                >
+                  Remove from album
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void deleteSingleImage(imageToDelete)}
