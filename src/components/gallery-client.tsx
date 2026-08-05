@@ -578,12 +578,16 @@ export default function GalleryClient({
       ? ROTATABLE_EXTENSIONS.has(active.ext.toLowerCase())
       : false;
   const activeDisplayName = active?.originalFileName || active?.baseName || "";
+  function isEditableCodeGalleryItem(image: GalleryImage | null | undefined) {
+    return Boolean(
+      image &&
+        image.kind === "document" &&
+        isEditableTextDocument(image.mimeType ?? "", image.ext),
+    );
+  }
+
   const isNoteActive = active?.kind === "note";
-  const isCodeFileActive = Boolean(
-    active &&
-      active.kind === "document" &&
-      isEditableTextDocument(active.mimeType ?? "", active.ext),
-  );
+  const isCodeFileActive = isEditableCodeGalleryItem(active);
   const isTextEditorActive = isNoteActive || isCodeFileActive;
   const noteIsDirty =
     isNoteActive && activeNote
@@ -1295,15 +1299,13 @@ export default function GalleryClient({
     setNoteHistoryError(null);
     setNoteHistoryEntries([]);
     setSelectedNoteHistory(null);
-    setEditorWindowMode("windowed");
+    const opensCodeEditor = isEditableCodeGalleryItem(image);
+    setEditorWindowMode(opensCodeEditor ? "large" : "windowed");
 
     try {
       if (image.kind === "note") {
         await loadNote(image.id);
-      } else if (
-        image.kind === "document" &&
-        isEditableTextDocument(image.mimeType ?? "", image.ext)
-      ) {
+      } else if (opensCodeEditor) {
         await loadCodeFile(image.id);
       }
       if (readOnly) {
@@ -2980,6 +2982,11 @@ export default function GalleryClient({
                           />
                         </div>
                       ) : null}
+                      {isEditableCodeGalleryItem(image) ? (
+                        <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
+                          editable
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </button>
@@ -2990,7 +2997,9 @@ export default function GalleryClient({
                       ? `${image.width}×${image.height}`
                       : image.kind === "note"
                         ? "markdown"
-                        : image.kind}
+                        : isEditableCodeGalleryItem(image)
+                          ? "editable"
+                          : image.kind}
                   </span>
                 </div>
                 {inAlbumContext && image.albumCaption ? (
@@ -3204,7 +3213,9 @@ export default function GalleryClient({
               <>
                 <div className="flex sm:flex-row flex-col items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-lg font-semibold">file details</h2>
+                    <h2 className="text-lg font-semibold">
+                      {isCodeFileActive ? "edit file" : "file details"}
+                    </h2>
                     <div className="mt-1 flex items-center gap-2">
                       {readOnly ? (
                         <p className="text-xs text-neutral-500">
