@@ -1,4 +1,5 @@
 import {
+  isTextPreviewDocument,
   isThumbnailServiceSupported,
   type AsyncPreviewKind,
   type BlobMediaKind,
@@ -15,7 +16,7 @@ type PreviewRequestPayload = {
   youtubeId?: string;
 };
 
-export type ThumbnailServiceContentType = "image" | "video" | "doc";
+export type ThumbnailServiceContentType = "image" | "video" | "doc" | "text";
 
 export type ThumbnailServiceRequestPayload = {
   mediaId: string;
@@ -24,6 +25,7 @@ export type ThumbnailServiceRequestPayload = {
   fileSizeBytes: number;
   mimeType: string;
   youtubeId?: string;
+  ext?: string;
 };
 
 export type YoutubeMetadataPayload = {
@@ -73,7 +75,12 @@ function workerUrl(path: string): string {
 
 export function thumbnailContentTypeForKind(
   kind: AsyncPreviewKind,
+  mimeType = "",
+  ext = "",
 ): ThumbnailServiceContentType {
+  if (kind === "document" && isTextPreviewDocument(mimeType, ext)) {
+    return "text";
+  }
   return kind === "document" ? "doc" : kind;
 }
 
@@ -114,10 +121,15 @@ export async function requestPreviewGeneration(
   const workerPayload: ThumbnailServiceRequestPayload = {
     mediaId: payload.mediaId,
     downloadUrl: payload.downloadUrl,
-    contentType: thumbnailContentTypeForKind(payload.kind),
+    contentType: thumbnailContentTypeForKind(
+      payload.kind,
+      payload.mimeType,
+      payload.ext,
+    ),
     fileSizeBytes: payload.fileSizeBytes,
     mimeType: payload.mimeType,
     youtubeId: payload.youtubeId,
+    ext: payload.ext,
   };
   try {
     const response = await fetch(

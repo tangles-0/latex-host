@@ -41,11 +41,11 @@ function getClientKey(request: RequestLike | undefined): string {
 
 async function userExists(userId: string): Promise<boolean> {
   const [row] = await db
-    .select({ id: users.id })
+    .select({ id: users.id, bannedAt: users.bannedAt })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  return Boolean(row);
+  return Boolean(row && !row.bannedAt);
 }
 
 function shouldValidateSessionUserOnEachRequest(): boolean {
@@ -89,6 +89,10 @@ export const authOptions: NextAuthOptions = {
 
         const isValid = await bcrypt.compare(password, user.passwordHash);
         if (!isValid) {
+          return null;
+        }
+
+        if (user.bannedAt) {
           return null;
         }
 

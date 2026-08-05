@@ -284,7 +284,25 @@ function escapeXml(input: string): string {
     .replace(/'/g, "&#39;");
 }
 
+const LOCAL_MONO_FONT_CANDIDATES = [
+  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+];
+
+async function resolveEmbeddedMonoFont(): Promise<string | null> {
+  for (const candidate of LOCAL_MONO_FONT_CANDIDATES) {
+    try {
+      const buffer = await fs.readFile(candidate);
+      return `data:font/ttf;base64,${buffer.toString("base64")}`;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
 async function asTextPreviewPng(label: string, text: string): Promise<Buffer> {
+  // Prefer the offload worker for text/code previews; this path is a fallback.
   const lines = text
     .replace(/\r/g, "")
     .split("\n")
@@ -293,20 +311,27 @@ async function asTextPreviewPng(label: string, text: string): Promise<Buffer> {
     .filter((line) => line.length > 0)
     .slice(0, 18);
   const paddedLines = lines.length > 0 ? lines : ["(empty file)"];
+  const fontDataUri = await resolveEmbeddedMonoFont();
+  const fontFamily = fontDataUri
+    ? "PreviewMono"
+    : "DejaVu Sans Mono, Liberation Mono, monospace";
+  const fontFace = fontDataUri
+    ? `@font-face { font-family: 'PreviewMono'; src: url('${fontDataUri}'); }`
+    : "";
   const lineNodes = paddedLines
     .map(
       (line, index) =>
-        `<text x="56" y="${190 + index * 30}" font-size="24" fill="#d1d5db" font-family="monospace">${escapeXml(line.slice(0, 88))}</text>`,
+        `<text x="56" y="${190 + index * 30}" font-size="24" fill="#d1d5db" font-family="${fontFamily}">${escapeXml(line.slice(0, 88))}</text>`,
     )
     .join("");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768">
+  <defs><style><![CDATA[${fontFace}]]></style></defs>
   <rect width="100%" height="100%" fill="#0f172a"/>
   <rect x="24" y="24" width="976" height="720" rx="18" fill="#111827" stroke="#1f2937"/>
-  <text x="56" y="116" font-size="44" fill="#93c5fd" font-family="Arial, sans-serif">${escapeXml(label)}</text>
+  <text x="56" y="116" font-size="44" fill="#93c5fd" font-family="${fontFamily}">${escapeXml(label)}</text>
   ${lineNodes}
   </svg>`;
   try {
-    console.log("Generating text preview PNG with fontconfig.");
     return await sharp(Buffer.from(svg)).png().toBuffer();
   } catch {
     // Fall back to a font-free placeholder if fontconfig is unavailable.

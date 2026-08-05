@@ -346,8 +346,8 @@ export default function ManageLimitsClient({
           className={clsx(
             "fixed bottom-4 left-4 right-4 z-50 flex max-w-md items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-xl sm:left-auto",
             toast.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-red-200 bg-red-50 text-red-900"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-red-200 bg-red-50 text-red-700"
           )}
         >
           {toast.tone === "success" ? (
@@ -375,7 +375,7 @@ export default function ManageLimitsClient({
               <p className="mt-1 text-[11px] text-neutral-400">{scopes.length} configurable scopes</p>
             </div>
             {dirtyScopeCount > 0 ? (
-              <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800">
+              <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">
                 {dirtyScopeCount} unsaved
               </span>
             ) : null}
@@ -397,14 +397,14 @@ export default function ManageLimitsClient({
                   className={clsx(
                     "flex min-w-52 shrink-0 items-center gap-3 rounded-xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 lg:w-full lg:min-w-0",
                     isActive
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-950"
+                      ? "border-neutral-300 bg-neutral-100 text-neutral-900"
                       : "border-transparent text-neutral-700 hover:border-neutral-200 hover:bg-neutral-50"
                   )}
                 >
                   <span
                     className={clsx(
                       "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-                      isActive ? "bg-indigo-600 text-white" : "bg-neutral-100 text-neutral-500"
+                      isActive ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
                     )}
                   >
                     {scope.id === "default" ? <Users className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
@@ -414,14 +414,15 @@ export default function ManageLimitsClient({
                       <span className="truncate text-xs font-semibold">{scope.name}</span>
                       {isDirty ? (
                         <span
-                          className="h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: "var(--theme-alert-warning)" }}
                           title="Unsaved changes"
                         />
                       ) : null}
                     </span>
                     <span className="mt-0.5 block text-[10px] text-neutral-500">{scope.description}</span>
                   </span>
-                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-neutral-500">
+                  <span className="rounded-full bg-neutral-50 px-2 py-0.5 text-[10px] font-medium text-neutral-500">
                     {scope.limits.allowedTypes.length === 0 ? "All" : scope.limits.allowedTypes.length}
                   </span>
                 </button>
@@ -433,23 +434,23 @@ export default function ManageLimitsClient({
 
       <main className="min-w-0 space-y-5">
         <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-          <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-indigo-950 px-4 py-5 text-white sm:px-6">
+          <div className="border-b border-neutral-200 bg-neutral-50 px-4 py-5 sm:px-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-widest text-indigo-200">
+                <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-widest text-neutral-500">
                   {activeScope.id === "default" ? "Default policy" : "Group policy"}
                   {isActiveDirty ? (
-                    <span className="rounded-full bg-amber-400/20 px-2 py-0.5 normal-case tracking-normal text-amber-200">
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 normal-case tracking-normal text-amber-800">
                       Unsaved changes
                     </span>
                   ) : (
-                    <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 normal-case tracking-normal text-emerald-200">
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 normal-case tracking-normal text-emerald-700">
                       Saved
                     </span>
                   )}
                 </div>
-                <h2 className="mt-2 text-xl font-semibold">{activeScope.name}</h2>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-300">
+                <h2 className="mt-2 text-xl font-semibold text-neutral-900">{activeScope.name}</h2>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-500">
                   {activeScope.id === "default"
                     ? "Applies to users who are not assigned to a group."
                     : "Overrides the ungrouped policy for every user assigned to this group."}
@@ -460,7 +461,7 @@ export default function ManageLimitsClient({
                 onClick={() => void saveActiveScope()}
                 disabled={busyAction !== null || !isActiveDirty}
                 aria-busy={busyAction === "save"}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-semibold text-neutral-950 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-black px-4 text-xs font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busyAction === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {busyAction === "save" ? "Saving..." : "Save changes"}
@@ -484,7 +485,7 @@ export default function ManageLimitsClient({
                       <select
                         value={effectiveCopySourceId}
                         onChange={event => setCopySourceId(event.target.value)}
-                        className="h-9 min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-2 text-xs outline-none"
                       >
                         {availableSources.map(scope => (
                           <option
@@ -514,9 +515,9 @@ export default function ManageLimitsClient({
               </div>
             </div>
 
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
               <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-700 shadow-sm">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-600 shadow-sm">
                   <ArrowRightLeft className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -528,7 +529,7 @@ export default function ManageLimitsClient({
                     type="button"
                     onClick={() => setIsSyncOpen(current => !current)}
                     disabled={availableTargets.length === 0 || busyAction !== null}
-                    className="mt-3 h-9 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="mt-3 h-9 rounded-lg bg-black px-3 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {isSyncOpen ? "Close sync options" : "Choose sync targets"}
                   </button>
@@ -538,7 +539,7 @@ export default function ManageLimitsClient({
           </div>
 
           {isSyncOpen ? (
-            <div className="border-t border-indigo-100 bg-indigo-50/40 p-4 sm:p-5">
+            <div className="border-t border-neutral-200 bg-neutral-50 p-4 sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-neutral-900">Apply {activeScope.name} settings to</h3>
@@ -550,7 +551,7 @@ export default function ManageLimitsClient({
                   <button
                     type="button"
                     onClick={() => setSyncTargetIds(new Set(availableTargets.map(scope => scope.id)))}
-                    className="text-[11px] font-medium text-indigo-700 hover:text-indigo-900"
+                    className="text-[11px] font-medium text-neutral-700 hover:text-neutral-900"
                   >
                     Select all
                   </button>
@@ -577,14 +578,14 @@ export default function ManageLimitsClient({
                       className={clsx(
                         "flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
                         isSelected
-                          ? "border-indigo-300 bg-white text-indigo-950 shadow-sm"
-                          : "border-neutral-200 bg-white/60 text-neutral-700 hover:bg-white"
+                          ? "border-neutral-800 bg-white text-neutral-900 shadow-sm"
+                          : "border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-white"
                       )}
                     >
                       <span
                         className={clsx(
                           "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                          isSelected ? "border-indigo-600 bg-indigo-600 text-white" : "border-neutral-300 bg-white"
+                          isSelected ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300 bg-white"
                         )}
                       >
                         {isSelected ? (
@@ -602,7 +603,7 @@ export default function ManageLimitsClient({
                   )
                 })}
               </div>
-              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-neutral-600">
                   {selectedTargets.length === 0
                     ? "Select at least one target scope."
@@ -613,7 +614,7 @@ export default function ManageLimitsClient({
                   onClick={() => void saveAndSync()}
                   disabled={selectedTargets.length === 0 || busyAction !== null}
                   aria-busy={busyAction === "sync"}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-black px-4 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {busyAction === "sync" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -629,7 +630,7 @@ export default function ManageLimitsClient({
 
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
               <HardDrive className="h-4 w-4" />
             </span>
             <div>
@@ -647,9 +648,9 @@ export default function ManageLimitsClient({
                   key={field.key}
                   className="rounded-xl border border-neutral-200 bg-neutral-50 p-3"
                 >
-                  <span className="block text-xs font-semibold text-neutral-800">{field.label}</span>
+                  <span className="block text-xs font-semibold text-neutral-900">{field.label}</span>
                   <span className="mt-0.5 block text-[10px] text-neutral-500">{field.description}</span>
-                  <span className="mt-3 flex overflow-hidden rounded-lg border border-neutral-300 bg-white focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+                  <span className="mt-3 flex overflow-hidden rounded-lg border border-neutral-300 bg-white">
                     <input
                       type="number"
                       min={0.01}
@@ -676,7 +677,7 @@ export default function ManageLimitsClient({
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
                 <Gauge className="h-4 w-4" />
               </span>
               <div>
@@ -698,7 +699,7 @@ export default function ManageLimitsClient({
                     rateLimitPerMinute: Number(event.target.value)
                   }))
                 }
-                className="h-9 w-24 rounded-lg border border-neutral-300 bg-white px-2 text-right text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                className="h-9 w-24 rounded-lg border border-neutral-300 bg-white px-2 text-right text-sm outline-none"
               />
             </label>
           </div>
@@ -709,7 +710,7 @@ export default function ManageLimitsClient({
           onChange={allowedTypes => updateActiveDraft(current => ({ ...current, allowedTypes }))}
         />
 
-        <div className="sticky bottom-3 z-20 flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-3 shadow-xl backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-3 z-20 flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xl sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-neutral-900">
               {isActiveDirty ? "You have unsaved changes" : `${activeScope.name} is up to date`}
@@ -735,7 +736,7 @@ export default function ManageLimitsClient({
               onClick={() => void saveActiveScope()}
               disabled={!isActiveDirty || busyAction !== null}
               aria-busy={busyAction === "save"}
-              className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 text-xs font-semibold text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+              className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-black px-4 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
             >
               {busyAction === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {busyAction === "save" ? "Saving..." : "Save changes"}

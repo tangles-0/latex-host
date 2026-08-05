@@ -362,15 +362,33 @@ export function contentTypeForExt(ext: string): string {
   return EXT_TO_MIME[ext.toLowerCase()] ?? "application/octet-stream";
 }
 
-export function isLocalTextPreviewDocument(
-  mimeType: string,
-  ext: string,
-): boolean {
+/** Text/code docs rendered as monospace PNG previews (offloaded to the worker). */
+export function isTextPreviewDocument(mimeType: string, ext: string): boolean {
   const normalizedMime = mimeType.toLowerCase();
   const normalizedExt = ext.toLowerCase();
   return (
     normalizedMime.startsWith("text/") ||
     LOCAL_TEXT_PREVIEW_EXTENSIONS.has(normalizedExt)
+  );
+}
+
+/** @deprecated Prefer isTextPreviewDocument — kept for call-site compatibility. */
+export const isLocalTextPreviewDocument = isTextPreviewDocument;
+
+export function isOfficeOrPdfDocument(mimeType: string, ext: string): boolean {
+  const normalizedMime = mimeType.toLowerCase();
+  const normalizedExt = ext.toLowerCase();
+  return (
+    normalizedMime.includes("pdf") ||
+    normalizedMime.includes("document") ||
+    normalizedMime.includes("spreadsheet") ||
+    normalizedMime.includes("presentation") ||
+    normalizedMime.includes("msword") ||
+    normalizedMime.includes("ms-excel") ||
+    normalizedMime.includes("powerpoint") ||
+    normalizedMime.includes("opendocument") ||
+    normalizedMime.includes("rtf") ||
+    THUMBNAIL_SERVICE_DOCUMENT_EXTENSIONS.has(normalizedExt)
   );
 }
 
@@ -402,18 +420,93 @@ export function isThumbnailServiceSupported(input: {
   }
   if (input.kind === "document") {
     return (
-      !isLocalTextPreviewDocument(normalizedMime, normalizedExt) &&
-      (normalizedMime.includes("pdf") ||
-        normalizedMime.includes("document") ||
-        normalizedMime.includes("spreadsheet") ||
-        normalizedMime.includes("presentation") ||
-        normalizedMime.includes("msword") ||
-        normalizedMime.includes("ms-excel") ||
-        normalizedMime.includes("powerpoint") ||
-        normalizedMime.includes("opendocument") ||
-        normalizedMime.includes("rtf") ||
-        THUMBNAIL_SERVICE_DOCUMENT_EXTENSIONS.has(normalizedExt))
+      isTextPreviewDocument(normalizedMime, normalizedExt) ||
+      isOfficeOrPdfDocument(normalizedMime, normalizedExt)
     );
+  }
+  return false;
+}
+
+/** Extensions/mimes that warrant a confirmation before enabling a public share. */
+export const RISKY_SHARE_EXTENSIONS = new Set([
+  ...ARCHIVE_EXTENSIONS,
+  "exe",
+  "msi",
+  "dll",
+  "so",
+  "dylib",
+  "apk",
+  "ipa",
+  "deb",
+  "rpm",
+  "jar",
+  "war",
+  "ear",
+  "dmg",
+  "pkg",
+  "appimage",
+  "iso",
+  "wasm",
+  "bat",
+  "cmd",
+  "com",
+  "scr",
+  "vbs",
+  "ps1",
+  "html",
+  "htm",
+  "svg",
+  "xhtml",
+  "xml",
+  "js",
+  "mjs",
+  "cjs",
+  "jsx",
+  "ts",
+  "tsx",
+  "php",
+  "asp",
+  "aspx",
+  "jsp",
+  "cgi",
+  "env",
+  "npmrc",
+  "pem",
+  "key",
+  "p12",
+  "pfx",
+  "sqlite",
+  "sqlite3",
+  "db",
+]);
+
+export function isRiskyShareFile(input: {
+  kind: MediaKind | string;
+  ext: string;
+  mimeType?: string;
+}): boolean {
+  if (input.kind === "note") {
+    return false;
+  }
+  const normalizedExt = input.ext.toLowerCase();
+  const normalizedMime = (input.mimeType ?? "").toLowerCase();
+  if (RISKY_SHARE_EXTENSIONS.has(normalizedExt)) {
+    return true;
+  }
+  if (
+    normalizedMime.includes("executable") ||
+    normalizedMime.includes("msdownload") ||
+    normalizedMime.includes("java-archive") ||
+    normalizedMime.includes("android.package") ||
+    normalizedMime.includes("x-msdos-program") ||
+    normalizedMime === "text/html" ||
+    normalizedMime === "image/svg+xml" ||
+    normalizedMime === "application/javascript" ||
+    normalizedMime === "text/javascript" ||
+    normalizedMime === "application/x-sh" ||
+    normalizedMime === "application/x-bat"
+  ) {
+    return true;
   }
   return false;
 }

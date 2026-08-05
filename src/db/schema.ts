@@ -7,6 +7,7 @@ import {
   boolean,
   index,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 export const groups = pgTable("groups", {
@@ -65,6 +66,7 @@ export const users = pgTable("users", {
   lastPatchNoteDismissed: timestamp("last_patch_note_dismissed", {
     mode: "date",
   }),
+  bannedAt: timestamp("banned_at", { mode: "date" }),
 });
 
 export const patchNotes = pgTable("patch_notes", {
@@ -491,5 +493,26 @@ export const apiDevices = pgTable(
   },
   (table) => ({
     apiDevicesUserIdx: index("api_devices_user_id_idx").on(table.userId),
+  }),
+);
+
+export const abuseReports = pgTable(
+  "abuse_reports",
+  {
+    id: text("id").primaryKey(),
+    description: text("description").notNull(),
+    urls: jsonb("urls").$type<string[]>().notNull(),
+    reporterEmail: text("reporter_email"),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    resolvedAt: timestamp("resolved_at", { mode: "date" }),
+    resolvedByUserId: text("resolved_by_user_id").references(() => users.id),
+    resolutionNote: text("resolution_note"),
+  },
+  (table) => ({
+    abuseReportsStatusIdx: index("abuse_reports_status_idx").on(table.status),
+    abuseReportsCreatedAtIdx: index("abuse_reports_created_at_idx").on(
+      table.createdAt,
+    ),
   }),
 );

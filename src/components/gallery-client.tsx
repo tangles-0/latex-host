@@ -29,8 +29,11 @@ import { ImageViewerContent } from "./viewers/image-viewer-content";
 import { FileViewerContent } from "./viewers/file-viewer-content";
 import NoteMarkdown from "./note-markdown";
 import NoteRichEditor from "./note-rich-editor";
+import { ConfirmModal } from "@/components/confirm-modal";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
+import { isRiskyShareFile } from "@/lib/media-types";
+import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
@@ -203,6 +206,9 @@ export default function GalleryClient({
   const [active, setActive] = useState<GalleryImage | null>(null);
   const [share, setShare] = useState<ShareInfo | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [pendingRiskyShare, setPendingRiskyShare] =
+    useState<GalleryImage | null>(null);
+  const [isConfirmingRiskyShare, setIsConfirmingRiskyShare] = useState(false);
   const [sharePasswordDraft, setSharePasswordDraft] = useState("");
   const [isSavingSharePassword, setIsSavingSharePassword] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -1349,6 +1355,33 @@ export default function GalleryClient({
       ),
     );
     return nextShare;
+  }
+
+  async function requestEnableShare(image: GalleryImage) {
+    if (
+      isRiskyShareFile({
+        kind: image.kind,
+        ext: image.ext,
+        mimeType: image.mimeType,
+      })
+    ) {
+      setPendingRiskyShare(image);
+      return;
+    }
+    await enableShare(image);
+  }
+
+  async function confirmRiskyShare() {
+    if (!pendingRiskyShare) {
+      return;
+    }
+    setIsConfirmingRiskyShare(true);
+    try {
+      await enableShare(pendingRiskyShare);
+      setPendingRiskyShare(null);
+    } finally {
+      setIsConfirmingRiskyShare(false);
+    }
   }
 
   async function disableShare(image: GalleryImage) {
@@ -3210,7 +3243,7 @@ export default function GalleryClient({
                             onClick={() =>
                               void (share
                                 ? disableShare(active)
-                                : enableShare(active))
+                                : requestEnableShare(active))
                             }
                             className={`rounded px-3 py-1 text-xs ${
                               share
@@ -3567,6 +3600,27 @@ export default function GalleryClient({
           </div>
         </div>
       ) : null}
+
+      <ConfirmModal
+        open={Boolean(pendingRiskyShare)}
+        title="Enable share for a risky file?"
+        confirmLabel="Enable share"
+        confirmTone="danger"
+        busy={isConfirmingRiskyShare}
+        onCancel={() => setPendingRiskyShare(null)}
+        onConfirm={() => void confirmRiskyShare()}
+      >
+        <p>{RISKY_SHARE_WARNING}</p>
+        {pendingRiskyShare ? (
+          <p className="mt-3 text-xs text-neutral-500">
+            File:{" "}
+            <code>
+              {pendingRiskyShare.originalFileName ||
+                `${pendingRiskyShare.baseName}.${pendingRiskyShare.ext}`}
+            </code>
+          </p>
+        ) : null}
+      </ConfirmModal>
     </>
   );
 }

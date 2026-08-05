@@ -792,6 +792,12 @@ body {
   background-color: var(--theme-panel);
 }
 
+[data-theme] .bg-white\/60,
+[data-theme] .bg-white\/80,
+[data-theme] .bg-white\/95 {
+  background-color: color-mix(in srgb, var(--theme-panel) 92%, transparent);
+}
+
 [data-theme] .bg-neutral-50 {
   background-color: color-mix(
     in srgb,
@@ -833,7 +839,8 @@ body {
   border-color: var(--theme-alert-success-border);
 }
 
-[data-theme] .bg-emerald-50 {
+[data-theme] .bg-emerald-50,
+[data-theme] .bg-emerald-100 {
   background-color: var(--theme-alert-success-bg);
 }
 
@@ -860,7 +867,9 @@ body {
   color: var(--theme-panel);
 }
 
-[data-theme] .text-emerald-700 {
+[data-theme] .text-emerald-700,
+[data-theme] .text-emerald-800,
+[data-theme] .text-emerald-900 {
   color: var(--theme-alert-success);
 }
 
@@ -868,11 +877,14 @@ body {
   border-color: var(--theme-alert-warning-border);
 }
 
-[data-theme] .bg-amber-50 {
+[data-theme] .bg-amber-50,
+[data-theme] .bg-amber-100 {
   background-color: var(--theme-alert-warning-bg);
 }
 
-[data-theme] .text-amber-700 {
+[data-theme] .text-amber-700,
+[data-theme] .text-amber-800,
+[data-theme] .text-amber-900 {
   color: var(--theme-alert-warning);
 }
 
@@ -891,12 +903,9 @@ body {
 
 [data-theme] .text-red-600,
 [data-theme] .text-red-700,
-[data-theme] .text-red-800 {
+[data-theme] .text-red-800,
+[data-theme] .text-red-900 {
   color: var(--theme-alert-danger);
-}
-
-[data-theme] .text-amber-800 {
-  color: var(--theme-alert-warning);
 }
 
 [data-theme] .bg-neutral-900 {

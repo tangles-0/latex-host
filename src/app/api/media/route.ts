@@ -16,7 +16,6 @@ import {
 import {
   contentTypeForExt,
   extFromFileName,
-  isLocalTextPreviewDocument,
   isThumbnailServiceSupported,
   mediaKindFromType,
 } from "@/lib/media-types";
@@ -207,9 +206,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           ext,
           mimeType,
           uploadedAt,
-          deferPreview:
-            canUseThumbnailService &&
-            !isLocalTextPreviewDocument(mimeType, ext),
+          deferPreview: canUseThumbnailService,
         });
 
   const media = await addMediaForUser({

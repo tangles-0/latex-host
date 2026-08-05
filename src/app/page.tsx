@@ -169,6 +169,11 @@ export default async function Home() {
           <code>/share/&lt;file&gt;-sm.png</code>
         </p>
       </section>
+
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4 text-xs text-neutral-500">
+        <TextLink href="/report-abuse">Report abuse</TextLink>
+        <span>direct file links · no nonsense</span>
+      </footer>
     </main>
   );
 }

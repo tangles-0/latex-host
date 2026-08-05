@@ -59,6 +59,9 @@ export default async function AdminHomePage() {
           <TextLink href="/admin/database" className="text-sm">
             Database
           </TextLink>
+          <TextLink href="/admin/abuse" className="text-sm">
+            Abuse
+          </TextLink>
         </div>
       </PageHeader>
 

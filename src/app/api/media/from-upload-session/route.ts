@@ -3,7 +3,6 @@ import { getSessionUserId } from "@/lib/auth";
 import { getAlbumForUser } from "@/lib/metadata-store";
 import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
 import {
-  isLocalTextPreviewDocument,
   isThumbnailServiceSupported,
   mediaKindFromType,
 } from "@/lib/media-types";
@@ -101,9 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       ext: session.ext,
       mimeType: session.mimeType,
       uploadedAt,
-      deferPreview:
-        canUseThumbnailService &&
-        !isLocalTextPreviewDocument(session.mimeType, session.ext),
+      deferPreview: canUseThumbnailService,
     });
   }
   const media = await addMediaForUser({

@@ -9,15 +9,18 @@ import {
   useState,
 } from "react";
 import type { BlobMediaKind } from "@/lib/media-types";
+import { isRiskyShareFile } from "@/lib/media-types";
 import {
   DEFAULT_RESUMABLE_THRESHOLD,
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
   uploadSingleMedia,
 } from "@/lib/upload-client";
+import { ConfirmModal } from "@/components/confirm-modal";
 import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
 import { LightImages } from "@energiz3r/icon-library/Icons/Light/LightImages";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
+import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 
 type UploadState = "idle" | "uploading" | "success" | "error";
 type PreviewStatus = "pending" | "started" | "complete" | "error";
@@ -187,6 +190,9 @@ export default function UploadDropzone({
   const [isSavingAlbumPicker, setIsSavingAlbumPicker] = useState(false);
   const [recentUploads, setRecentUploads] = useState<UploadedImage[]>([]);
   const [shareStates, setShareStates] = useState<Record<string, ShareInfo>>({});
+  const [pendingRiskyShare, setPendingRiskyShare] =
+    useState<UploadedImage | null>(null);
+  const [isConfirmingRiskyShare, setIsConfirmingRiskyShare] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [messages, setMessages] = useState<UploadMessage[]>([]);
   const [youtubeIngestMedia, setYoutubeIngestMedia] = useState<
@@ -1035,7 +1041,7 @@ export default function UploadDropzone({
     return nextShare;
   }
 
-  async function copyShare(image: UploadedImage) {
+  async function copyEnabledShare(image: UploadedImage) {
     let share: ShareInfo | null | undefined = shareStates[image.id];
     if (!share) {
       share = await enableSharing(image);
@@ -1051,6 +1057,34 @@ export default function UploadDropzone({
       () => setCopied((current) => (current === image.id ? null : current)),
       1200,
     );
+  }
+
+  async function copyShare(image: UploadedImage) {
+    if (
+      !shareStates[image.id] &&
+      isRiskyShareFile({
+        kind: image.kind,
+        ext: image.ext,
+        mimeType: image.mimeType,
+      })
+    ) {
+      setPendingRiskyShare(image);
+      return;
+    }
+    await copyEnabledShare(image);
+  }
+
+  async function confirmRiskyShare() {
+    if (!pendingRiskyShare) {
+      return;
+    }
+    setIsConfirmingRiskyShare(true);
+    try {
+      await copyEnabledShare(pendingRiskyShare);
+      setPendingRiskyShare(null);
+    } finally {
+      setIsConfirmingRiskyShare(false);
+    }
   }
 
   async function deleteRecentUpload(image: UploadedImage): Promise<boolean> {
@@ -1837,6 +1871,27 @@ export default function UploadDropzone({
           </div>
         </div>
       ) : null}
+
+      <ConfirmModal
+        open={Boolean(pendingRiskyShare)}
+        title="Share a risky file?"
+        confirmLabel="Enable & copy link"
+        confirmTone="danger"
+        busy={isConfirmingRiskyShare}
+        onCancel={() => setPendingRiskyShare(null)}
+        onConfirm={() => void confirmRiskyShare()}
+      >
+        <p>{RISKY_SHARE_WARNING}</p>
+        {pendingRiskyShare ? (
+          <p className="mt-3 text-xs text-neutral-500">
+            File:{" "}
+            <code>
+              {pendingRiskyShare.originalFileName ||
+                `${pendingRiskyShare.baseName}.${pendingRiskyShare.ext}`}
+            </code>
+          </p>
+        ) : null}
+      </ConfirmModal>
     </section>
   );
 }

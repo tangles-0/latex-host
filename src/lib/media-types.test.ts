@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   contentTypeForExt,
   extFromFileName,
+  isRiskyShareFile,
+  isTextPreviewDocument,
+  isThumbnailServiceSupported,
   mediaKindFromType,
   parseSizedFileName,
   splitFileName,
@@ -78,5 +81,30 @@ describe("mediaKindFromType", () => {
   it("treats known source-code extensions as documents", () => {
     expect(mediaKindFromType("video/mp2t", "ts")).toBe("document");
     expect(mediaKindFromType("application/octet-stream", "py")).toBe("document");
+  });
+});
+
+describe("text preview offload", () => {
+  it("classifies js as a text preview document", () => {
+    expect(isTextPreviewDocument("application/javascript", "js")).toBe(true);
+  });
+
+  it("sends text/code docs to the thumbnail service", () => {
+    expect(
+      isThumbnailServiceSupported({
+        kind: "document",
+        mimeType: "application/javascript",
+        ext: "js",
+        fileSizeBytes: 1024,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("isRiskyShareFile", () => {
+  it("flags executables and active web formats", () => {
+    expect(isRiskyShareFile({ kind: "other", ext: "exe" })).toBe(true);
+    expect(isRiskyShareFile({ kind: "document", ext: "js" })).toBe(true);
+    expect(isRiskyShareFile({ kind: "image", ext: "png" })).toBe(false);
   });
 });
