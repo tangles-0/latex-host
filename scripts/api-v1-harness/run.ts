@@ -2,7 +2,7 @@
 /**
  * Public API v1 validation harness.
  *
- * Env:
+ * Env (shell overrides .env.local / .env):
  *   API_V1_BASE_URL  default http://127.0.0.1:3000
  *   API_V1_KEY       required (lh_live_…)
  *   API_V1_KEEP_UPLOADS  set to "true" to skip DELETE cleanup
@@ -11,10 +11,16 @@ import { createHash, randomBytes } from "crypto";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { config as loadEnv } from "dotenv";
 import { uploadPart as uploadBlobPart } from "@vercel/blob/client";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, "../..");
 const FIXTURES = path.join(__dirname, "fixtures");
+
+// Prefer shell > .env.local > .env (dotenv never overrides existing keys).
+loadEnv({ path: path.join(REPO_ROOT, ".env.local") });
+loadEnv({ path: path.join(REPO_ROOT, ".env") });
 
 const baseUrl = (process.env.API_V1_BASE_URL ?? "http://127.0.0.1:3000").replace(
   /\/$/,
@@ -62,11 +68,6 @@ async function api(
     json = await response.json().catch(() => null);
   }
   return { status: response.status, json, headers: response.headers, response };
-}
-
-function makeBoundaryFile(size: number, name: string): File {
-  const buf = randomBytes(size);
-  return new File([buf], name, { type: "application/octet-stream" });
 }
 
 async function pollPreview(
@@ -231,7 +232,7 @@ async function main() {
 
   // simple private upload
   {
-    const png = readFileSync(path.join(FIXTURES, "tiny.png"));
+    const png = readFileSync(path.join(FIXTURES, "screenshot.png"));
     const form = new FormData();
     form.append(
       "file",
@@ -281,7 +282,7 @@ async function main() {
 
   // simple public upload + share URL
   {
-    const jpg = readFileSync(path.join(FIXTURES, "tiny.jpg"));
+    const jpg = readFileSync(path.join(FIXTURES, "noodle.jpg"));
     const form = new FormData();
     form.append(
       "file",
@@ -307,7 +308,12 @@ async function main() {
 
   // simple over threshold -> use_multipart
   {
-    const oversized = makeBoundaryFile(threshold, "too-big.bin");
+    // Must use an allowlisted type; .bin/octet-stream is rejected as 415 first.
+    const oversized = new File(
+      [randomBytes(threshold)],
+      "too-big.txt",
+      { type: "text/plain" },
+    );
     const form = new FormData();
     form.append("file", oversized);
     const { status, json } = await api("POST", "/api/v1/files", { body: form });

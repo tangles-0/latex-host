@@ -5,15 +5,21 @@ Validates the public `/api/v1` surface against a running app (local or productio
 ## Setup
 
 1. Create an API key on `/account` (copy it once).
-2. Point the harness at your target:
+2. Add it to `.env.local` (loaded automatically):
 
 ```bash
-export API_V1_BASE_URL=http://127.0.0.1:3000
-export API_V1_KEY=lh_live_…
+API_V1_BASE_URL=http://127.0.0.1:3000
+API_V1_KEY=lh_live_…
+# API_V1_KEEP_UPLOADS=false
+```
+
+3. Run:
+
+```bash
 pnpm test:api-v1
 ```
 
-Production example:
+Shell env vars still win over `.env.local` / `.env` if you need a one-off override (e.g. production):
 
 ```bash
 API_V1_BASE_URL=https://your-domain.example API_V1_KEY=lh_live_… pnpm test:api-v1
