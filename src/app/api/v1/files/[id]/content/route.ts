@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withApiV1Route } from "@/lib/api-v1/handler";
+import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
 import { apiV1Error } from "@/lib/api-v1/errors";
 import { getBlobFileForUser } from "@/lib/api-v1/list";
 import {
@@ -19,8 +19,8 @@ import {
 
 export const runtime = "nodejs";
 
-export const GET = withApiV1Route(async (request, auth, context) => {
-  const params = context ? await context.params : {};
+export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
+  const params = await context.params;
   const id = params.id?.trim() ?? "";
   if (!id) {
     return apiV1Error(400, "invalid_request", "id is required.");

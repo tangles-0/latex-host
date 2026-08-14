@@ -1,4 +1,4 @@
-import { withApiV1Route } from "@/lib/api-v1/handler";
+import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import {
@@ -32,8 +32,8 @@ function isConnectionResetError(error: unknown): boolean {
   );
 }
 
-export const PUT = withApiV1Route(async (request, auth, context) => {
-  const params = context ? await context.params : {};
+export const PUT = withApiV1ParamsRoute(async (request, auth, context) => {
+  const params = await context.params;
   const id = params.id?.trim() ?? "";
   const partNumber = Number(params.partNumber ?? 0);
   if (!id || !Number.isFinite(partNumber) || partNumber <= 0) {

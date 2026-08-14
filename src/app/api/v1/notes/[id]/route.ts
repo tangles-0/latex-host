@@ -7,7 +7,7 @@ import {
   getNoteForUser,
   updateNoteForUser,
 } from "@/lib/media-store";
-import { withApiV1Route } from "@/lib/api-v1/handler";
+import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { resolveVisibilityForMedia } from "@/lib/api-v1/media-register";
 import { originFromRequest, toNoteResource } from "@/lib/api-v1/resources";
@@ -15,8 +15,8 @@ import { patchNoteBodySchema } from "@/lib/api-v1/schemas";
 
 export const runtime = "nodejs";
 
-export const GET = withApiV1Route(async (request, auth, context) => {
-  const params = context ? await context.params : {};
+export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
+  const params = await context.params;
   const id = params.id?.trim() ?? "";
   if (!id) {
     return apiV1Error(400, "invalid_request", "id is required.");
@@ -41,8 +41,8 @@ export const GET = withApiV1Route(async (request, auth, context) => {
   });
 });
 
-export const PATCH = withApiV1Route(async (request, auth, context) => {
-  const params = context ? await context.params : {};
+export const PATCH = withApiV1ParamsRoute(async (request, auth, context) => {
+  const params = await context.params;
   const id = params.id?.trim() ?? "";
   if (!id) {
     return apiV1Error(400, "invalid_request", "id is required.");
@@ -94,8 +94,8 @@ export const PATCH = withApiV1Route(async (request, auth, context) => {
   });
 });
 
-export const DELETE = withApiV1Route(async (_request, auth, context) => {
-  const params = context ? await context.params : {};
+export const DELETE = withApiV1ParamsRoute(async (_request, auth, context) => {
+  const params = await context.params;
   const id = params.id?.trim() ?? "";
   if (!id) {
     return apiV1Error(400, "invalid_request", "id is required.");
