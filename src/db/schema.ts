@@ -496,6 +496,27 @@ export const apiDevices = pgTable(
   }),
 );
 
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    description: text("description").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenPrefix: text("token_prefix").notNull(),
+    tokenLastFour: text("token_last_four").notNull(),
+    allowedDomains: jsonb("allowed_domains").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { mode: "date" }),
+    revokedAt: timestamp("revoked_at", { mode: "date" }),
+  },
+  (table) => ({
+    apiKeysUserIdx: index("api_keys_user_id_idx").on(table.userId),
+  }),
+);
+
 export const abuseReports = pgTable(
   "abuse_reports",
   {

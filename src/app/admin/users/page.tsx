@@ -29,7 +29,7 @@ export default async function ManageUsersPage() {
         <p className="text-neutral-600">Admin-only access.</p>
       </header>
 
-      <ManageUsersTable users={users} />
+      <ManageUsersTable currentUserId={userId} users={users} />
     </main>
   );
 }

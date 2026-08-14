@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth/next";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { isDatabaseUnavailableError } from "@/lib/db-errors";
@@ -39,17 +39,13 @@ function getClientKey(request: RequestLike | undefined): string {
   return ip;
 }
 
-async function userExists(userId: string): Promise<boolean> {
+export async function userExists(userId: string): Promise<boolean> {
   const [row] = await db
-    .select({ id: users.id, bannedAt: users.bannedAt })
+    .select({ id: users.id })
     .from(users)
-    .where(eq(users.id, userId))
+    .where(and(eq(users.id, userId), isNull(users.bannedAt)))
     .limit(1);
-  return Boolean(row && !row.bannedAt);
-}
-
-function shouldValidateSessionUserOnEachRequest(): boolean {
-  return process.env.AUTH_VALIDATE_USER_ON_EACH_REQUEST === "true";
+  return Boolean(row);
 }
 
 export const authOptions: NextAuthOptions = {
@@ -112,14 +108,10 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
-       if (!shouldValidateSessionUserOnEachRequest()) {
-        return token;
-      }
-
       try {
         const exists = await userExists(token.sub);
         if (!exists) {
-          // Invalidate stale JWT-backed sessions when the user no longer exists.
+          // Invalidate stale JWT-backed sessions when the user no longer exists or is banned.
           return {};
         }
       } catch (error) {

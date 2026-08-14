@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+import { listApiKeysForUser } from "@/lib/api-keys";
 import { listApiDevices, formatUserCode, normalizeUserCode } from "@/lib/device-auth";
 import { getUserById } from "@/lib/metadata-store";
 import { getUserPgpKey } from "@/lib/messaging-store";
@@ -25,10 +26,11 @@ export default async function AccountPage({
       ? formatUserCode(rawDeviceCode)
       : rawDeviceCode;
 
-  const [user, key, devices] = await Promise.all([
+  const [user, key, devices, apiKeys] = await Promise.all([
     getUserById(userId),
     getUserPgpKey(userId),
     listApiDevices(userId),
+    listApiKeysForUser(userId),
   ]);
   if (!user) {
     redirect("/");
@@ -38,7 +40,7 @@ export default async function AccountPage({
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10 text-sm">
       <PageHeader
         title="Account"
-        subtitle="Profile, devices, PGP key, and account controls."
+        subtitle="Profile, API keys, devices, PGP key, and account controls."
         backLink={{ href: "/gallery", label: "back 2 gallery" }}
       />
       <AccountClient
@@ -54,6 +56,17 @@ export default async function AccountPage({
           expiresAt: device.expiresAt.toISOString(),
           isRevoked: device.isRevoked,
         }))}
+        initialApiKeys={apiKeys
+          .filter((apiKey) => !apiKey.isRevoked)
+          .map((apiKey) => ({
+            id: apiKey.id,
+            description: apiKey.description,
+            displayHint: apiKey.displayHint,
+            allowedDomains: apiKey.allowedDomains,
+            createdAt: apiKey.createdAt,
+            lastUsedAt: apiKey.lastUsedAt,
+            isRevoked: apiKey.isRevoked,
+          }))}
         initialKey={
           key
             ? {

@@ -8,24 +8,14 @@ import {
   getUserGroupInfo,
   isAdminUser,
 } from "@/lib/metadata-store";
-import {
-  addMediaForUser,
-  getMediaForUser,
-  updateMediaPreviewForUser,
-} from "@/lib/media-store";
+import { getMediaForUser } from "@/lib/media-store";
 import {
   contentTypeForExt,
   extFromFileName,
-  isThumbnailServiceSupported,
   mediaKindFromType,
 } from "@/lib/media-types";
-import {
-  storeGenericMediaFromBuffer,
-  storeImageMediaFromBuffer,
-  storeImageOriginalFromBuffer,
-} from "@/lib/media-storage";
-import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 import { isAllowedUploadType } from "@/lib/upload-allowlist";
+import { registerMediaFromBuffer } from "@/lib/api-v1/media-register";
 
 export const runtime = "nodejs";
 
@@ -169,82 +159,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
   }
 
-  const uploadedAt = new Date();
   const buffer = Buffer.from(await file.arrayBuffer());
-
-  const canUseThumbnailService = isThumbnailServiceSupported({
-    kind,
+  const media = await registerMediaFromBuffer({
+    request,
+    userId,
+    buffer,
+    fileName: file.name,
     mimeType,
     ext,
-    fileSizeBytes: file.size,
-  });
-  const thumbnailKind =
-    canUseThumbnailService && kind !== "other" ? kind : null;
-  const stored =
-    kind === "image"
-      ? canUseThumbnailService
-        ? await storeImageOriginalFromBuffer({
-            buffer,
-            ext,
-            mimeType,
-            uploadedAt,
-          })
-        : await storeImageMediaFromBuffer({
-            buffer,
-            ext,
-            mimeType,
-            uploadedAt,
-          })
-      : await storeGenericMediaFromBuffer({
-          kind:
-            kind === "video"
-              ? "video"
-              : kind === "document"
-                ? "document"
-                : "other",
-          buffer,
-          ext,
-          mimeType,
-          uploadedAt,
-          deferPreview: canUseThumbnailService,
-        });
-
-  const media = await addMediaForUser({
-    userId,
-    kind,
     albumId,
-    baseName: stored.baseName,
-    originalFileName: keepOriginalFileName ? file.name : undefined,
-    ext: stored.ext,
-    mimeType: stored.mimeType,
-    width: stored.width,
-    height: stored.height,
-    sizeOriginal: stored.sizeOriginal,
-    sizeSm: stored.sizeSm,
-    sizeLg: stored.sizeLg,
-    previewStatus: stored.previewStatus,
-    uploadedAt: uploadedAt.toISOString(),
+    keepOriginalFileName,
   });
-
-  if (thumbnailKind && media.previewStatus === "pending") {
-    const queued = await requestPreviewGeneration({
-      mediaId: media.id,
-      kind: thumbnailKind,
-      ext: media.ext,
-      mimeType: media.mimeType,
-      fileSizeBytes: media.sizeOriginal,
-      downloadUrl: buildAppUrl(request, `/api/thumbnails/${media.id}/source`),
-    });
-    if (!queued.ok) {
-      await updateMediaPreviewForUser({
-        userId,
-        kind,
-        mediaId: media.id,
-        previewStatus: "error",
-        previewError: queued.error,
-      });
-    }
-  }
 
   return NextResponse.json({ media });
 }

@@ -88,7 +88,12 @@ App runs on `http://localhost:3000`.
 - `pnpm db:push` - push Drizzle schema
 - `pnpm test` - Vitest unit tests
 - `pnpm test:e2e` - Playwright e2e
+- `pnpm test:api-v1` - public `/api/v1` harness (needs `API_V1_KEY`; see `scripts/api-v1-harness/README.md`)
 - `pnpm worker:fake` - fake preview worker harness
+
+## Public API (`/api/v1`)
+
+Machine-oriented API authenticated with account API keys (`Authorization: Bearer lh_live_…`). Create keys on `/account`. Interactive docs: `/api/v1/docs`. OpenAPI: `/api/v1/openapi.json`.
 
 ## Feature Highlights
 
@@ -96,6 +101,7 @@ App runs on `http://localhost:3000`.
 - albums + album ordering/captions
 - anonymous hash-based sharing
 - image, video, document, archive support
+- public `/api/v1` for uploads, notes, and shares
 - async preview worker contract (worker service deferred)
 - admin import/export + storage consistency audit tools
 

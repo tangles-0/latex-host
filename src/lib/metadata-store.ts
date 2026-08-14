@@ -881,6 +881,7 @@ export type UserStats = {
   averageBytes: number;
   lastUploadAt?: string;
   lastLoginAt?: string;
+  bannedAt?: string;
 };
 
 export async function listUsersWithStats(): Promise<UserStats[]> {
@@ -892,6 +893,7 @@ export async function listUsersWithStats(): Promise<UserStats[]> {
       groupId: users.groupId,
       groupName: groups.name,
       lastLoginAt: users.lastLoginAt,
+      bannedAt: users.bannedAt,
       imageCount: sql<number>`count(${images.id})`,
       totalBytes: sql<number>`coalesce(sum(${images.sizeOriginal} + ${images.sizeSm} + ${images.sizeLg}), 0)`,
       lastUploadAt: sql<Date | null>`max(${images.uploadedAt})`,
@@ -899,7 +901,7 @@ export async function listUsersWithStats(): Promise<UserStats[]> {
     .from(users)
     .leftJoin(groups, eq(users.groupId, groups.id))
     .leftJoin(images, eq(images.userId, users.id))
-    .groupBy(users.id, groups.name, users.lastLoginAt)
+    .groupBy(users.id, groups.name, users.lastLoginAt, users.bannedAt)
     .orderBy(users.email);
 
   return rows.map((row) => {
@@ -920,6 +922,7 @@ export async function listUsersWithStats(): Promise<UserStats[]> {
       lastLoginAt: row.lastLoginAt
         ? new Date(row.lastLoginAt).toISOString()
         : undefined,
+      bannedAt: row.bannedAt ? new Date(row.bannedAt).toISOString() : undefined,
     };
   });
 }

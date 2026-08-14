@@ -26,6 +26,16 @@ type DeviceRow = {
   isRevoked: boolean;
 };
 
+type ApiKeyRow = {
+  id: string;
+  description: string;
+  displayHint: string;
+  allowedDomains: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+  isRevoked: boolean;
+};
+
 function formatWhen(value: string | null): string {
   if (!value) {
     return "—";
@@ -42,26 +52,35 @@ export default function AccountClient({
   email,
   initialKey,
   initialDevices,
+  initialApiKeys = [],
   initialDeviceCode = "",
 }: {
   username: string;
   email: string;
   initialKey: PgpKeyState;
   initialDevices: DeviceRow[];
+  initialApiKeys?: ApiKeyRow[];
   initialDeviceCode?: string;
 }) {
   const [key, setKey] = useState<PgpKeyState>(initialKey);
   const [devices, setDevices] = useState(initialDevices);
+  const [apiKeys, setApiKeys] = useState<ApiKeyRow[]>(initialApiKeys);
   const [publicKeyArmored, setPublicKeyArmored] = useState("");
   const [verifyCode, setVerifyCode] = useState("");
   const [deviceCode, setDeviceCode] = useState(initialDeviceCode);
+  const [apiKeyDescription, setApiKeyDescription] = useState("");
+  const [apiKeyDomains, setApiKeyDomains] = useState("");
+  const [createdApiKeyToken, setCreatedApiKeyToken] = useState<string | null>(null);
+  const [didCopyApiKey, setDidCopyApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isDeletingKey, setIsDeletingKey] = useState(false);
   const [isApprovingDevice, setIsApprovingDevice] = useState(false);
+  const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+  const [revokingApiKeyId, setRevokingApiKeyId] = useState<string | null>(null);
   const [didCopyPublicKey, setDidCopyPublicKey] = useState(false);
 
   async function refreshDevices() {
@@ -71,6 +90,82 @@ export default function AccountClient({
       throw new Error(payload.error ?? "Failed to load devices.");
     }
     setDevices(payload.devices ?? []);
+  }
+
+  async function refreshApiKeys() {
+    const response = await fetch("/api/account/api-keys");
+    const payload = (await response.json()) as { keys?: ApiKeyRow[]; error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to load API keys.");
+    }
+    setApiKeys(payload.keys ?? []);
+  }
+
+  async function createApiKey() {
+    setError(null);
+    setInfo(null);
+    setCreatedApiKeyToken(null);
+    setIsCreatingApiKey(true);
+    try {
+      const response = await fetch("/api/account/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: apiKeyDescription,
+          allowedDomains: apiKeyDomains,
+        }),
+      });
+      const payload = (await response.json()) as {
+        key?: ApiKeyRow;
+        token?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to create API key.");
+      }
+      if (!payload.token || !payload.key) {
+        throw new Error("API key was created but the token was not returned.");
+      }
+      setCreatedApiKeyToken(payload.token);
+      setApiKeyDescription("");
+      setApiKeyDomains("");
+      setInfo("API key created. Copy it now — it will not be shown again.");
+      await refreshApiKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create API key.");
+    } finally {
+      setIsCreatingApiKey(false);
+    }
+  }
+
+  async function revokeApiKey(keyId: string) {
+    const confirmed = window.confirm(
+      "Revoke this API key? Clients using it will lose access immediately.",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setRevokingApiKeyId(keyId);
+    try {
+      const response = await fetch(`/api/account/api-keys/${encodeURIComponent(keyId)}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to revoke API key.");
+      }
+      if (createdApiKeyToken) {
+        setCreatedApiKeyToken(null);
+      }
+      setInfo("API key revoked.");
+      await refreshApiKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke API key.");
+    } finally {
+      setRevokingApiKeyId(null);
+    }
   }
 
   async function saveKey() {
@@ -225,6 +320,7 @@ export default function AccountClient({
   }
 
   const activeDevices = devices.filter((device) => !device.isRevoked);
+  const activeApiKeys = apiKeys.filter((apiKey) => !apiKey.isRevoked);
 
   return (
     <div className="space-y-6">
@@ -243,6 +339,130 @@ export default function AccountClient({
             <dd>{email}</dd>
           </div>
         </dl>
+      </Panel>
+
+      <Panel>
+        <h2 className="text-base font-semibold">API keys</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Create long-lived keys for the public{" "}
+          <code className="font-mono">/api/v1</code> API. Provide a description. Optionally
+          restrict the key to specific domains (immutable after creation). The full key is shown
+          once.
+        </p>
+        <label className="mt-4 block text-xs text-neutral-500">
+          Description
+          <input
+            value={apiKeyDescription}
+            onChange={(event) => setApiKeyDescription(event.target.value)}
+            className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 text-sm outline-none"
+            placeholder="CI upload script"
+            maxLength={200}
+          />
+        </label>
+        <label className="mt-3 block text-xs text-neutral-500">
+          Domain whitelist (optional)
+          <textarea
+            value={apiKeyDomains}
+            onChange={(event) => setApiKeyDomains(event.target.value)}
+            className="mt-1 min-h-[72px] w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs outline-none"
+            placeholder={"example.com\n*.example.com"}
+            spellCheck={false}
+          />
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          Hosts only, comma or newline separated. Leave empty to allow any origin (and curl).
+          Domains cannot be edited later.
+        </p>
+        <button
+          type="button"
+          disabled={isCreatingApiKey || !apiKeyDescription.trim()}
+          onClick={() => {
+            void createApiKey();
+          }}
+          className="mt-3 rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
+        >
+          {isCreatingApiKey ? "Creating…" : "Create API key"}
+        </button>
+
+        {createdApiKeyToken ? (
+          <div className="mt-4 space-y-2 rounded border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm text-amber-900">
+              Copy this key now. It will not be shown again after you leave or refresh this page.
+            </p>
+            <code className="block break-all font-mono text-xs text-amber-950">
+              {createdApiKeyToken}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(createdApiKeyToken).then(() => {
+                  setDidCopyApiKey(true);
+                  setInfo("API key copied to clipboard.");
+                  window.setTimeout(() => setDidCopyApiKey(false), 2000);
+                });
+              }}
+              className="rounded border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900"
+            >
+              {didCopyApiKey ? "Copied" : "Copy key"}
+            </button>
+          </div>
+        ) : null}
+
+        <div className="mt-6 border-t border-neutral-200 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium">Active keys</h3>
+            <button
+              type="button"
+              className="text-xs text-neutral-500 underline"
+              onClick={() => {
+                void refreshApiKeys().catch((err: unknown) => {
+                  setError(err instanceof Error ? err.message : "Failed to refresh API keys.");
+                });
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+          {activeApiKeys.length === 0 ? (
+            <p className="mt-3 text-sm text-neutral-500">No active API keys.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {activeApiKeys.map((apiKey) => (
+                <li
+                  key={apiKey.id}
+                  className="flex flex-wrap items-start justify-between gap-3 rounded border border-neutral-200 px-3 py-2 text-sm"
+                >
+                  <div className="space-y-1">
+                    <div className="font-medium">{apiKey.description}</div>
+                    <code className="block font-mono text-xs text-neutral-600">
+                      {apiKey.displayHint}
+                    </code>
+                    <div className="text-xs text-neutral-500">
+                      Created {formatWhen(apiKey.createdAt)} · Last used{" "}
+                      {formatWhen(apiKey.lastUsedAt)}
+                    </div>
+                    <div className="text-xs text-neutral-500">
+                      Domains:{" "}
+                      {apiKey.allowedDomains.length > 0
+                        ? apiKey.allowedDomains.join(", ")
+                        : "any"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={revokingApiKeyId === apiKey.id}
+                    onClick={() => {
+                      void revokeApiKey(apiKey.id);
+                    }}
+                    className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-700 disabled:opacity-50"
+                  >
+                    {revokingApiKeyId === apiKey.id ? "Revoking…" : "Revoke"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </Panel>
 
       <Panel>

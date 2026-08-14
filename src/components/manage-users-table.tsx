@@ -13,9 +13,16 @@ type UserStats = {
   averageBytes: number;
   lastUploadAt?: string;
   lastLoginAt?: string;
+  bannedAt?: string;
 };
 
-export default function ManageUsersTable({ users }: { users: UserStats[] }) {
+export default function ManageUsersTable({
+  currentUserId,
+  users,
+}: {
+  currentUserId: string;
+  users: UserStats[];
+}) {
   const [items, setItems] = useState(users);
   const [error, setError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -68,6 +75,28 @@ export default function ManageUsersTable({ users }: { users: UserStats[] }) {
     setBusyUserId(null);
   }
 
+  async function requestBanUser(userId: string) {
+    setError(null);
+    setBusyUserId(userId);
+    const response = await fetch(`/api/admin/users/${userId}`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setError(payload.error ?? "Unable to ban user.");
+      setBusyUserId(null);
+      return;
+    }
+
+    setItems((current) =>
+      current.map((user) =>
+        user.id === userId ? { ...user, bannedAt: new Date().toISOString() } : user,
+      ),
+    );
+    setBusyUserId(null);
+  }
+
   function formatBytes(value: number) {
     if (!value) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -105,13 +134,20 @@ export default function ManageUsersTable({ users }: { users: UserStats[] }) {
             {items.map((user) => (
               <tr key={user.id} className="border-t border-neutral-200">
                 <td className="px-3 py-2">
-                  <Link
-                    href={`/admin/users/${user.id}/gallery`}
-                    className="underline"
-                    title={`Browse ${user.username}'s files`}
-                  >
-                    {user.username}
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/admin/users/${user.id}/gallery`}
+                      className="underline"
+                      title={`Browse ${user.username}'s files`}
+                    >
+                      {user.username}
+                    </Link>
+                    {user.bannedAt ? (
+                      <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] uppercase text-red-700">
+                        Banned
+                      </span>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="px-3 py-2">{user.email}</td>
                 <td className="px-3 py-2">{user.groupName ?? "—"}</td>
@@ -130,6 +166,16 @@ export default function ManageUsersTable({ users }: { users: UserStats[] }) {
                     >
                       Delete files
                     </button>
+                    {user.bannedAt || user.id === currentUserId ? null : (
+                      <button
+                        type="button"
+                        onClick={() => void requestBanUser(user.id)}
+                        className="rounded border border-amber-200 px-2 py-1 text-amber-800"
+                        disabled={busyUserId === user.id}
+                      >
+                        Ban user
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void requestDeleteUser(user.id)}

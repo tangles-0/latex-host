@@ -18,6 +18,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:list": "playwright test --list",
+    "test:api-v1": "tsx scripts/api-v1-harness/run.ts",
     "worker:fake": "node ./scripts/dev/fake-preview-worker.mjs"
   },
   "dependencies": {
@@ -92,6 +93,7 @@
     "eslint-config-next": "^16.1.6",
     "prettier": "^3.8.0",
     "tailwindcss": "^4.1.14",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vitest": "^4.0.18"

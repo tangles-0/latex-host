@@ -17,6 +17,7 @@ import {
   videoShares,
   videos,
 } from "@/db/schema";
+import { revokeAllApiDevicesForUser } from "@/lib/device-auth";
 import { deleteMediaForUser } from "@/lib/media-store";
 import type { MediaKind } from "@/lib/media-types";
 import { parseShareFileName } from "@/app/share/share-route-utils";
@@ -428,6 +429,7 @@ export async function banUser(userId: string): Promise<void> {
     .update(users)
     .set({ bannedAt: new Date() })
     .where(and(eq(users.id, userId), isNull(users.bannedAt)));
+  await revokeAllApiDevicesForUser(userId);
 }
 
 export async function isUserBanned(userId: string): Promise<boolean> {

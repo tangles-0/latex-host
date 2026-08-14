@@ -7,8 +7,8 @@ import {
 } from "crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { apiDevices, deviceAuthCodes } from "@/db/schema";
-import { getSessionUserId } from "@/lib/auth";
+import { apiDevices, deviceAuthCodes, users } from "@/db/schema";
+import { getSessionUserId, userExists } from "@/lib/auth";
 
 const DEFAULT_SCOPES = "messages:read messages:send pgp:read pgp:write";
 const ACCESS_TOKEN_TTL_SECONDS = 30 * 60;
@@ -193,7 +193,14 @@ export async function getRequestAuth(request?: Request): Promise<RequestAuth | n
           scopes: apiDevices.scopes,
         })
         .from(apiDevices)
-        .where(and(eq(apiDevices.id, verified.deviceId), eq(apiDevices.userId, verified.userId)))
+        .innerJoin(users, eq(users.id, apiDevices.userId))
+        .where(
+          and(
+            eq(apiDevices.id, verified.deviceId),
+            eq(apiDevices.userId, verified.userId),
+            isNull(users.bannedAt),
+          ),
+        )
         .limit(1);
       if (!device || device.revokedAt || device.expiresAt.getTime() <= Date.now()) {
         return null;
@@ -314,6 +321,9 @@ export async function approveDeviceUserCode(input: {
       .where(eq(deviceAuthCodes.id, row.id));
     throw new Error("Device code expired. Start a new login from the TUI.");
   }
+  if (!(await userExists(input.userId))) {
+    throw new Error("Account is not allowed to approve devices.");
+  }
 
   // Placeholder refresh hash until the TUI's first successful poll rotates and returns plaintext.
   const { tokenHash: refreshTokenHash } = createOpaqueToken();
@@ -399,6 +409,9 @@ export async function pollDeviceAuthCode(deviceCode: string): Promise<
   if (row.status !== "approved" || !row.apiDeviceId || !row.userId) {
     return { status: "expired" };
   }
+  if (!(await userExists(row.userId))) {
+    return { status: "expired" };
+  }
 
   const [device] = await db
     .select()
@@ -457,6 +470,9 @@ export async function refreshDeviceTokens(refreshToken: string): Promise<{
   if (!device || device.revokedAt || device.expiresAt.getTime() <= Date.now()) {
     throw new Error("Invalid or expired refresh token.");
   }
+  if (!(await userExists(device.userId))) {
+    throw new Error("Invalid or expired refresh token.");
+  }
 
   const { token: nextRefresh, tokenHash: nextHash } = createOpaqueToken();
   const now = new Date();
@@ -512,6 +528,13 @@ export async function listApiDevices(userId: string): Promise<
       isRevoked: Boolean(row.revokedAt) || row.expiresAt.getTime() <= Date.now(),
     }))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+export async function revokeAllApiDevicesForUser(userId: string): Promise<void> {
+  await db
+    .update(apiDevices)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(apiDevices.userId, userId), isNull(apiDevices.revokedAt)));
 }
 
 export async function revokeApiDevice(userId: string, deviceId: string): Promise<void> {

@@ -1,20 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { getAlbumForUser } from "@/lib/metadata-store";
-import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
-import {
-  isThumbnailServiceSupported,
-  mediaKindFromType,
-} from "@/lib/media-types";
-import {
-  deleteCompletedUploadObject,
-  readCompletedUploadBuffer,
-  storeGenericMediaFromStoredUpload,
-  storeImageOriginalFromStoredUpload,
-  storeImageMediaFromBuffer,
-} from "@/lib/media-storage";
-import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 import { getUploadSessionForUser } from "@/lib/upload-sessions";
+import { registerMediaFromUploadSession } from "@/lib/api-v1/media-register";
 
 export const runtime = "nodejs";
 
@@ -57,90 +45,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const kind = mediaKindFromType(session.mimeType, session.ext);
-  const uploadedAt = new Date();
-  const canUseThumbnailService = isThumbnailServiceSupported({
-    kind,
-    mimeType: session.mimeType,
-    ext: session.ext,
-    fileSizeBytes: session.fileSize,
-  });
-  const thumbnailKind =
-    canUseThumbnailService && kind !== "other" ? kind : null;
-  let stored;
-  if (kind === "image") {
-    if (canUseThumbnailService) {
-      stored = await storeImageOriginalFromStoredUpload({
-        sourceKey: session.storageKey,
-        sizeOriginal: session.fileSize,
-        ext: session.ext,
-        mimeType: session.mimeType,
-        uploadedAt,
-      });
-    } else {
-      const buffer = await readCompletedUploadBuffer(session.storageKey);
-      stored = await storeImageMediaFromBuffer({
-        buffer,
-        ext: session.ext,
-        mimeType: session.mimeType,
-        uploadedAt,
-      });
-      try {
-        await deleteCompletedUploadObject(session.storageKey);
-      } catch {
-        // Keep registration successful even if staged upload cleanup fails.
-      }
-    }
-  } else {
-    stored = await storeGenericMediaFromStoredUpload({
-      kind:
-        kind === "video" ? "video" : kind === "document" ? "document" : "other",
-      sourceKey: session.storageKey,
-      sizeOriginal: session.fileSize,
-      ext: session.ext,
-      mimeType: session.mimeType,
-      uploadedAt,
-      deferPreview: canUseThumbnailService,
-    });
-  }
-  const media = await addMediaForUser({
+  const media = await registerMediaFromUploadSession({
+    request,
     userId,
-    kind,
+    session: {
+      storageKey: session.storageKey,
+      fileName: session.fileName,
+      fileSize: session.fileSize,
+      mimeType: session.mimeType,
+      ext: session.ext,
+    },
     albumId,
-    baseName: stored.baseName,
-    originalFileName: payload.keepOriginalFileName
-      ? session.fileName
-      : undefined,
-    ext: stored.ext,
-    mimeType: stored.mimeType,
-    width: stored.width,
-    height: stored.height,
-    sizeOriginal: stored.sizeOriginal,
-    sizeSm: stored.sizeSm,
-    sizeLg: stored.sizeLg,
-    previewStatus: stored.previewStatus,
-    uploadedAt: uploadedAt.toISOString(),
+    keepOriginalFileName: payload.keepOriginalFileName,
   });
-
-  if (thumbnailKind && media.previewStatus === "pending") {
-    const queued = await requestPreviewGeneration({
-      mediaId: media.id,
-      kind: thumbnailKind,
-      ext: media.ext,
-      mimeType: media.mimeType,
-      fileSizeBytes: media.sizeOriginal,
-      downloadUrl: buildAppUrl(request, `/api/thumbnails/${media.id}/source`),
-    });
-    if (!queued.ok) {
-      await updateMediaPreviewForUser({
-        userId,
-        kind,
-        mediaId: media.id,
-        previewStatus: "error",
-        previewError: queued.error,
-      });
-    }
-  }
 
   return NextResponse.json({ media });
 }
