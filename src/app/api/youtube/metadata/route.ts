@@ -35,5 +35,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   return NextResponse.json({
     metadata: metadata.metadata,
     maxVideoSizeBytes: getMaxAllowedBytesForKind(limits, "video"),
+    maxAudioSizeBytes: getMaxAllowedBytesForKind(limits, "other"),
   });
 }

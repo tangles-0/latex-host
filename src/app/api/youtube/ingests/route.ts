@@ -38,27 +38,40 @@ export async function POST(request: Request): Promise<NextResponse> {
     qualityId?: string;
     qualityLabel?: string;
     filesizeBytes?: number;
+    outputType?: "video" | "audio";
   };
   const youtubeUrl = payload.youtubeUrl?.trim() ?? "";
   const youtubeId = payload.youtubeId?.trim() ?? "";
   const title = payload.title?.trim() ?? "";
   const qualityId = payload.qualityId?.trim() ?? "";
-  if (!youtubeUrl || !youtubeId || !title || !qualityId) {
+  const outputType = payload.outputType === "audio" ? "audio" : "video";
+  if (
+    !youtubeUrl ||
+    !youtubeId ||
+    !title ||
+    (outputType === "video" && !qualityId)
+  ) {
     return NextResponse.json(
-      { error: "youtubeUrl, youtubeId, title, and qualityId are required." },
+      {
+        error:
+          "youtubeUrl, youtubeId, and title are required; video ingests also require qualityId.",
+      },
       { status: 400 },
     );
   }
 
   const groupInfo = await getUserGroupInfo(userId);
   const limits = await getGroupLimits(groupInfo.groupId);
-  const maxVideoSizeBytes = getMaxAllowedBytesForKind(limits, "video");
+  const maxUploadSizeBytes = getMaxAllowedBytesForKind(
+    limits,
+    outputType === "audio" ? "other" : "video",
+  );
   const filesizeBytes = Number(payload.filesizeBytes ?? 0);
-  if (Number.isFinite(filesizeBytes) && filesizeBytes > maxVideoSizeBytes) {
+  if (Number.isFinite(filesizeBytes) && filesizeBytes > maxUploadSizeBytes) {
     return NextResponse.json(
       {
-        error: "Selected YouTube quality exceeds your upload size limit.",
-        maxVideoSizeBytes,
+        error: "Selected YouTube format exceeds your upload size limit.",
+        maxUploadSizeBytes,
       },
       { status: 413 },
     );
@@ -73,13 +86,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     durationSeconds: Number.isFinite(payload.durationSeconds)
       ? Number(payload.durationSeconds)
       : undefined,
-    qualityLabel: payload.qualityLabel?.trim() || qualityId,
+    qualityLabel:
+      outputType === "audio"
+        ? "MP3 (highest quality)"
+        : payload.qualityLabel?.trim() || qualityId,
+    outputType,
   });
   const started = await requestYoutubeDownload({
     ingestId: ingest.id,
     userId,
     youtubeId,
-    qualityId,
+    outputType,
+    ...(outputType === "video" ? { qualityId } : {}),
     statusUrl: buildAppUrl(request, `/api/youtube/ingests/${ingest.id}/status`),
     uploadInitUrl: buildAppUrl(request, "/api/uploads/init"),
     uploadPartUrl: buildAppUrl(request, "/api/uploads/part"),

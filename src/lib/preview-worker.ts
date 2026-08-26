@@ -229,7 +229,8 @@ export async function requestYoutubeDownload(input: {
   ingestId: string;
   userId: string;
   youtubeId: string;
-  qualityId: string;
+  outputType: "video" | "audio";
+  qualityId?: string;
   statusUrl: string;
   uploadInitUrl: string;
   uploadPartUrl: string;

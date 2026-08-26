@@ -358,6 +358,7 @@ export const youtubeIngests = pgTable("youtube_ingests", {
   channelName: text("channel_name"),
   durationSeconds: integer("duration_seconds"),
   qualityLabel: text("quality_label"),
+  outputType: text("output_type").notNull().default("video"),
   status: text("status").notNull().default("pending"),
   progress: integer("progress").notNull().default(0),
   error: text("error"),

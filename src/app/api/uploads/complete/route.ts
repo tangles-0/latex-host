@@ -32,6 +32,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     youtubeIngestId?: string;
     youtubeId?: string;
     title?: string;
+    youtubeMediaType?: "video" | "audio";
   };
   if (!userId && isWorkerRequest) {
     userId = payload.userId?.trim() ?? "";
@@ -120,24 +121,32 @@ export async function POST(request: Request): Promise<NextResponse> {
           { status: 404 },
         );
       }
+      if ((payload.youtubeMediaType ?? "video") !== ingest.outputType) {
+        return NextResponse.json(
+          { error: "YouTube ingest media type does not match." },
+          { status: 409 },
+        );
+      }
       const uploadedAt = new Date();
+      const isAudio = ingest.outputType === "audio";
+      const mediaKind = isAudio ? "other" : "video";
       const stored = await storeGenericMediaFromStoredUpload({
-        kind: "video",
+        kind: mediaKind,
         sourceKey: completed.storageKey ?? "",
         sizeOriginal: completed.fileSize,
         ext: completed.ext,
         mimeType: completed.mimeType,
         uploadedAt,
-        deferPreview: true,
+        deferPreview: !isAudio,
       });
       const media = await addMediaForUser({
         userId,
-        kind: "video",
+        kind: mediaKind,
         baseName: stored.baseName,
         originalFileName: title,
         ext: stored.ext,
         mimeType: stored.mimeType,
-        youtubeId,
+        ...(isAudio ? {} : { youtubeId }),
         sizeOriginal: stored.sizeOriginal,
         sizeSm: stored.sizeSm,
         sizeLg: stored.sizeLg,
@@ -151,23 +160,28 @@ export async function POST(request: Request): Promise<NextResponse> {
         error: null,
         mediaId: media.id,
       });
-      const queued = await requestPreviewGeneration({
-        mediaId: media.id,
-        kind: "video",
-        ext: media.ext,
-        mimeType: media.mimeType,
-        fileSizeBytes: media.sizeOriginal,
-        downloadUrl: buildAppUrl(request, `/api/thumbnails/${media.id}/source`),
-        youtubeId,
-      });
-      if (!queued.ok) {
-        await updateMediaPreviewForUser({
-          userId,
-          kind: "video",
+      if (!isAudio) {
+        const queued = await requestPreviewGeneration({
           mediaId: media.id,
-          previewStatus: "error",
-          previewError: queued.error,
+          kind: "video",
+          ext: media.ext,
+          mimeType: media.mimeType,
+          fileSizeBytes: media.sizeOriginal,
+          downloadUrl: buildAppUrl(
+            request,
+            `/api/thumbnails/${media.id}/source`,
+          ),
+          youtubeId,
         });
+        if (!queued.ok) {
+          await updateMediaPreviewForUser({
+            userId,
+            kind: "video",
+            mediaId: media.id,
+            previewStatus: "error",
+            previewError: queued.error,
+          });
+        }
       }
       return NextResponse.json({
         sessionId: completed.id,

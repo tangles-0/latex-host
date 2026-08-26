@@ -20,6 +20,8 @@ export type YoutubeQualityOption = {
   filesizeBytes?: number;
 };
 
+export type YoutubeOutputType = "video" | "audio";
+
 export type YoutubeIngestEntry = {
   id: string;
   userId: string;
@@ -29,6 +31,7 @@ export type YoutubeIngestEntry = {
   channelName?: string;
   durationSeconds?: number;
   qualityLabel?: string;
+  outputType: YoutubeOutputType;
   status: YoutubeIngestStatus;
   progress: number;
   error?: string;
@@ -49,6 +52,7 @@ function mapYoutubeIngest(
     channelName: row.channelName ?? undefined,
     durationSeconds: row.durationSeconds ?? undefined,
     qualityLabel: row.qualityLabel ?? undefined,
+    outputType: row.outputType as YoutubeOutputType,
     status: row.status as YoutubeIngestStatus,
     progress: row.progress,
     error: row.error ?? undefined,
@@ -66,6 +70,7 @@ export async function createYoutubeIngestForUser(input: {
   channelName?: string;
   durationSeconds?: number;
   qualityLabel?: string;
+  outputType: YoutubeOutputType;
 }): Promise<YoutubeIngestEntry> {
   const now = new Date();
   const id = randomUUID();
@@ -78,6 +83,7 @@ export async function createYoutubeIngestForUser(input: {
     channelName: input.channelName ?? null,
     durationSeconds: input.durationSeconds ?? null,
     qualityLabel: input.qualityLabel ?? null,
+    outputType: input.outputType,
     status: "pending",
     progress: 0,
     error: null,

@@ -65,7 +65,10 @@ type YoutubeMetadata = {
   durationSeconds?: number;
   qualities: YoutubeQualityOption[];
   maxVideoSizeBytes: number;
+  maxAudioSizeBytes: number;
 };
+
+type YoutubeOutputType = "video" | "audio";
 
 type YoutubeIngest = {
   id: string;
@@ -73,6 +76,7 @@ type YoutubeIngest = {
   title: string;
   channelName?: string;
   qualityLabel?: string;
+  outputType: YoutubeOutputType;
   status:
     | "pending"
     | "started"
@@ -226,6 +230,8 @@ export default function UploadDropzone({
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeMetadata, setYoutubeMetadata] =
     useState<YoutubeMetadata | null>(null);
+  const [youtubeOutputType, setYoutubeOutputType] =
+    useState<YoutubeOutputType>("video");
   const [selectedYoutubeQualityId, setSelectedYoutubeQualityId] = useState("");
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
   const [isFetchingYoutubeMetadata, setIsFetchingYoutubeMetadata] =
@@ -251,6 +257,7 @@ export default function UploadDropzone({
     (item) => item.id === selectedYoutubeQualityId,
   );
   const selectedYoutubeQualityExceedsLimit = Boolean(
+    youtubeOutputType === "video" &&
     youtubeMetadata &&
     selectedYoutubeQuality?.filesizeBytes &&
     selectedYoutubeQuality.filesizeBytes > youtubeMetadata.maxVideoSizeBytes,
@@ -339,7 +346,7 @@ export default function UploadDropzone({
         return;
       }
       const response = await fetch(
-        `/api/media?kind=video&mediaId=${encodeURIComponent(ingest.mediaId)}`,
+        `/api/media?kind=${ingest.outputType === "audio" ? "other" : "video"}&mediaId=${encodeURIComponent(ingest.mediaId)}`,
         { cache: "no-store" },
       );
       if (!response.ok) {
@@ -830,6 +837,7 @@ export default function UploadDropzone({
   function openYoutubeModal() {
     setYoutubeUrl("");
     setYoutubeMetadata(null);
+    setYoutubeOutputType("video");
     setSelectedYoutubeQualityId("");
     setYoutubeError(null);
     setIsYoutubeModalOpen(true);
@@ -852,6 +860,7 @@ export default function UploadDropzone({
       const payload = (await response.json()) as {
         metadata?: YoutubeMetadata;
         maxVideoSizeBytes?: number;
+        maxAudioSizeBytes?: number;
         error?: string;
       };
       if (!response.ok || !payload.metadata) {
@@ -860,6 +869,7 @@ export default function UploadDropzone({
       setYoutubeMetadata({
         ...payload.metadata,
         maxVideoSizeBytes: Number(payload.maxVideoSizeBytes ?? 0),
+        maxAudioSizeBytes: Number(payload.maxAudioSizeBytes ?? 0),
       });
       setSelectedYoutubeQualityId(payload.metadata.qualities[0]?.id ?? "");
     } catch (error) {
@@ -874,7 +884,10 @@ export default function UploadDropzone({
   }
 
   async function startYoutubeIngest() {
-    if (!youtubeMetadata || !selectedYoutubeQualityId) {
+    if (
+      !youtubeMetadata ||
+      (youtubeOutputType === "video" && !selectedYoutubeQualityId)
+    ) {
       setYoutubeError("Choose a quality option.");
       return;
     }
@@ -897,9 +910,14 @@ export default function UploadDropzone({
           title: youtubeMetadata.title,
           channelName: youtubeMetadata.channelName,
           durationSeconds: youtubeMetadata.durationSeconds,
-          qualityId: selectedYoutubeQualityId,
-          qualityLabel: quality?.label ?? selectedYoutubeQualityId,
-          filesizeBytes: quality?.filesizeBytes,
+          outputType: youtubeOutputType,
+          ...(youtubeOutputType === "video"
+            ? {
+                qualityId: selectedYoutubeQualityId,
+                qualityLabel: quality?.label ?? selectedYoutubeQualityId,
+                filesizeBytes: quality?.filesizeBytes,
+              }
+            : {}),
         }),
       });
       const payload = (await response.json()) as {
@@ -1679,11 +1697,27 @@ export default function UploadDropzone({
       {isYoutubeModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-lg rounded-md bg-white p-6 text-sm">
-            <h3 className="text-lg font-semibold">add youtube video</h3>
+            <h3 className="text-lg font-semibold">add youtube media</h3>
             <p className="mt-1 text-xs text-neutral-500">
               paste any YouTube URL. latex can handle the usual watch, short,
               shorts, and share URL shapes.
             </p>
+            <label className="mt-4 block text-xs text-neutral-600">
+              download as
+              <select
+                value={youtubeOutputType}
+                onChange={(event) => {
+                  setYoutubeOutputType(
+                    event.target.value === "audio" ? "audio" : "video",
+                  );
+                  setYoutubeError(null);
+                }}
+                className="mt-1 w-full rounded border px-3 py-2"
+              >
+                <option value="video">video</option>
+                <option value="audio">MP3 (highest quality)</option>
+              </select>
+            </label>
             <div className="mt-4 flex gap-2">
               <input
                 className="min-w-0 flex-1 rounded border px-3 py-2"
@@ -1717,44 +1751,56 @@ export default function UploadDropzone({
                       : ""}
                   </div>
                 </div>
-                <label className="block text-xs text-neutral-600">
-                  quality
-                  <select
-                    value={selectedYoutubeQualityId}
-                    onChange={(event) =>
-                      setSelectedYoutubeQualityId(event.target.value)
-                    }
-                    className="mt-1 w-full rounded border px-3 py-2"
-                  >
-                    {youtubeMetadata.qualities.map((quality) => {
-                      const exceedsLimit = Boolean(
-                        quality.filesizeBytes &&
-                        quality.filesizeBytes >
-                          youtubeMetadata.maxVideoSizeBytes,
-                      );
-                      return (
-                        <option
-                          key={quality.id}
-                          value={quality.id}
-                          className={exceedsLimit ? "text-red-600" : undefined}
-                        >
-                          {quality.label}
-                          {quality.filesizeBytes
-                            ? ` (${formatBytes(quality.filesizeBytes)})`
-                            : ""}
-                          {exceedsLimit ? " - exceeds limit" : ""}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-                {selectedYoutubeQualityExceedsLimit ? (
-                  <p className="text-xs text-red-600">
-                    Selected quality exceeds your{" "}
-                    {formatBytes(youtubeMetadata.maxVideoSizeBytes)} video
-                    upload limit.
+                {youtubeOutputType === "video" ? (
+                  <>
+                    <label className="block text-xs text-neutral-600">
+                      quality
+                      <select
+                        value={selectedYoutubeQualityId}
+                        onChange={(event) =>
+                          setSelectedYoutubeQualityId(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border px-3 py-2"
+                      >
+                        {youtubeMetadata.qualities.map((quality) => {
+                          const exceedsLimit = Boolean(
+                            quality.filesizeBytes &&
+                            quality.filesizeBytes >
+                              youtubeMetadata.maxVideoSizeBytes,
+                          );
+                          return (
+                            <option
+                              key={quality.id}
+                              value={quality.id}
+                              className={
+                                exceedsLimit ? "text-red-600" : undefined
+                              }
+                            >
+                              {quality.label}
+                              {quality.filesizeBytes
+                                ? ` (${formatBytes(quality.filesizeBytes)})`
+                                : ""}
+                              {exceedsLimit ? " - exceeds limit" : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+                    {selectedYoutubeQualityExceedsLimit ? (
+                      <p className="text-xs text-red-600">
+                        Selected quality exceeds your{" "}
+                        {formatBytes(youtubeMetadata.maxVideoSizeBytes)} video
+                        upload limit.
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-xs text-neutral-500">
+                    The highest-quality audio stream will be converted to MP3.
+                    Your audio upload limit is{" "}
+                    {formatBytes(youtubeMetadata.maxAudioSizeBytes)}.
                   </p>
-                ) : null}
+                )}
               </div>
             ) : null}
             {youtubeError ? (
@@ -1791,7 +1837,11 @@ export default function UploadDropzone({
                 }
                 className="rounded bg-black px-3 py-1 text-xs text-white disabled:opacity-50"
               >
-                {isStartingYoutubeIngest ? "starting..." : "start download"}
+                {isStartingYoutubeIngest
+                  ? "starting..."
+                  : youtubeOutputType === "audio"
+                    ? "start MP3 download"
+                    : "start video download"}
               </button>
             </div>
           </div>

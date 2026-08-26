@@ -104,7 +104,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
   const groupLimits = await getGroupLimits(groupInfo.groupId);
-  if (!isAllowedUploadType({ allowed: groupLimits.allowedTypes, mimeType, ext })) {
+  if (
+    !isAllowedUploadType({ allowed: groupLimits.allowedTypes, mimeType, ext })
+  ) {
     return NextResponse.json(
       { error: "File type is not allowed." },
       { status: 415 },
@@ -126,7 +128,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     mimeType,
     ext,
     checksum,
-    targetType: isWorkerRequest ? "video" : (payload.targetType ?? kind),
+    targetType: isWorkerRequest ? kind : (payload.targetType ?? kind),
   });
 
   return NextResponse.json({
