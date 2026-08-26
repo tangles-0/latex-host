@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import clsx from "clsx";
 import Link from "next/link";
 import NoteRichEditor from "@/components/note-rich-editor";
 import Panel from "@/components/ui/panel";
@@ -8,6 +9,7 @@ import {
   encryptPlaintextToPublicKey,
   validatePublicKeyArmored,
 } from "@/lib/pgp-client";
+import { fingerprintsMatch } from "@/lib/pgp-fingerprint";
 
 type ThreadSummary = {
   senderHash: string;
@@ -28,6 +30,8 @@ type MessageSummary = {
 type MessageDetail = MessageSummary & {
   ciphertext: string;
 };
+
+type FingerprintVerificationStatus = "checking" | "verified" | "mismatch" | null;
 
 function formatWhen(value: string): string {
   try {
@@ -56,6 +60,9 @@ export default function MessagesClient({
   const [resolvedRecipientFingerprint, setResolvedRecipientFingerprint] = useState<string | null>(
     null,
   );
+  const [recipientFingerprintToVerify, setRecipientFingerprintToVerify] = useState("");
+  const [fingerprintVerificationStatus, setFingerprintVerificationStatus] =
+    useState<FingerprintVerificationStatus>(null);
   const [isRecipientKeyLocked, setIsRecipientKeyLocked] = useState(false);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +74,40 @@ export default function MessagesClient({
   const [showMuted, setShowMuted] = useState(false);
 
   const visibleThreads = threads.filter((thread) => (showMuted ? thread.isMuted : !thread.isMuted));
+
+  useEffect(() => {
+    if (
+      isRecipientKeyLocked ||
+      !recipientFingerprintToVerify.trim() ||
+      !recipientPublicKey.trim()
+    ) {
+      return;
+    }
+
+    let isCancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      void validatePublicKeyArmored(recipientPublicKey)
+        .then(validated => {
+          if (!isCancelled) {
+            setFingerprintVerificationStatus(
+              fingerprintsMatch(validated.fingerprint, recipientFingerprintToVerify)
+                ? "verified"
+                : "mismatch",
+            );
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) {
+            setFingerprintVerificationStatus("mismatch");
+          }
+        });
+    }, 250);
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [isRecipientKeyLocked, recipientFingerprintToVerify, recipientPublicKey]);
 
   async function refreshThreads() {
     const response = await fetch("/api/messages");
@@ -95,6 +136,8 @@ export default function MessagesClient({
     setIsReplying(false);
     setRecipientPublicKey("");
     setResolvedRecipientFingerprint(null);
+    setRecipientFingerprintToVerify("");
+    setFingerprintVerificationStatus(null);
     setIsRecipientKeyLocked(false);
     setBody("");
   }
@@ -256,6 +299,16 @@ export default function MessagesClient({
     try {
       const validated = await validatePublicKeyArmored(recipientPublicKey);
       setResolvedRecipientFingerprint(validated.fingerprint);
+      if (
+        recipientFingerprintToVerify.trim() &&
+        !fingerprintsMatch(validated.fingerprint, recipientFingerprintToVerify)
+      ) {
+        setFingerprintVerificationStatus("mismatch");
+        return;
+      }
+      if (recipientFingerprintToVerify.trim()) {
+        setFingerprintVerificationStatus("verified");
+      }
 
       // Ensure this key is registered on the app (pending or claimed) so delivery can route.
       const keyResponse = await fetch(
@@ -313,6 +366,21 @@ export default function MessagesClient({
           Cancel
         </button>
       </div>
+      {fingerprintVerificationStatus === "mismatch" ? (
+        <div
+          role="alert"
+          className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
+        >
+          The supplied fingerprint does not match this public key. Do not send until you have
+          verified the correct key.{" "}
+          <Link
+            href="/messages/best-practices"
+            className="font-medium underline"
+          >
+            Review PGP messaging best practices.
+          </Link>
+        </div>
+      ) : null}
       {isRecipientKeyLocked ? (
         <div className="space-y-1 text-xs text-neutral-500">
           <p>Recipient key loaded from this conversation — no need to paste it again.</p>
@@ -327,15 +395,70 @@ export default function MessagesClient({
         <>
           <label className="block text-xs text-neutral-500">
             Recipient public key
-            <textarea
-              value={recipientPublicKey}
-              onChange={(event) => {
-                setRecipientPublicKey(event.target.value);
-                setResolvedRecipientFingerprint(null);
+            <div className="relative mt-1">
+              {fingerprintVerificationStatus === "verified" ? (
+                <span
+                  id="recipient-key-verification-status"
+                  className="absolute -top-2 right-2 z-10 bg-white px-1 text-[10px] font-medium text-green-700"
+                >
+                  verified
+                </span>
+              ) : fingerprintVerificationStatus === "mismatch" ? (
+                <span
+                  id="recipient-key-verification-status"
+                  className="absolute -top-2 right-2 z-10 bg-white px-1 text-[10px] font-medium text-red-700"
+                >
+                  fingerprint mismatch
+                </span>
+              ) : null}
+              <textarea
+                value={recipientPublicKey}
+                onChange={event => {
+                  const nextPublicKey = event.target.value;
+                  setRecipientPublicKey(nextPublicKey);
+                  setResolvedRecipientFingerprint(null);
+                  setFingerprintVerificationStatus(
+                    recipientFingerprintToVerify.trim() && nextPublicKey.trim()
+                      ? "checking"
+                      : null,
+                  );
+                }}
+                spellCheck={false}
+                aria-describedby={
+                  fingerprintVerificationStatus === "verified" ||
+                  fingerprintVerificationStatus === "mismatch"
+                    ? "recipient-key-verification-status"
+                    : undefined
+                }
+                className={clsx(
+                  "min-h-[140px] w-full rounded border px-3 py-2 font-mono text-xs outline-none",
+                  fingerprintVerificationStatus === "verified"
+                    ? "border-green-600"
+                    : fingerprintVerificationStatus === "mismatch"
+                      ? "border-red-600"
+                      : "border-neutral-200",
+                )}
+                placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
+              />
+            </div>
+          </label>
+          <label className="block text-xs text-neutral-500">
+            Verify Public Key with Fingerprint
+            <input
+              type="text"
+              value={recipientFingerprintToVerify}
+              onChange={event => {
+                const nextFingerprint = event.target.value;
+                setRecipientFingerprintToVerify(nextFingerprint);
+                setFingerprintVerificationStatus(
+                  nextFingerprint.trim() && recipientPublicKey.trim() ? "checking" : null,
+                );
               }}
               spellCheck={false}
-              className="mt-1 min-h-[140px] w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs outline-none"
-              placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
+              autoCapitalize="none"
+              autoComplete="off"
+              className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs uppercase outline-none"
+              placeholder="40-character PGP fingerprint"
             />
           </label>
           {resolvedRecipientFingerprint ? (
@@ -361,7 +484,13 @@ export default function MessagesClient({
       </p>
       <button
         type="button"
-        disabled={isSending || !recipientPublicKey.trim() || !body.trim()}
+        disabled={
+          isSending ||
+          !recipientPublicKey.trim() ||
+          !body.trim() ||
+          fingerprintVerificationStatus === "checking" ||
+          fingerprintVerificationStatus === "mismatch"
+        }
         onClick={() => {
           void sendMessage();
         }}
@@ -416,6 +545,12 @@ export default function MessagesClient({
           >
             {showMuted ? "Show inbox" : "Show muted"}
           </button>
+          <Link
+            href="/messages/best-practices"
+            className="rounded border border-neutral-200 px-3 py-1.5 text-sm"
+          >
+            Best Practice
+          </Link>
         </div>
         <button
           type="button"

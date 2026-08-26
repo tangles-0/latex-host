@@ -61,3 +61,5 @@ docker-compose.override.yml
 
 latex-config.md
 prod-backups
+# next-agents-md
+.next-docs/
