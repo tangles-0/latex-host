@@ -19,6 +19,11 @@ describe("api v1 openapi", () => {
       "/api/v1/notes/{id}",
       "/api/v1/notes/{id}/share",
       "/api/v1/albums",
+      "/api/v1/youtube/video/metadata",
+      "/api/v1/youtube/video/ingests",
+      "/api/v1/youtube/video/ingests/{id}",
+      "/api/v1/youtube/audio/ingests",
+      "/api/v1/youtube/audio/ingests/{id}",
       "/api/v1/docs",
       "/api/v1/openapi.json",
     ]) {

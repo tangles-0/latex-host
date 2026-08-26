@@ -9,7 +9,7 @@ export function buildOpenApiDocument(origin?: string): Record<string, unknown> {
       title: "latex! Public API",
       version: "1.0.0",
       description:
-        "Public HTTP API for uploading files, creating notes, and managing shares. Authenticate with an account API key: `Authorization: Bearer lh_live_…`.",
+        "Public HTTP API for uploading files, creating notes, YouTube imports, and managing shares. Authenticate with an account API key: `Authorization: Bearer lh_live_…`.",
     },
     servers,
     components: {
@@ -326,6 +326,109 @@ export function buildOpenApiDocument(origin?: string): Record<string, unknown> {
             { name: "id", in: "path", required: true, schema: { type: "string" } },
           ],
           responses: { "204": { description: "Share revoked" } },
+        },
+      },
+      "/api/v1/youtube/video/metadata": {
+        post: {
+          summary: "Resolve YouTube URL to video metadata and quality options",
+          description:
+            "Step 1 for video imports. Then POST /api/v1/youtube/video/ingests with url + qualityId.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["url"],
+                  properties: { url: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: { "200": { description: "Metadata + qualities + size limits" } },
+        },
+      },
+      "/api/v1/youtube/video/ingests": {
+        get: {
+          summary: "List YouTube video ingests",
+          responses: { "200": { description: "Video ingest list" } },
+        },
+        post: {
+          summary: "Start a YouTube video ingest",
+          description:
+            "Requires qualityId from POST /api/v1/youtube/video/metadata. Server re-fetches metadata to validate the quality.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["url", "qualityId"],
+                  properties: {
+                    url: { type: "string" },
+                    qualityId: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: { "201": { description: "Video ingest started" } },
+        },
+      },
+      "/api/v1/youtube/video/ingests/{id}": {
+        get: {
+          summary: "Get YouTube video ingest status",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: { "200": { description: "Video ingest" } },
+        },
+        delete: {
+          summary: "Delete a YouTube video ingest record",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: { "204": { description: "Deleted" } },
+        },
+      },
+      "/api/v1/youtube/audio/ingests": {
+        get: {
+          summary: "List YouTube audio (MP3) ingests",
+          responses: { "200": { description: "Audio ingest list" } },
+        },
+        post: {
+          summary: "Start a YouTube MP3 ingest from a URL",
+          description:
+            "One-shot: pass only { url }. No metadata/quality step — highest-quality audio is selected automatically.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["url"],
+                  properties: { url: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: { "201": { description: "Audio ingest started" } },
+        },
+      },
+      "/api/v1/youtube/audio/ingests/{id}": {
+        get: {
+          summary: "Get YouTube audio ingest status",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: { "200": { description: "Audio ingest" } },
+        },
+        delete: {
+          summary: "Delete a YouTube audio ingest record",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: { "204": { description: "Deleted" } },
         },
       },
     },

@@ -103,6 +103,44 @@ export const notesListQuerySchema = z.object({
   albumId: z.string().optional(),
 });
 
+export const youtubeUrlBodySchema = z.object({
+  url: z.string().min(1),
+});
+
+/** @deprecated Use youtubeUrlBodySchema */
+export const youtubeMetadataBodySchema = youtubeUrlBodySchema;
+
+export const createYoutubeVideoIngestBodySchema = z.object({
+  url: z.string().min(1),
+  qualityId: z.string().min(1),
+});
+
+export const createYoutubeAudioIngestBodySchema = z.object({
+  url: z.string().min(1),
+});
+
+export const youtubeIngestResourceSchema = z.object({
+  id: z.string(),
+  youtubeId: z.string(),
+  youtubeUrl: z.string(),
+  title: z.string(),
+  channelName: z.string().nullable().optional(),
+  durationSeconds: z.number().nullable().optional(),
+  qualityLabel: z.string().nullable().optional(),
+  outputType: z.enum(["video", "audio"]),
+  status: z.string(),
+  progress: z.number().int().min(0).max(100),
+  error: z.string().nullable().optional(),
+  mediaId: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  links: z.object({
+    self: z.string(),
+    media: z.string().nullable(),
+  }),
+});
+
 export type FileResource = z.infer<typeof fileResourceSchema>;
 export type NoteResource = z.infer<typeof noteResourceSchema>;
 export type Visibility = z.infer<typeof visibilitySchema>;
+export type YoutubeIngestResource = z.infer<typeof youtubeIngestResourceSchema>;
