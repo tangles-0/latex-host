@@ -38,11 +38,16 @@ import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
+const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
 const GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
 const CODE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-code-autosave";
 const PREVIEW_POLL_MAX_MS = 2 * 60 * 1000;
+
+function isMarkdownDocumentExtension(ext: string): boolean {
+  return MARKDOWN_EXTENSIONS.has(ext.toLowerCase());
+}
 
 type PreviewStatus = "pending" | "started" | "complete" | "error";
 
@@ -155,7 +160,7 @@ function extractClipboardImageFiles(event: ClipboardEvent): File[] {
 }
 
 type RotationDirection = "left" | "right";
-type NoteEditorMode = "markdown" | "preview";
+type NoteEditorMode = "markdown" | "preview" | "code";
 type NoteModalView = "note" | "history" | "history-preview";
 type EditorWindowMode = "windowed" | "large" | "fullscreen";
 type GalleryKindFilter = "all" | MediaKind;
@@ -581,13 +586,16 @@ export default function GalleryClient({
   function isEditableCodeGalleryItem(image: GalleryImage | null | undefined) {
     return Boolean(
       image &&
-        image.kind === "document" &&
-        isEditableTextDocument(image.mimeType ?? "", image.ext),
+      image.kind === "document" &&
+      isEditableTextDocument(image.mimeType ?? "", image.ext),
     );
   }
 
   const isNoteActive = active?.kind === "note";
   const isCodeFileActive = isEditableCodeGalleryItem(active);
+  const isMarkdownFileActive = Boolean(
+    isCodeFileActive && active && isMarkdownDocumentExtension(active.ext),
+  );
   const isTextEditorActive = isNoteActive || isCodeFileActive;
   const noteIsDirty =
     isNoteActive && activeNote
@@ -1182,7 +1190,11 @@ export default function GalleryClient({
         content?: string;
         media?: GalleryImage;
       };
-      if (!response.ok || typeof payload.content !== "string" || !payload.media) {
+      if (
+        !response.ok ||
+        typeof payload.content !== "string" ||
+        !payload.media
+      ) {
         throw new Error(payload.error ?? "Unable to save file.");
       }
       const savedAt = new Date().toISOString();
@@ -1300,7 +1312,11 @@ export default function GalleryClient({
     setNoteHistoryEntries([]);
     setSelectedNoteHistory(null);
     const opensCodeEditor = isEditableCodeGalleryItem(image);
-    setEditorWindowMode(opensCodeEditor ? "large" : "windowed");
+    const opensMarkdownEditor =
+      opensCodeEditor && isMarkdownDocumentExtension(image.ext);
+    setEditorWindowMode(
+      opensCodeEditor && !opensMarkdownEditor ? "large" : "windowed",
+    );
 
     try {
       if (image.kind === "note") {
@@ -2583,6 +2599,31 @@ export default function GalleryClient({
     );
   }
 
+  function renderMarkdownEditorTabs(isCodeEditorAvailable: boolean) {
+    const modes: NoteEditorMode[] = isCodeEditorAvailable
+      ? ["markdown", "preview", "code"]
+      : ["markdown", "preview"];
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {modes.map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setNoteEditorMode(mode)}
+            className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
+            aria-pressed={noteEditorMode === mode}
+          >
+            {mode === "markdown"
+              ? "markdown"
+              : mode === "preview"
+                ? "preview"
+                : "code editor"}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   function renderNoteEditor() {
     if (readOnly) {
       return (
@@ -2601,18 +2642,7 @@ export default function GalleryClient({
     }
     return (
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {(["markdown", "preview"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setNoteEditorMode(mode)}
-              className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
-            >
-              {mode === "markdown" ? "markdown" : "preview"}
-            </button>
-          ))}
-        </div>
+        {renderMarkdownEditorTabs(false)}
         {isLoadingNote ? (
           <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
             Loading note...
@@ -2621,6 +2651,10 @@ export default function GalleryClient({
           <NoteRichEditor
             value={noteContentDraft}
             onChange={setNoteContentDraft}
+            onSave={() => {
+              void saveActiveNote();
+            }}
+            isMathEnabled={true}
             layoutMode={editorWindowMode}
           />
         ) : (
@@ -2649,6 +2683,57 @@ export default function GalleryClient({
       return (
         <div className="rounded border border-neutral-200 p-4 text-xs text-red-600">
           {codeSaveError}
+        </div>
+      );
+    }
+    if (isMarkdownFileActive) {
+      if (readOnly) {
+        return (
+          <div
+            className={`${isEditorLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
+          >
+            <NoteMarkdown content={codeContentDraft} />
+          </div>
+        );
+      }
+      return (
+        <div
+          className={
+            isEditorFullscreen ? "flex min-h-0 flex-1 flex-col" : "space-y-3"
+          }
+        >
+          {isEditorFullscreen ? null : renderMarkdownEditorTabs(true)}
+          {noteEditorMode === "markdown" ? (
+            <NoteRichEditor
+              value={codeContentDraft}
+              onChange={setCodeContentDraft}
+              onSave={() => {
+                void saveActiveCodeFile();
+              }}
+              isMathEnabled={true}
+              layoutMode={editorWindowMode}
+            />
+          ) : noteEditorMode === "preview" ? (
+            <div
+              className={
+                isEditorFullscreen
+                  ? "min-h-0 flex-1 overflow-y-auto rounded border border-neutral-200 p-4"
+                  : `${isEditorLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`
+              }
+            >
+              <NoteMarkdown content={codeContentDraft} />
+            </div>
+          ) : (
+            <CodeFileEditor
+              value={codeContentDraft}
+              onChange={setCodeContentDraft}
+              ext={active.ext}
+              layoutMode={editorWindowMode}
+              onSave={() => {
+                void saveActiveCodeFile();
+              }}
+            />
+          )}
         </div>
       );
     }
@@ -3091,19 +3176,8 @@ export default function GalleryClient({
             {isEditorFullscreen ? (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-2">
-                  {isNoteActive && !readOnly ? (
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      {(["markdown", "preview"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setNoteEditorMode(mode)}
-                          className={`rounded px-3 py-1 ${noteEditorMode === mode ? "bg-black text-white" : "border border-neutral-200"}`}
-                        >
-                          {mode === "markdown" ? "markdown" : "preview"}
-                        </button>
-                      ))}
-                    </div>
+                  {(isNoteActive || isMarkdownFileActive) && !readOnly ? (
+                    renderMarkdownEditorTabs(isMarkdownFileActive)
                   ) : (
                     <div className="text-xs text-neutral-500">
                       {activeDisplayName}
@@ -3191,6 +3265,10 @@ export default function GalleryClient({
                       <NoteRichEditor
                         value={noteContentDraft}
                         onChange={setNoteContentDraft}
+                        onSave={() => {
+                          void saveActiveNote();
+                        }}
+                        isMathEnabled={true}
                         layoutMode={editorWindowMode}
                       />
                     ) : (
@@ -3702,10 +3780,14 @@ export default function GalleryClient({
                           Auto-save every 30s
                         </label>
                         <div>
-                          {codeIsDirty ? "Unsaved changes" : "All changes saved"}
+                          {codeIsDirty
+                            ? "Unsaved changes"
+                            : "All changes saved"}
                         </div>
                         <div className="text-[11px] text-neutral-500">
-                          Edit with the VS Code (Monaco) editor. Ctrl/Cmd+S saves.
+                          {isMarkdownFileActive
+                            ? "Use the Markdown editor, preview, or VS Code editor. Ctrl/Cmd+S saves."
+                            : "Edit with the VS Code (Monaco) editor. Ctrl/Cmd+S saves."}
                         </div>
                       </div>
                     ) : null}

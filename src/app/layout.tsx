@@ -1,11 +1,13 @@
+import "katex/dist/katex.min.css";
 import "./globals.css";
+
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { getUserTheme } from "@/lib/metadata-store";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import FloatingThemeSelector from "@/components/theme/floating-theme-selector";
 import { FloatingLogo } from "@/components/theme/floating-logo";
-import { SpeedInsights } from "@vercel/speed-insights/next"
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata = {
   title: "latex",
@@ -40,14 +42,13 @@ export default async function RootLayout({
         </head>
       ) : null}
       <body className="min-h-screen bg-white text-neutral-900">
-          <ThemeProvider initialTheme={theme} preferLocalStorage={!userId}>
-            <FloatingThemeSelector />
-            {children}
-            <FloatingLogo />
-          </ThemeProvider>
-          <SpeedInsights />
+        <ThemeProvider initialTheme={theme} preferLocalStorage={!userId}>
+          <FloatingThemeSelector />
+          {children}
+          <FloatingLogo />
+        </ThemeProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
 }
-

@@ -5,12 +5,16 @@ import { useRef } from "react";
 type NoteRichEditorProps = {
   value: string;
   onChange: (next: string) => void;
+  onSave?: () => void;
+  isMathEnabled?: boolean;
   layoutMode?: "windowed" | "large" | "fullscreen";
 };
 
 export default function NoteRichEditor({
   value,
   onChange,
+  onSave,
+  isMathEnabled = false,
   layoutMode = "windowed",
 }: NoteRichEditorProps) {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -115,6 +119,11 @@ export default function NoteRichEditor({
   }
 
   function handleEnterKey(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      onSave?.();
+      return;
+    }
     if (event.key !== "Enter") {
       return;
     }
@@ -155,7 +164,8 @@ export default function NoteRichEditor({
     const currentLine = `${indent}${numberText}. ${beforeCursorContent}`;
     const nextLine = `${indent}${nextNumber}. ${afterCursorContent}`;
     const nextValue = `${value.slice(0, lineStart)}${currentLine}\n${nextLine}${value.slice(lineEnd)}`;
-    const nextCursor = lineStart + currentLine.length + 1 + `${indent}${nextNumber}. `.length;
+    const nextCursor =
+      lineStart + currentLine.length + 1 + `${indent}${nextNumber}. `.length;
     updateSelection(nextValue, nextCursor, nextCursor);
   }
 
@@ -166,34 +176,128 @@ export default function NoteRichEditor({
       }`}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 p-2 text-xs">
-        <button type="button" onClick={() => { focusEditor(); applyWrap("**", "**"); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyWrap("**", "**");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           B
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyWrap("*", "*"); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyWrap("*", "*");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           I
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("# "); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyLinePrefix("# ");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           H1
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("## "); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyLinePrefix("## ");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           H2
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("### "); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyLinePrefix("### ");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           H3
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("> "); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyLinePrefix("> ");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           Quote
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("- "); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyLinePrefix("- ");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           UL
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyLinePrefix("1. "); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyLinePrefix("1. ");
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           OL
         </button>
-        <button type="button" onClick={() => { focusEditor(); applyCodeFormatting(); }} className="rounded border border-neutral-200 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            applyCodeFormatting();
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           Code
         </button>
-        <button type="button" onClick={() => { focusEditor(); insertLink(); }} className="rounded border border-neutral-200 px-2 py-1">
+        {isMathEnabled ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                focusEditor();
+                applyWrap("$", "$");
+              }}
+              className="rounded border border-neutral-200 px-2 py-1"
+            >
+              Math
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                focusEditor();
+                applyWrap("$$\n", "\n$$");
+              }}
+              className="rounded border border-neutral-200 px-2 py-1"
+            >
+              Math block
+            </button>
+          </>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            focusEditor();
+            insertLink();
+          }}
+          className="rounded border border-neutral-200 px-2 py-1"
+        >
           Link
         </button>
       </div>
