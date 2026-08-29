@@ -49,6 +49,12 @@ export const ImageGenerationDialog = ({
     [generations],
   );
 
+  const closeDialog = useCallback(() => {
+    setIsOpen(false);
+    setLightbox(null);
+    router.refresh();
+  }, [router]);
+
   const loadGenerations = useCallback(async () => {
     if (isLoadingRef.current) {
       return;
@@ -128,7 +134,7 @@ export const ImageGenerationDialog = ({
         if (lightbox) {
           setLightbox(null);
         } else {
-          setIsOpen(false);
+          closeDialog();
         }
       }
     };
@@ -138,7 +144,7 @@ export const ImageGenerationDialog = ({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, lightbox]);
+  }, [closeDialog, isOpen, lightbox]);
 
   const submitGeneration = async () => {
     if (!hasAccess) {
@@ -275,11 +281,14 @@ export const ImageGenerationDialog = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="image-generation-title"
-          className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-y-auto bg-white text-neutral-950"
+          className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-y-auto bg-white"
         >
           <header className="sticky top-0 z-10 flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3 sm:px-8">
             <div>
-              <h2 id="image-generation-title" className="text-lg font-semibold">
+              <h2
+                id="image-generation-title"
+                className="text-lg font-semibold text-neutral-900"
+              >
                 generate image
               </h2>
               <p className="text-xs text-neutral-500">
@@ -288,7 +297,7 @@ export const ImageGenerationDialog = ({
             </div>
             <button
               type="button"
-              onClick={() => setIsOpen(false)}
+              onClick={closeDialog}
               className="rounded border border-neutral-200 px-3 py-1 text-xs"
             >
               close
@@ -342,7 +351,7 @@ export const ImageGenerationDialog = ({
                 <button
                   type="button"
                   disabled={isSubmitting}
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeDialog}
                   className="rounded border border-neutral-200 px-4 py-2 text-xs disabled:opacity-50"
                 >
                   cancel

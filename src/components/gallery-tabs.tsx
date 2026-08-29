@@ -97,11 +97,13 @@ export default function GalleryTabs({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [imageItems, setImageItems] = useState<GalleryImage[]>(media);
+  const [mediaFromServer, setMediaFromServer] = useState(media);
   const [activeTab, setActiveTab] = useState<"albums" | "files">(initialTab);
   const [fileTypeFilter, setFileTypeFilter] = useState<"all" | MediaKind>(
     "all",
   );
   const [albumItems, setAlbumItems] = useState(albums);
+  const [albumsFromServer, setAlbumsFromServer] = useState(albums);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -119,6 +121,16 @@ export default function GalleryTabs({
   } catch {} // ignore storage errors
   const [hideAlbumImages, setHideAlbumImages] = useState(storedSetting === "1");
   const [delBtnLabel, setDelBtnLabel] = useState("del album");
+
+  if (media !== mediaFromServer) {
+    setMediaFromServer(media);
+    setImageItems(media);
+  }
+
+  if (albums !== albumsFromServer) {
+    setAlbumsFromServer(albums);
+    setAlbumItems(albums);
+  }
 
   useEffect(() => {
     try {
@@ -451,7 +463,10 @@ export default function GalleryTabs({
                         aria-label="delete album"
                         title="rm -rf this album"
                       >
-                        <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                        <LightTrashAlt
+                          className="h-4 w-4"
+                          fill="currentColor"
+                        />
                       </button>
                     </>
                   )}

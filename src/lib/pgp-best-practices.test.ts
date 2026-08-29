@@ -10,8 +10,8 @@ describe("readPgpBestPracticesMarkdown", () => {
       "# PGP messaging: what is it, how it works, and how to use it safely",
     );
     expect(markdown).toContain("## How PGP messaging works, in general");
-    expect(markdown).toContain("## How messaging works here on latex.gg");
-    expect(markdown).toContain("## What PGP does not protect");
+    expect(markdown).toContain("## How PGP messaging works here on latex.gg");
+    expect(markdown).toContain("## What PGP does not protect you from");
     expect(markdown).toContain("## Quick checklist");
   });
 });
