@@ -8,7 +8,16 @@ import {
 } from "@/lib/upload-sessions";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { addMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
-import { storeGenericMediaFromStoredUpload } from "@/lib/media-storage";
+import {
+  deleteCompletedUploadObject,
+  storeGenericMediaFromStoredUpload,
+} from "@/lib/media-storage";
+import { registerMediaFromUploadSession } from "@/lib/api-v1/media-register";
+import {
+  getImageGenerationById,
+  updateImageGenerationForUser,
+} from "@/lib/image-generations/repository";
+import { isImageGenerationExpired } from "@/lib/image-generations/policy";
 import {
   buildAppUrl,
   isWorkerIngestAuthorized,
@@ -33,6 +42,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     youtubeId?: string;
     title?: string;
     youtubeMediaType?: "video" | "audio";
+    imageGenerationId?: string;
   };
   if (!userId && isWorkerRequest) {
     userId = payload.userId?.trim() ?? "";
@@ -104,6 +114,64 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const completed = await completeUploadSession(session);
+    if (!completed.storageKey) {
+      throw new Error("Completed upload is missing its storage key.");
+    }
+    const imageGenerationId = payload.imageGenerationId?.trim() ?? "";
+    if (isWorkerRequest && imageGenerationId) {
+      const generation = await getImageGenerationById(imageGenerationId);
+      if (!generation || generation.userId !== userId) {
+        await deleteCompletedUploadObject(completed.storageKey);
+        return NextResponse.json(
+          { error: "Image generation not found." },
+          { status: 404 },
+        );
+      }
+
+      if (
+        generation.status === "failed" ||
+        isImageGenerationExpired(generation.createdAt)
+      ) {
+        await deleteCompletedUploadObject(completed.storageKey);
+        await updateImageGenerationForUser({
+          userId,
+          generationId: imageGenerationId,
+          status: "failed",
+          error: "Image generation exceeded the one-minute time limit.",
+        });
+        return NextResponse.json(
+          { error: "Image generation has expired." },
+          { status: 409 },
+        );
+      }
+
+      const media = await registerMediaFromUploadSession({
+        request,
+        userId,
+        session: {
+          storageKey: completed.storageKey,
+          fileName: completed.fileName,
+          fileSize: completed.fileSize,
+          mimeType: completed.mimeType,
+          ext: completed.ext,
+        },
+        keepOriginalFileName: true,
+      });
+      await updateImageGenerationForUser({
+        userId,
+        generationId: imageGenerationId,
+        status: "complete",
+        error: null,
+        mediaId: media.id,
+      });
+
+      return NextResponse.json({
+        sessionId: completed.id,
+        state: completed.state,
+        media,
+      });
+    }
+
     if (isWorkerRequest) {
       const youtubeIngestId = payload.youtubeIngestId?.trim() ?? "";
       const youtubeId = payload.youtubeId?.trim() ?? "";

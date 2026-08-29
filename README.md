@@ -91,6 +91,16 @@ App runs on `http://localhost:3000`.
 - `pnpm test:api-v1` - public `/api/v1` harness (needs `API_V1_KEY`; see `scripts/api-v1-harness/README.md`)
 - `pnpm worker:fake` - fake preview worker harness
 
+## Agent / AI development
+
+Project guidance lives in:
+
+- `.cursor/skills/web-implementation/`
+- `.cursor/skills/web-testing/`
+- `.cursor/skills/agentic-continuity/`
+
+Run tests with `pnpm test`.
+
 ## Public API (`/api/v1`)
 
 Machine-oriented API authenticated with account API keys (`Authorization: Bearer lh_live_…`). Create keys on `/account`. Interactive docs: `/api/v1/docs`. OpenAPI: `/api/v1/openapi.json`.

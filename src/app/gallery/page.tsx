@@ -10,6 +10,7 @@ import {
 } from "@/lib/metadata-store";
 import { listMediaForUser } from "@/lib/media-store";
 import GalleryTabs from "@/components/gallery-tabs";
+import { ImageGenerationDialog } from "@/components/image-generation-dialog";
 import PatchNoteBanner from "@/components/patch-note-banner";
 import PageHeader from "@/components/ui/page-header";
 import { LightCog } from "@energiz3r/icon-library/Icons/Light/LightCog";
@@ -21,11 +22,11 @@ import { LightUserSecret } from "@energiz3r/icon-library/Icons/Light/LightUserSe
 const headerButtonClass =
   "inline-flex flex-1 items-center justify-center gap-1 rounded border border-neutral-200 px-3 py-1 sm:flex-none";
 
-export default async function GalleryPage({
+const GalleryPage = async ({
   searchParams,
 }: {
   searchParams?: Promise<{ tab?: string }>;
-}) {
+}) => {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) {
@@ -74,11 +75,18 @@ export default async function GalleryPage({
         actions={
           <>
             <Link href="/upload" className={headerButtonClass}>
-              <LightUpload className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
+              <LightUpload
+                className="h-6.5 sm:h-3.5 w-3.5"
+                fill="currentColor"
+              />
               upload
             </Link>
+            <ImageGenerationDialog className={headerButtonClass} />
             <Link href="/messages" className={headerButtonClass}>
-              <LightInbox className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
+              <LightInbox
+                className="h-6.5 sm:h-3.5 w-3.5"
+                fill="currentColor"
+              />
               messages
             </Link>
             <Link href="/account" className={headerButtonClass}>
@@ -87,12 +95,18 @@ export default async function GalleryPage({
             </Link>
             {isAdmin ? (
               <Link href="/admin" className={headerButtonClass}>
-                <LightUserSecret className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
+                <LightUserSecret
+                  className="h-6.5 sm:h-3.5 w-3.5"
+                  fill="currentColor"
+                />
                 admin
               </Link>
             ) : null}
             <Link href="/signout" className={headerButtonClass}>
-              <LightSignOut className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
+              <LightSignOut
+                className="h-6.5 sm:h-3.5 w-3.5"
+                fill="currentColor"
+              />
               sign out
             </Link>
           </>
@@ -100,4 +114,6 @@ export default async function GalleryPage({
       />
     </main>
   );
-}
+};
+
+export default GalleryPage;

@@ -43,6 +43,15 @@ export type YoutubeMetadataPayload = {
   }>;
 };
 
+export type WorkerImageGenerationStatus = {
+  generationId: string;
+  status: "pending" | "generating" | "uploading" | "complete" | "failed";
+  error?: string;
+  mediaId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 function configuredWorkerWebhookUrl(): string {
   return process.env.THUMBNAIL_SERVICE_WEBHOOK_URL?.trim() || "";
 }
@@ -272,6 +281,104 @@ export async function requestYoutubeDownload(input: {
         ? error.message
         : "Unable to reach YouTube download worker.";
     return { ok: false, error: message };
+  }
+}
+
+export async function requestImageGeneration(input: {
+  generationId: string;
+  userId: string;
+  prompt: string;
+  negativePrompt?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const url = workerUrl("image-generations");
+  if (!url) {
+    return {
+      ok: false,
+      error: "Image generation worker URL is not configured.",
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(outgoingSecret() ? { Authorization: outgoingSecret() } : {}),
+      },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      return {
+        ok: false,
+        error:
+          payload.error ??
+          `Image generation request failed with status ${response.status}.`,
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach image generation worker.",
+    };
+  }
+}
+
+export async function requestImageGenerationStatus(
+  generationId: string,
+): Promise<
+  | { ok: true; generation: WorkerImageGenerationStatus }
+  | { ok: false; error: string }
+> {
+  const url = workerUrl(
+    `image-generations/${encodeURIComponent(generationId)}`,
+  );
+  if (!url) {
+    return {
+      ok: false,
+      error: "Image generation worker URL is not configured.",
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        ...(outgoingSecret() ? { Authorization: outgoingSecret() } : {}),
+      },
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => ({}))) as
+      | WorkerImageGenerationStatus
+      | { error?: string };
+
+    if (!response.ok || !("generationId" in payload)) {
+      return {
+        ok: false,
+        error:
+          "error" in payload && payload.error
+            ? payload.error
+            : `Image generation status failed with status ${response.status}.`,
+      };
+    }
+
+    return { ok: true, generation: payload };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach image generation worker.",
+    };
   }
 }
 

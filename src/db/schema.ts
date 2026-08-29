@@ -367,6 +367,31 @@ export const youtubeIngests = pgTable("youtube_ingests", {
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });
 
+export const imageGenerations = pgTable(
+  "image_generations",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    prompt: text("prompt").notNull(),
+    negativePrompt: text("negative_prompt"),
+    status: text("status").notNull().default("pending"),
+    error: text("error"),
+    mediaId: text("media_id"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+    completedAt: timestamp("completed_at", { mode: "date" }),
+  },
+  table => ({
+    userCreatedAtIdx: index("image_generations_user_created_at_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    statusIdx: index("image_generations_status_idx").on(table.status),
+  }),
+);
+
 export const userPgpKeys = pgTable(
   "user_pgp_keys",
   {
