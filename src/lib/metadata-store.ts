@@ -1230,6 +1230,7 @@ export type GroupLimits = {
   maxVideoSize: number;
   maxDocumentSize: number;
   maxOtherSize: number;
+  imageGenerationEnabled: boolean;
   allowedTypes: string[];
   rateLimitPerMinute: number;
   createdAt: string;
@@ -1242,6 +1243,7 @@ const DEFAULT_LIMITS: Omit<GroupLimits, "id" | "groupId" | "createdAt" | "update
   maxVideoSize: 2 * 1024 * 1024 * 1024,
   maxDocumentSize: 512 * 1024 * 1024,
   maxOtherSize: 512 * 1024 * 1024,
+  imageGenerationEnabled: false,
   allowedTypes: [
     "image/*",
     "video/*",
@@ -1278,6 +1280,7 @@ function mapLimits(row: typeof groupLimits.$inferSelect): GroupLimits {
     maxVideoSize,
     maxDocumentSize,
     maxOtherSize,
+    imageGenerationEnabled: row.imageGenerationEnabled,
     allowedTypes: row.allowedTypes.split(",").map((item) => item.trim()).filter(Boolean),
     rateLimitPerMinute: row.rateLimitPerMinute,
     createdAt: row.createdAt.toISOString(),
@@ -1306,6 +1309,7 @@ export async function getGroupLimits(groupId: string | null): Promise<GroupLimit
     maxVideoSize: DEFAULT_LIMITS.maxVideoSize,
     maxDocumentSize: DEFAULT_LIMITS.maxDocumentSize,
     maxOtherSize: DEFAULT_LIMITS.maxOtherSize,
+    imageGenerationEnabled: DEFAULT_LIMITS.imageGenerationEnabled,
     allowedTypes: DEFAULT_LIMITS.allowedTypes.join(","),
     rateLimitPerMinute: DEFAULT_LIMITS.rateLimitPerMinute,
     createdAt,
@@ -1328,6 +1332,7 @@ export async function upsertGroupLimits(input: {
   maxVideoSize?: number;
   maxDocumentSize?: number;
   maxOtherSize?: number;
+  imageGenerationEnabled: boolean;
   allowedTypes: string[];
   rateLimitPerMinute: number;
 }): Promise<GroupLimits> {
@@ -1358,6 +1363,7 @@ export async function upsertGroupLimits(input: {
         maxVideoSize,
         maxDocumentSize,
         maxOtherSize,
+        imageGenerationEnabled: input.imageGenerationEnabled,
         allowedTypes: input.allowedTypes.join(","),
         rateLimitPerMinute: input.rateLimitPerMinute,
         updatedAt,
@@ -1378,6 +1384,7 @@ export async function upsertGroupLimits(input: {
     maxVideoSize,
     maxDocumentSize,
     maxOtherSize,
+    imageGenerationEnabled: input.imageGenerationEnabled,
     allowedTypes: input.allowedTypes.join(","),
     rateLimitPerMinute: input.rateLimitPerMinute,
     createdAt,
@@ -1392,6 +1399,7 @@ export async function upsertGroupLimits(input: {
     maxVideoSize,
     maxDocumentSize,
     maxOtherSize,
+    imageGenerationEnabled: input.imageGenerationEnabled,
     allowedTypes: input.allowedTypes,
     rateLimitPerMinute: input.rateLimitPerMinute,
     createdAt: createdAt.toISOString(),

@@ -38,6 +38,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       maxVideoSize?: number;
       maxDocumentSize?: number;
       maxOtherSize?: number;
+      imageGenerationEnabled?: boolean;
       allowedTypes?: string[];
       rateLimitPerMinute?: number;
     };
@@ -52,6 +53,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const maxVideoSize = Number(payload.limits.maxVideoSize ?? maxFileSize);
   const maxDocumentSize = Number(payload.limits.maxDocumentSize ?? maxFileSize);
   const maxOtherSize = Number(payload.limits.maxOtherSize ?? maxFileSize);
+  const imageGenerationEnabled = payload.limits.imageGenerationEnabled === true;
   const allowedTypes = (payload.limits.allowedTypes ?? []).map((item) => item.trim());
   const rateLimitPerMinute = Number(payload.limits.rateLimitPerMinute ?? 0);
 
@@ -73,6 +75,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     maxVideoSize,
     maxDocumentSize,
     maxOtherSize,
+    imageGenerationEnabled,
     allowedTypes,
     rateLimitPerMinute,
   });

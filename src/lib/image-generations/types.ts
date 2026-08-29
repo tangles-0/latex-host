@@ -20,6 +20,7 @@ export type ImageGenerationEntry = ImageGenerationInput & {
   error?: string;
   mediaId?: string;
   thumbnailUrl?: string;
+  imageUrl?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;

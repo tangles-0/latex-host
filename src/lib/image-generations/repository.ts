@@ -95,6 +95,37 @@ export const listImageGenerationsForUser = async (userId: string) => {
   return jobs.map(mapImageGeneration);
 };
 
+export const deleteImageGenerationForUser = async (
+  userId: string,
+  generationId: string,
+) => {
+  const [deleted] = await db
+    .delete(imageGenerations)
+    .where(
+      and(
+        eq(imageGenerations.id, generationId),
+        eq(imageGenerations.userId, userId),
+      ),
+    )
+    .returning();
+
+  return deleted ? mapImageGeneration(deleted) : undefined;
+};
+
+export const clearTerminalImageGenerationsForUser = async (userId: string) => {
+  const deleted = await db
+    .delete(imageGenerations)
+    .where(
+      and(
+        eq(imageGenerations.userId, userId),
+        inArray(imageGenerations.status, ["complete", "failed"]),
+      ),
+    )
+    .returning();
+
+  return deleted.map(mapImageGeneration);
+};
+
 export const updateImageGenerationForUser = async ({
   userId,
   generationId,

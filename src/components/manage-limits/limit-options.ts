@@ -6,6 +6,7 @@ export type GroupLimits = {
   maxVideoSize: number
   maxDocumentSize: number
   maxOtherSize: number
+  imageGenerationEnabled: boolean
   allowedTypes: string[]
   rateLimitPerMinute: number
   createdAt: string
@@ -285,6 +286,7 @@ export function copyEditableLimits(source: GroupLimits, target: GroupLimits): Gr
     maxVideoSize: source.maxVideoSize,
     maxDocumentSize: source.maxDocumentSize,
     maxOtherSize: source.maxOtherSize,
+    imageGenerationEnabled: source.imageGenerationEnabled,
     allowedTypes: normalizeTypes(source.allowedTypes),
     rateLimitPerMinute: source.rateLimitPerMinute
   }
@@ -296,6 +298,7 @@ export function areEditableLimitsEqual(left: GroupLimits, right: GroupLimits): b
     left.maxVideoSize === right.maxVideoSize &&
     left.maxDocumentSize === right.maxDocumentSize &&
     left.maxOtherSize === right.maxOtherSize &&
+    left.imageGenerationEnabled === right.imageGenerationEnabled &&
     left.rateLimitPerMinute === right.rateLimitPerMinute &&
     normalizeTypes(left.allowedTypes).join("\n") === normalizeTypes(right.allowedTypes).join("\n")
   )

@@ -10,6 +10,7 @@ const createLimits = (overrides: Partial<GroupLimits> = {}): GroupLimits => ({
   maxVideoSize: 100,
   maxDocumentSize: 100,
   maxOtherSize: 100,
+  imageGenerationEnabled: false,
   allowedTypes: ["image/png"],
   rateLimitPerMinute: 10,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -29,6 +30,7 @@ describe("copyEditableLimits", () => {
       id: "source",
       maxImageSize: 200,
       maxVideoSize: 400,
+      imageGenerationEnabled: true,
       allowedTypes: [".TS", "text/plain"],
       rateLimitPerMinute: 25
     })
@@ -40,6 +42,7 @@ describe("copyEditableLimits", () => {
       maxFileSize: 400,
       maxImageSize: 200,
       maxVideoSize: 400,
+      imageGenerationEnabled: true,
       allowedTypes: [".ts", "text/plain"],
       rateLimitPerMinute: 25
     })
@@ -60,5 +63,6 @@ describe("areEditableLimitsEqual", () => {
 
   it("detects changed policy fields", () => {
     expect(areEditableLimitsEqual(createLimits(), createLimits({ rateLimitPerMinute: 11 }))).toBe(false)
+    expect(areEditableLimitsEqual(createLimits(), createLimits({ imageGenerationEnabled: true }))).toBe(false)
   })
 })

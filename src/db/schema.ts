@@ -24,6 +24,9 @@ export const groupLimits = pgTable("group_limits", {
   maxVideoSize: bigint("max_video_size", { mode: "number" }).notNull(),
   maxDocumentSize: bigint("max_document_size", { mode: "number" }).notNull(),
   maxOtherSize: bigint("max_other_size", { mode: "number" }).notNull(),
+  imageGenerationEnabled: boolean("image_generation_enabled")
+    .notNull()
+    .default(false),
   allowedTypes: text("allowed_types").notNull(),
   rateLimitPerMinute: integer("rate_limit_per_minute").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),

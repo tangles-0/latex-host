@@ -12,6 +12,7 @@ import {
   Loader2,
   RotateCcw,
   Save,
+  Sparkles,
   Settings2,
   Users,
   X
@@ -626,6 +627,35 @@ export default function ManageLimitsClient({
               </div>
             </div>
           ) : null}
+        </section>
+
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-neutral-900">Image generation access</h3>
+              <p className="mt-1 text-xs text-neutral-500">
+                Allow users in this scope to submit image generation requests.
+              </p>
+              <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+                <input
+                  type="checkbox"
+                  checked={activeLimits.imageGenerationEnabled}
+                  disabled={busyAction !== null}
+                  onChange={event =>
+                    updateActiveDraft(current => ({
+                      ...current,
+                      imageGenerationEnabled: event.target.checked
+                    }))
+                  }
+                  className="h-4 w-4 rounded border-neutral-300"
+                />
+                <span className="text-xs font-medium text-neutral-700">Enable image generation</span>
+              </label>
+            </div>
+          </div>
         </section>
 
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">

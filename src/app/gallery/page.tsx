@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+import { canUserGenerateImages } from "@/lib/image-generations/access";
 import {
   getLatestPatchNote,
   getUserLastPatchNoteDismissed,
@@ -33,14 +34,21 @@ const GalleryPage = async ({
     redirect("/");
   }
 
-  const [albums, media, isAdmin, latestPatchNote, dismissedAt] =
-    await Promise.all([
-      listAlbums(userId),
-      listMediaForUser(userId),
-      isAdminUser(userId),
-      getLatestPatchNote(),
-      getUserLastPatchNoteDismissed(userId),
-    ]);
+  const [
+    albums,
+    media,
+    isAdmin,
+    latestPatchNote,
+    dismissedAt,
+    hasImageGenerationAccess,
+  ] = await Promise.all([
+    listAlbums(userId),
+    listMediaForUser(userId),
+    isAdminUser(userId),
+    getLatestPatchNote(),
+    getUserLastPatchNoteDismissed(userId),
+    canUserGenerateImages(userId),
+  ]);
 
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialTab =
@@ -81,7 +89,10 @@ const GalleryPage = async ({
               />
               upload
             </Link>
-            <ImageGenerationDialog className={headerButtonClass} />
+            <ImageGenerationDialog
+              hasAccess={hasImageGenerationAccess}
+              className={headerButtonClass}
+            />
             <Link href="/messages" className={headerButtonClass}>
               <LightInbox
                 className="h-6.5 sm:h-3.5 w-3.5"
