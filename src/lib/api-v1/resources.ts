@@ -3,13 +3,24 @@ import type { MediaEntry, MediaKind } from "@/lib/media-store";
 import type { BlobMediaKind } from "@/lib/media-types";
 import type { FileResource, NoteResource, Visibility } from "@/lib/api-v1/schemas";
 
+export type ShareUrlSet = {
+  original: string;
+  sm: string;
+  lg: string;
+  x512?: string;
+};
+
+function includeConstrainedShareUrl(kind: MediaKind, ext: string): boolean {
+  return kind === "image" && ext.toLowerCase() !== "svg";
+}
+
 export function buildSharePaths(
   kind: MediaKind,
   code: string,
   ext: string,
-): { original: string; sm: string; lg: string } {
+): ShareUrlSet {
   const base = kind === "note" ? `/share/${code}` : `/share/${code}.${ext}`;
-  return {
+  const paths: ShareUrlSet = {
     original: base,
     sm:
       kind === "note"
@@ -20,6 +31,10 @@ export function buildSharePaths(
         ? base
         : `/share/${code}-lg.${kind === "image" ? ext : "png"}`,
   };
+  if (includeConstrainedShareUrl(kind, ext)) {
+    paths.x512 = `/share/${code}-512.${ext}`;
+  }
+  return paths;
 }
 
 export function absoluteUrl(origin: string, path: string): string {
@@ -32,13 +47,17 @@ export function buildAbsoluteShareUrls(
   kind: MediaKind,
   code: string,
   ext: string,
-): { original: string; sm: string; lg: string } {
+): ShareUrlSet {
   const paths = buildSharePaths(kind, code, ext);
-  return {
+  const urls: ShareUrlSet = {
     original: absoluteUrl(origin, paths.original),
     sm: absoluteUrl(origin, paths.sm),
     lg: absoluteUrl(origin, paths.lg),
   };
+  if (paths.x512) {
+    urls.x512 = absoluteUrl(origin, paths.x512);
+  }
+  return urls;
 }
 
 export function originFromRequest(request: Request): string {

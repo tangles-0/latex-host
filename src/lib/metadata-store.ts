@@ -32,6 +32,7 @@ import {
   reorderAlbumMediaForUser,
   updateAlbumMembershipCaptionForUser,
 } from "@/lib/album-membership-store";
+import { deleteConstrainedShareImage } from "@/lib/storage";
 
 export type Album = {
   id: string;
@@ -666,6 +667,14 @@ export async function deleteShareForUser(
   imageId: string,
   userId: string,
 ): Promise<boolean> {
+  const image = await getImageForUser(imageId, userId);
+  if (image) {
+    await deleteConstrainedShareImage(
+      image.baseName,
+      image.ext,
+      new Date(image.uploadedAt),
+    );
+  }
   const result = await db
     .delete(shares)
     .where(and(eq(shares.imageId, imageId), eq(shares.userId, userId)))

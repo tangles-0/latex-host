@@ -68,6 +68,14 @@ describe("parseSizedFileName", () => {
       ext: "png",
     });
   });
+
+  it("parses x512 when allowed", () => {
+    expect(parseSizedFileName("uuid-512.png", { allowX512: true })).toEqual({
+      baseName: "uuid",
+      size: "x512",
+      ext: "png",
+    });
+  });
 });
 
 describe("contentTypeForExt", () => {

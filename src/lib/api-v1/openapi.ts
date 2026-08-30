@@ -60,6 +60,11 @@ export function buildOpenApiDocument(origin?: string): Record<string, unknown> {
                 original: { type: "string" },
                 sm: { type: "string" },
                 lg: { type: "string" },
+                x512: {
+                  type: "string",
+                  description:
+                    "Share URL for a max 512x400 proportional image derivative. Present for raster images when public.",
+                },
               },
             },
             links: {

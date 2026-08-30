@@ -291,7 +291,8 @@ async function main() {
     form.append("visibility", "public");
     const { status, json } = await api("POST", "/api/v1/files", { body: form });
     const shareUrl = json?.file?.shareUrl as string | undefined;
-    const ok = status === 201 && Boolean(shareUrl);
+    const shareUrl512 = json?.file?.shareUrls?.x512 as string | undefined;
+    const ok = status === 201 && Boolean(shareUrl) && Boolean(shareUrl512);
     if (json?.file?.id) {
       createdFileIds.push(json.file.id);
     }
@@ -302,6 +303,14 @@ async function main() {
         "public share URL fetch",
         shared.status === 200,
         `status=${shared.status} cors=${shared.headers.get("access-control-allow-origin")}`,
+      );
+    }
+    if (shareUrl512) {
+      const shared512 = await fetch(shareUrl512);
+      record(
+        "public constrained share URL fetch",
+        shared512.status === 200,
+        `status=${shared512.status}`,
       );
     }
   }
@@ -443,10 +452,21 @@ async function main() {
     const share = await api("POST", `/api/v1/files/${id}/share`);
     record(
       "file share create",
-      share.status === 200 && Boolean(share.json?.shareUrl),
+      share.status === 200 &&
+        Boolean(share.json?.shareUrl) &&
+        Boolean(share.json?.shareUrls?.x512),
     );
     const revoke = await api("DELETE", `/api/v1/files/${id}/share`);
     record("file share revoke", revoke.status === 204);
+    const afterRevoke = await api("GET", `/api/v1/files/${id}`);
+    record(
+      "file share revoke clears URLs",
+      afterRevoke.status === 200 &&
+        (afterRevoke.json?.file?.shareUrl === null ||
+          afterRevoke.json?.file?.shareUrl === undefined) &&
+        (afterRevoke.json?.file?.shareUrls === null ||
+          afterRevoke.json?.file?.shareUrls === undefined),
+    );
   }
 
   await cleanup();

@@ -16,6 +16,7 @@ export const shareUrlsSchema = z.object({
   original: z.string().url(),
   sm: z.string().url(),
   lg: z.string().url(),
+  x512: z.string().url().optional(),
 });
 
 export const fileResourceSchema = z.object({

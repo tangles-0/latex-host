@@ -32,7 +32,7 @@ export function applyAttachmentDisposition(
 export function resolveDownloadFileName(input: {
   requestedFileName: string;
   preferredFileName?: string;
-  requestedSize: "original" | "sm" | "lg";
+  requestedSize: "original" | "sm" | "lg" | "x640" | "x512";
   responseExt: string;
 }): string {
   if (input.requestedSize !== "original") {

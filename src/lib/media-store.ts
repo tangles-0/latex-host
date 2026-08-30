@@ -32,7 +32,7 @@ import {
   type MediaRef,
   updateAlbumMembershipCaptionForUser,
 } from "@/lib/album-membership-store";
-import { deleteImageFiles } from "@/lib/storage";
+import { deleteConstrainedShareImage, deleteImageFiles } from "@/lib/storage";
 export type { MediaKind } from "@/lib/media-types";
 export type PreviewStatus = "pending" | "started" | "complete" | "error";
 
@@ -1866,6 +1866,14 @@ export async function deleteShareForMedia(
   userId: string,
 ): Promise<boolean> {
   if (kind === "image") {
+    const media = await getMediaForUser(kind, mediaId, userId);
+    if (media) {
+      await deleteConstrainedShareImage(
+        media.baseName,
+        media.ext,
+        new Date(media.uploadedAt),
+      );
+    }
     const rows = await db
       .delete(shares)
       .where(and(eq(shares.userId, userId), eq(shares.imageId, mediaId)))

@@ -2,7 +2,7 @@ import { splitFileName } from "@/lib/media-types";
 
 export type ParsedShareFileName = {
   code: string;
-  size: "original" | "sm" | "lg" | "x640";
+  size: "original" | "sm" | "lg" | "x640" | "x512";
   ext: string;
 };
 
@@ -12,7 +12,7 @@ export function parseShareFileName(fileName: string): ParsedShareFileName | null
     return null;
   }
 
-  const match = /^([A-Za-z0-9]+)(-sm|-lg|-640)?$/.exec(split.stem);
+  const match = /^([A-Za-z0-9]+)(-sm|-lg|-640|-512)?$/.exec(split.stem);
   if (!match) {
     return null;
   }
@@ -25,7 +25,9 @@ export function parseShareFileName(fileName: string): ParsedShareFileName | null
         ? "lg"
         : suffix === "-640"
           ? "x640"
-          : "original";
+          : suffix === "-512"
+            ? "x512"
+            : "original";
 
   return { code: match[1], size, ext: split.ext };
 }

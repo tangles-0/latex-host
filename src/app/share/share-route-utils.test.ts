@@ -14,6 +14,7 @@ describe("parseShareFileName", () => {
     expect(parseShareFileName("hash-sm.png")?.size).toBe("sm");
     expect(parseShareFileName("hash-lg.png")?.size).toBe("lg");
     expect(parseShareFileName("hash-640.png")?.size).toBe("x640");
+    expect(parseShareFileName("hash-512.png")?.size).toBe("x512");
   });
 
   it("rejects album style links", () => {

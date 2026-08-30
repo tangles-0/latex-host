@@ -1,10 +1,12 @@
 import {
   addMediaForUser,
   createShareForMedia,
+  getMediaForUser,
   getShareForUserByMedia,
   updateMediaPreviewForUser,
   type MediaEntry,
 } from "@/lib/media-store";
+import { ensureConstrainedShareImage } from "@/lib/storage";
 import {
   deleteCompletedUploadObject,
   readCompletedUploadBuffer,
@@ -257,10 +259,32 @@ export async function ensureShareForVisibility(input: {
       ? { password: input.password }
       : undefined,
   );
+  if (share?.code && input.kind === "image") {
+    await ensureImageShareConstrainedVariant(input.mediaId, input.userId);
+  }
   return {
     code: share?.code ?? null,
     visibility: share?.code ? "public" : "private",
   };
+}
+
+async function ensureImageShareConstrainedVariant(
+  mediaId: string,
+  userId: string,
+): Promise<void> {
+  const media = await getMediaForUser("image", mediaId, userId);
+  if (!media || media.ext.toLowerCase() === "svg") {
+    return;
+  }
+  try {
+    await ensureConstrainedShareImage(
+      media.baseName,
+      media.ext,
+      new Date(media.uploadedAt),
+    );
+  } catch {
+    // Share creation still succeeds; the public URL can generate on first request.
+  }
 }
 
 export async function resolveVisibilityForMedia(input: {

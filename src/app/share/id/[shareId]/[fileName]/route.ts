@@ -20,16 +20,24 @@ function contentTypeForExt(ext: string): string {
 
 function parseFileName(fileName: string): {
   baseName: string;
-  size: "original" | "sm" | "lg" | "x640";
+  size: "original" | "sm" | "lg" | "x640" | "x512";
   ext: string;
 } | null {
-  const match = /^(.*?)(-sm|-lg|-640)?\.([a-zA-Z0-9]+)$/.exec(fileName);
+  const match = /^(.*?)(-sm|-lg|-640|-512)?\.([a-zA-Z0-9]+)$/.exec(fileName);
   if (!match) {
     return null;
   }
   const suffix = match[2];
   const size =
-    suffix === "-sm" ? "sm" : suffix === "-lg" ? "lg" : suffix === "-640" ? "x640" : "original";
+    suffix === "-sm"
+      ? "sm"
+      : suffix === "-lg"
+        ? "lg"
+        : suffix === "-640"
+          ? "x640"
+          : suffix === "-512"
+            ? "x512"
+            : "original";
   return { baseName: match[1], size, ext: match[3].toLowerCase() };
 }
 

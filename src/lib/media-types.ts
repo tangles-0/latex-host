@@ -296,17 +296,17 @@ export function splitFileName(
 
 export type SizedMediaFileName = {
   baseName: string;
-  size: "original" | "sm" | "lg" | "x640";
+  size: "original" | "sm" | "lg" | "x640" | "x512";
   ext: string;
 };
 
 /**
- * Parse `baseName[-sm|-lg|-640].ext`, including compound archive extensions
+ * Parse `baseName[-sm|-lg|-640|-512].ext`, including compound archive extensions
  * (e.g. `uuid.tar.gz`).
  */
 export function parseSizedFileName(
   fileName: string,
-  options?: { allowX640?: boolean },
+  options?: { allowX640?: boolean; allowX512?: boolean },
 ): SizedMediaFileName | null {
   const split = splitFileName(fileName);
   if (!split) {
@@ -317,14 +317,27 @@ export function parseSizedFileName(
     return null;
   }
 
-  const sizePattern = options?.allowX640
-    ? /^(.*?)(-sm|-lg|-640)$/
+  const extra: string[] = [];
+  if (options?.allowX640) {
+    extra.push("-640");
+  }
+  if (options?.allowX512) {
+    extra.push("-512");
+  }
+  const sizePattern = extra.length
+    ? new RegExp(`^(.*?)(-sm|-lg|${extra.join("|")})$`)
     : /^(.*?)(-sm|-lg)$/;
   const sizeMatch = sizePattern.exec(stem);
   if (sizeMatch?.[1]) {
     const suffix = sizeMatch[2];
     const size =
-      suffix === "-sm" ? "sm" : suffix === "-lg" ? "lg" : ("x640" as const);
+      suffix === "-sm"
+        ? "sm"
+        : suffix === "-lg"
+          ? "lg"
+          : suffix === "-512"
+            ? ("x512" as const)
+            : ("x640" as const);
     return { baseName: sizeMatch[1], size, ext };
   }
 

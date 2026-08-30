@@ -12,6 +12,7 @@ import {
   getMediaStream,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
+import { getImageBuffer } from "@/lib/storage";
 import {
   getNote,
   getShareByCode as getMediaShareByCode,
@@ -28,6 +29,7 @@ import { unavailableImageResponse } from "@/lib/unavailable-image";
 import {
   parseByteRange,
   parseShareFileName,
+  type ParsedShareFileName,
 } from "@/app/share/share-route-utils";
 import {
   applyAttachmentDisposition,
@@ -72,6 +74,41 @@ function publicCacheHeaders(ext: string): Headers {
 
 function isDownloadRequested(request: NextRequest): boolean {
   return request.nextUrl.searchParams.get("download") === "true";
+}
+
+function resolveImageShareSize(
+  ext: string,
+  size: ParsedShareFileName["size"],
+): "original" | "sm" | "lg" | "x512" {
+  if (ext.toLowerCase() === "svg" && size !== "original") {
+    return "original";
+  }
+  if (size === "x640") {
+    return "lg";
+  }
+  return size;
+}
+
+async function constrainedShareImageResponse(input: {
+  baseName: string;
+  ext: string;
+  uploadedAt: Date;
+  downloadRequested: boolean;
+  downloadFileName: string;
+}): Promise<Response> {
+  const data = await getImageBuffer(
+    input.baseName,
+    input.ext,
+    "x512",
+    input.uploadedAt,
+  );
+  const headers = publicCacheHeaders(input.ext);
+  if (input.downloadRequested) {
+    applyAttachmentDisposition(headers, input.downloadFileName);
+  }
+  return withPublicImageCors(
+    new Response(new Uint8Array(data), { headers }),
+  );
 }
 
 function isDocumentNavigation(request: NextRequest): boolean {
@@ -258,17 +295,21 @@ export async function GET(
     if (imageShare) {
       const image = await getImage(imageShare.imageId);
       if (image && image.ext === parsed.ext) {
-        const imageRequestedSize =
-          image.ext.toLowerCase() === "svg" && parsed.size !== "original"
-            ? "original"
-            : parsed.size === "x640"
-              ? "lg"
-              : parsed.size;
+        const imageRequestedSize = resolveImageShareSize(image.ext, parsed.size);
         const imageDownloadFileName = resolveDownloadFileName({
           requestedFileName: fileName,
           requestedSize: imageRequestedSize,
           responseExt: image.ext,
         });
+        if (imageRequestedSize === "x512") {
+          return constrainedShareImageResponse({
+            baseName: image.baseName,
+            ext: image.ext,
+            uploadedAt: new Date(image.uploadedAt),
+            downloadRequested,
+            downloadFileName: imageDownloadFileName,
+          });
+        }
         if (usesS3StorageBackend() && !downloadRequested) {
           const responseExt =
             imageRequestedSize === "original" ? image.ext : "png";
@@ -339,11 +380,9 @@ export async function GET(
       return withPublicImageCors(new Response("Not found", { status: 404 }));
     }
     const requestedSize =
-      media.kind === "image" &&
-      media.ext.toLowerCase() === "svg" &&
-      parsed.size !== "original"
-        ? "original"
-        : parsed.size === "x640"
+      media.kind === "image"
+        ? resolveImageShareSize(media.ext, parsed.size)
+        : parsed.size === "x640" || parsed.size === "x512"
           ? "lg"
           : parsed.size;
     const responseExt =
@@ -358,6 +397,16 @@ export async function GET(
       requestedSize,
       responseExt,
     });
+    if (requestedSize === "x512" && media.kind === "image") {
+      return constrainedShareImageResponse({
+        baseName: media.baseName,
+        ext: media.ext,
+        uploadedAt: new Date(media.uploadedAt),
+        downloadRequested,
+        downloadFileName,
+      });
+    }
+    const storedSize = requestedSize === "x512" ? "lg" : requestedSize;
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (media.kind === "video" ||
@@ -369,7 +418,7 @@ export async function GET(
         kind: media.kind,
         baseName: media.baseName,
         ext: media.ext,
-        size: requestedSize,
+        size: storedSize,
         uploadedAt: new Date(media.uploadedAt),
         responseContentType: mimeType,
       });
@@ -453,7 +502,7 @@ export async function GET(
       kind: media.kind,
       baseName: media.baseName,
       ext: media.ext,
-      size: requestedSize,
+      size: storedSize,
       uploadedAt: new Date(media.uploadedAt),
     });
     const headers = publicCacheHeaders(responseExt);

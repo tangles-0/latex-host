@@ -14,8 +14,12 @@ const MAX_640_SIZE = {
   width: 640,
   height: 480,
 } as const;
+const MAX_512_SIZE = {
+  width: 512,
+  height: 400,
+} as const;
 
-export type ImageSize = "original" | "sm" | "lg" | "x640";
+export type ImageSize = "original" | "sm" | "lg" | "x640" | "x512";
 export type RotationDirection = "left" | "right";
 
 type StorageBackend = "local" | "blob";
@@ -139,7 +143,7 @@ export async function deleteImageFiles(
   ext: string,
   uploadedAt: Date,
 ): Promise<void> {
-  const sizes: ImageSize[] = ["original", "sm", "lg", "x640"];
+  const sizes: ImageSize[] = ["original", "sm", "lg", "x640", "x512"];
   if (STORAGE_BACKEND === "blob") {
     await Promise.all(
       sizes.map(async (size) => {
@@ -195,6 +199,11 @@ export async function rotateImageFiles(
     const rotated640 = await generate640Buffer(rotatedOriginal, ext);
     await writeStoredBuffer(baseName, ext, "x640", uploadedAt, rotated640);
   }
+  const x512Exists = await hasImageVariant(baseName, ext, "x512", uploadedAt);
+  if (x512Exists) {
+    const rotated512 = await generate512Buffer(rotatedOriginal, ext);
+    await writeStoredBuffer(baseName, ext, "x512", uploadedAt, rotated512);
+  }
 
   const metadata = await sharp(rotatedOriginal).metadata();
   return {
@@ -246,6 +255,11 @@ export async function overwriteImageAndThumbnails(
   if (x640Exists) {
     const resized640 = await generate640Buffer(originalBuffer, ext);
     await writeStoredBuffer(baseName, ext, "x640", uploadedAt, resized640);
+  }
+  const x512Exists = await hasImageVariant(baseName, ext, "x512", uploadedAt);
+  if (x512Exists) {
+    const resized512 = await generate512Buffer(originalBuffer, ext);
+    await writeStoredBuffer(baseName, ext, "x512", uploadedAt, resized512);
   }
 
   return {
@@ -321,16 +335,19 @@ export async function getImageBuffer(
   try {
     return await readStoredBuffer(baseName, ext, size, uploadedAt);
   } catch (error) {
-    if (size !== "x640") {
+    if (size !== "x640" && size !== "x512") {
       throw error;
     }
   }
 
-  // Lazily generate the 640x480 derivative on first request.
+  // Lazily generate constrained derivatives on first request.
   const original = await readStoredBuffer(baseName, ext, "original", uploadedAt);
-  const generated640 = await generate640Buffer(original, ext);
-  await writeStoredBuffer(baseName, ext, "x640", uploadedAt, generated640);
-  return generated640;
+  const generated =
+    size === "x512"
+      ? await generate512Buffer(original, ext)
+      : await generate640Buffer(original, ext);
+  await writeStoredBuffer(baseName, ext, size, uploadedAt, generated);
+  return generated;
 }
 
 async function readStoredBuffer(
@@ -413,6 +430,61 @@ async function generate640Buffer(original: Buffer, ext: string): Promise<Buffer>
     withoutEnlargement: true,
   });
   return encodeOutput(resized, outputFormatFromExt(ext), 82);
+}
+
+export async function generateConstrainedShareImageBuffer(
+  original: Buffer,
+  ext: string,
+): Promise<Buffer> {
+  return generate512Buffer(original, ext);
+}
+
+async function generate512Buffer(original: Buffer, ext: string): Promise<Buffer> {
+  const sourceOptions = ext === "gif" ? { animated: true } : undefined;
+  const resized = sharp(original, sourceOptions).resize({
+    width: MAX_512_SIZE.width,
+    height: MAX_512_SIZE.height,
+    fit: "inside",
+    withoutEnlargement: true,
+  });
+  return encodeOutput(resized, outputFormatFromExt(ext), 82);
+}
+
+function isSvgExt(ext: string): boolean {
+  return ext.toLowerCase() === "svg";
+}
+
+export async function ensureConstrainedShareImage(
+  baseName: string,
+  ext: string,
+  uploadedAt: Date,
+): Promise<void> {
+  if (isSvgExt(ext)) {
+    return;
+  }
+  const exists = await hasImageVariant(baseName, ext, "x512", uploadedAt);
+  if (exists) {
+    return;
+  }
+  const original = await readStoredBuffer(baseName, ext, "original", uploadedAt);
+  const generated = await generate512Buffer(original, ext);
+  await writeStoredBuffer(baseName, ext, "x512", uploadedAt, generated);
+}
+
+export async function deleteConstrainedShareImage(
+  baseName: string,
+  ext: string,
+  uploadedAt: Date,
+): Promise<void> {
+  try {
+    if (STORAGE_BACKEND === "blob") {
+      await deleteFromBlob(buildStorageKey(baseName, ext, "x512", uploadedAt));
+      return;
+    }
+    await fs.rm(getImagePath(baseName, ext, "x512", uploadedAt), { force: true });
+  } catch {
+    // Missing variants are expected when sharing was enabled only in the UI.
+  }
 }
 
 function contentTypeForExt(ext: string): string {
