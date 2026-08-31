@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
+import { parseAlbumPatchPayload } from "@/lib/album-updates";
 import { deleteAlbumForUser, updateAlbumForUser } from "@/lib/metadata-store";
 
 export const runtime = "nodejs";
@@ -15,7 +16,10 @@ export async function DELETE(
 
   const { albumId } = await params;
   if (!albumId) {
-    return NextResponse.json({ error: "Album id is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Album id is required." },
+      { status: 400 },
+    );
   }
 
   const deleted = await deleteAlbumForUser(albumId, userId);
@@ -37,36 +41,21 @@ export async function PATCH(
 
   const { albumId } = await params;
   if (!albumId) {
-    return NextResponse.json({ error: "Album id is required." }, { status: 400 });
-  }
-
-  const payload = (await request.json()) as {
-    name?: string;
-    displayAsDownloadPage?: boolean;
-  };
-  const name =
-    typeof payload.name === "string" ? payload.name.trim() : undefined;
-  const hasDisplayFlag = typeof payload.displayAsDownloadPage === "boolean";
-
-  if (name !== undefined && !name) {
     return NextResponse.json(
-      { error: "Album name is required." },
-      { status: 400 },
-    );
-  }
-  if (name === undefined && !hasDisplayFlag) {
-    return NextResponse.json(
-      { error: "No album updates provided." },
+      { error: "Album id is required." },
       { status: 400 },
     );
   }
 
-  const album = await updateAlbumForUser(albumId, userId, {
-    name,
-    displayAsDownloadPage: hasDisplayFlag
-      ? payload.displayAsDownloadPage
-      : undefined,
-  });
+  const parsed = parseAlbumPatchPayload(await request.json());
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error },
+      { status: parsed.status },
+    );
+  }
+
+  const album = await updateAlbumForUser(albumId, userId, parsed.updates);
   if (!album) {
     return NextResponse.json({ error: "Album not found." }, { status: 404 });
   }

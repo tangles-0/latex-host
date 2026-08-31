@@ -2,10 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { notFound } from "next/navigation";
-import {
-  getAlbumPublic,
-  getAlbumShareById,
-} from "@/lib/metadata-store";
+import { getAlbumPublic, getAlbumShareById } from "@/lib/metadata-store";
 import { listMediaForAlbumPublic } from "@/lib/media-store";
 import AlbumShareView from "@/components/album-share-view";
 
@@ -35,7 +32,7 @@ export default async function AlbumSharePage({
       albumName={album.name}
       media={media}
       isDisplayAsDownloadPage={album.displayAsDownloadPage}
+      isDisplayAsCompactView={album.displayAsCompactView}
     />
   );
 }
-

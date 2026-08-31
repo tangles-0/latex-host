@@ -800,7 +800,8 @@ body {
   background-color: color-mix(in srgb, var(--theme-panel) 92%, transparent);
 }
 
-[data-theme] .bg-neutral-50 {
+[data-theme] .bg-neutral-50,
+[data-theme] .hover\:bg-neutral-50:hover {
   background-color: color-mix(
     in srgb,
     var(--theme-panel) 85%,
@@ -808,7 +809,8 @@ body {
   );
 }
 
-[data-theme] .bg-neutral-100 {
+[data-theme] .bg-neutral-100,
+[data-theme] .hover\:bg-neutral-100:hover {
   background-color: color-mix(
     in srgb,
     var(--theme-panel) 75%,
@@ -926,6 +928,48 @@ body {
   background-color: var(--theme-control-bg);
   border: 1px solid var(--theme-control-border);
   color: var(--theme-control-text);
+}
+
+[data-theme] .tile-control:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--theme-control-bg) 70%,
+    var(--theme-text) 30%
+  );
+}
+
+.album-share-lightbox {
+  background-color: var(--theme-bg);
+}
+
+.album-share-lightbox--icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    radial-gradient(
+      40vmin 40vmin at 50% 46%,
+      color-mix(in srgb, var(--theme-panel) 100%, var(--theme-text) 8%) 0%,
+      color-mix(in srgb, var(--theme-panel) 88%, transparent) 42%,
+      transparent 100%
+    ),
+    radial-gradient(
+      32vmin 26vmin at 30% 68%,
+      color-mix(in srgb, var(--theme-link) 70%, transparent) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      28vmin 24vmin at 72% 30%,
+      color-mix(in srgb, var(--theme-border-strong) 75%, transparent) 0%,
+      transparent 100%
+    );
+}
+
+.album-share-lightbox-icon-stage {
+  color: var(--theme-text);
 }
 
 [data-theme] .checkbox-chip {

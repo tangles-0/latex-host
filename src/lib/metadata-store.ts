@@ -38,6 +38,7 @@ export type Album = {
   id: string;
   name: string;
   displayAsDownloadPage: boolean;
+  displayAsCompactView: boolean;
   createdAt: string;
 };
 
@@ -46,6 +47,7 @@ function mapAlbumRow(row: typeof albums.$inferSelect): Album {
     id: row.id,
     name: row.name,
     displayAsDownloadPage: row.displayAsDownloadPage,
+    displayAsCompactView: row.displayAsCompactView,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -89,17 +91,25 @@ const SHARE_CODE_LENGTH = 8;
 
 function normalizePatchNoteMarkdown(input: string): string {
   // Support custom link syntax: [https://some-link.com](link text)
-  return input.replace(/\[([a-z][a-z0-9+.-]*:\/\/[^\]]+)\]\(([^)]+)\)/gi, "[$2]($1)");
+  return input.replace(
+    /\[([a-z][a-z0-9+.-]*:\/\/[^\]]+)\]\(([^)]+)\)/gi,
+    "[$2]($1)",
+  );
 }
 
 function stripMarkdownToText(input: string): string {
   try {
     const stripped = String(
-      remark().use(stripMarkdown).processSync(normalizePatchNoteMarkdown(input)),
+      remark()
+        .use(stripMarkdown)
+        .processSync(normalizePatchNoteMarkdown(input)),
     );
     return stripped.replace(/\s+/g, " ").trim();
   } catch {
-    return input.replace(/[*_`#[\]()>!-]/g, "").replace(/\s+/g, " ").trim();
+    return input
+      .replace(/[*_`#[\]()>!-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 }
 
@@ -170,7 +180,10 @@ export async function listAlbums(userId: string): Promise<Album[]> {
   return rows.map(mapAlbumRow);
 }
 
-export async function createAlbum(name: string, userId: string): Promise<Album> {
+export async function createAlbum(
+  name: string,
+  userId: string,
+): Promise<Album> {
   const albumId = randomUUID();
   const createdAt = new Date();
   await db.insert(albums).values({
@@ -178,6 +191,7 @@ export async function createAlbum(name: string, userId: string): Promise<Album> 
     userId,
     name,
     displayAsDownloadPage: false,
+    displayAsCompactView: false,
     createdAt,
   });
 
@@ -185,6 +199,7 @@ export async function createAlbum(name: string, userId: string): Promise<Album> 
     id: albumId,
     name,
     displayAsDownloadPage: false,
+    displayAsCompactView: false,
     createdAt: createdAt.toISOString(),
   };
 }
@@ -217,14 +232,25 @@ export async function renameAlbumForUser(
 export async function updateAlbumForUser(
   albumId: string,
   userId: string,
-  updates: { name?: string; displayAsDownloadPage?: boolean },
+  updates: {
+    name?: string;
+    displayAsDownloadPage?: boolean;
+    displayAsCompactView?: boolean;
+  },
 ): Promise<Album | undefined> {
-  const patch: { name?: string; displayAsDownloadPage?: boolean } = {};
+  const patch: {
+    name?: string;
+    displayAsDownloadPage?: boolean;
+    displayAsCompactView?: boolean;
+  } = {};
   if (typeof updates.name === "string") {
     patch.name = updates.name;
   }
   if (typeof updates.displayAsDownloadPage === "boolean") {
     patch.displayAsDownloadPage = updates.displayAsDownloadPage;
+  }
+  if (typeof updates.displayAsCompactView === "boolean") {
+    patch.displayAsCompactView = updates.displayAsCompactView;
   }
   if (Object.keys(patch).length === 0) {
     return getAlbumForUser(albumId, userId);
@@ -256,7 +282,9 @@ export async function deleteAlbumForUser(
 
   await db
     .delete(albumShares)
-    .where(and(eq(albumShares.albumId, albumId), eq(albumShares.userId, userId)));
+    .where(
+      and(eq(albumShares.albumId, albumId), eq(albumShares.userId, userId)),
+    );
 
   const result = await db
     .delete(albums)
@@ -266,7 +294,9 @@ export async function deleteAlbumForUser(
   return result.length > 0;
 }
 
-export async function getAlbumPublic(albumId: string): Promise<Album | undefined> {
+export async function getAlbumPublic(
+  albumId: string,
+): Promise<Album | undefined> {
   const [row] = await db
     .select()
     .from(albums)
@@ -281,7 +311,10 @@ export async function getAlbumPublic(albumId: string): Promise<Album | undefined
 }
 
 export async function addImage(
-  entry: Omit<ImageEntry, "id" | "albumOrder"> & { albumOrder?: number; userId: string },
+  entry: Omit<ImageEntry, "id" | "albumOrder"> & {
+    albumOrder?: number;
+    userId: string;
+  },
 ): Promise<ImageEntry> {
   const imageId = randomUUID();
   const uploadedAt = new Date(entry.uploadedAt);
@@ -298,7 +331,9 @@ export async function addImage(
     uploadedAt,
   });
   if (entry.albumId) {
-    await addMediaItemsToAlbum(entry.userId, entry.albumId, [{ id: imageId, kind: "image" }]);
+    await addMediaItemsToAlbum(entry.userId, entry.albumId, [
+      { id: imageId, kind: "image" },
+    ]);
     if (entry.albumCaption?.trim()) {
       await updateAlbumMembershipCaptionForUser(
         entry.userId,
@@ -325,16 +360,22 @@ export async function addImage(
 export async function listImagesForUser(userId: string): Promise<ImageEntry[]> {
   const [rows, membershipByMedia] = await Promise.all([
     db
-    .select({ image: images, shareId: shares.id })
-    .from(images)
-    .leftJoin(shares, and(eq(shares.imageId, images.id), eq(shares.userId, userId)))
-    .where(eq(images.userId, userId))
-    .orderBy(desc(images.uploadedAt)),
+      .select({ image: images, shareId: shares.id })
+      .from(images)
+      .leftJoin(
+        shares,
+        and(eq(shares.imageId, images.id), eq(shares.userId, userId)),
+      )
+      .where(eq(images.userId, userId))
+      .orderBy(desc(images.uploadedAt)),
     listFirstAlbumMembershipByMediaForUser(userId),
   ]);
 
   return rows.map((row) => ({
-    ...withAlbumMembership(mapImageRow(row.image), membershipByMedia.get(`image:${row.image.id}`)),
+    ...withAlbumMembership(
+      mapImageRow(row.image),
+      membershipByMedia.get(`image:${row.image.id}`),
+    ),
     shared: Boolean(row.shareId),
   }));
 }
@@ -343,9 +384,9 @@ export async function listImagesForAlbum(
   userId: string,
   albumId: string,
 ): Promise<ImageEntry[]> {
-  const memberships = (await listAlbumMembershipsForUser(userId, albumId)).filter(
-    (item) => item.mediaType === "image",
-  );
+  const memberships = (
+    await listAlbumMembershipsForUser(userId, albumId)
+  ).filter((item) => item.mediaType === "image");
   if (memberships.length === 0) {
     return [];
   }
@@ -353,7 +394,10 @@ export async function listImagesForAlbum(
   const rows = await db
     .select({ image: images, shareId: shares.id })
     .from(images)
-    .leftJoin(shares, and(eq(shares.imageId, images.id), eq(shares.userId, userId)))
+    .leftJoin(
+      shares,
+      and(eq(shares.imageId, images.id), eq(shares.userId, userId)),
+    )
     .where(and(eq(images.userId, userId), inArray(images.id, ids)));
   const byId = new Map(rows.map((row) => [row.image.id, row]));
   return memberships
@@ -370,7 +414,9 @@ export async function listImagesForAlbum(
     .filter(Boolean) as ImageEntry[];
 }
 
-export async function listImagesForAlbumPublic(albumId: string): Promise<ImageEntry[]> {
+export async function listImagesForAlbumPublic(
+  albumId: string,
+): Promise<ImageEntry[]> {
   const memberships = (await listAlbumMembershipsPublic(albumId)).filter(
     (item) => item.mediaType === "image",
   );
@@ -383,7 +429,9 @@ export async function listImagesForAlbumPublic(albumId: string): Promise<ImageEn
   return memberships
     .map((membership) => {
       const row = byId.get(membership.mediaId);
-      return row ? withAlbumMembership(mapImageRow(row), membership) : undefined;
+      return row
+        ? withAlbumMembership(mapImageRow(row), membership)
+        : undefined;
     })
     .filter(Boolean) as ImageEntry[];
 }
@@ -401,9 +449,13 @@ export async function listImagesByIdsForUser(
     .from(images)
     .where(and(eq(images.userId, userId), inArray(images.id, imageIds)));
 
-  const membershipByMedia = await listFirstAlbumMembershipByMediaForUser(userId);
+  const membershipByMedia =
+    await listFirstAlbumMembershipByMediaForUser(userId);
   return rows.map((row) =>
-    withAlbumMembership(mapImageRow(row), membershipByMedia.get(`image:${row.id}`)),
+    withAlbumMembership(
+      mapImageRow(row),
+      membershipByMedia.get(`image:${row.id}`),
+    ),
   );
 }
 
@@ -444,7 +496,8 @@ export async function getUserUploadStats(userId: string): Promise<{
 
   const imageCount = Number(imageRow?.imageCount ?? 0);
   const videoCount = Number(videoRow?.count ?? 0);
-  const otherFileCount = Number(documentRow?.count ?? 0) + Number(fileRow?.count ?? 0);
+  const otherFileCount =
+    Number(documentRow?.count ?? 0) + Number(fileRow?.count ?? 0);
   const totalBytes =
     Number(imageRow?.totalBytes ?? 0) +
     Number(videoRow?.totalBytes ?? 0) +
@@ -526,7 +579,9 @@ export async function deleteImagesForUser(
   return rows;
 }
 
-export async function getImage(imageId: string): Promise<ImageEntry | undefined> {
+export async function getImage(
+  imageId: string,
+): Promise<ImageEntry | undefined> {
   const [row] = await db
     .select()
     .from(images)
@@ -555,7 +610,11 @@ export async function getImageForUser(
     return undefined;
   }
 
-  const membership = await getFirstAlbumMembershipForMedia("image", row.id, userId);
+  const membership = await getFirstAlbumMembershipForMedia(
+    "image",
+    row.id,
+    userId,
+  );
   return withAlbumMembership(mapImageRow(row), membership);
 }
 
@@ -744,7 +803,9 @@ export async function getAlbumShareForUser(
   const [row] = await db
     .select()
     .from(albumShares)
-    .where(and(eq(albumShares.albumId, albumId), eq(albumShares.userId, userId)))
+    .where(
+      and(eq(albumShares.albumId, albumId), eq(albumShares.userId, userId)),
+    )
     .limit(1);
 
   if (!row) {
@@ -794,7 +855,9 @@ export async function deleteAlbumShareForUser(
 ): Promise<boolean> {
   const result = await db
     .delete(albumShares)
-    .where(and(eq(albumShares.albumId, albumId), eq(albumShares.userId, userId)))
+    .where(
+      and(eq(albumShares.albumId, albumId), eq(albumShares.userId, userId)),
+    )
     .returning({ id: albumShares.id });
 
   return result.length > 0;
@@ -822,7 +885,9 @@ export async function getAlbumShareById(
   };
 }
 
-export async function getAlbumShareByCode(code: string): Promise<AlbumShare | undefined> {
+export async function getAlbumShareByCode(
+  code: string,
+): Promise<AlbumShare | undefined> {
   const [row] = await db
     .select()
     .from(albumShares)
@@ -841,7 +906,9 @@ export async function getAlbumShareByCode(code: string): Promise<AlbumShare | un
   };
 }
 
-export async function getShare(shareId: string): Promise<ShareLink | undefined> {
+export async function getShare(
+  shareId: string,
+): Promise<ShareLink | undefined> {
   const [row] = await db
     .select()
     .from(shares)
@@ -860,7 +927,9 @@ export async function getShare(shareId: string): Promise<ShareLink | undefined> 
   };
 }
 
-export async function getShareByCode(code: string): Promise<ShareLink | undefined> {
+export async function getShareByCode(
+  code: string,
+): Promise<ShareLink | undefined> {
   const [row] = await db
     .select()
     .from(shares)
@@ -1049,12 +1118,18 @@ export async function createGroup(name: string): Promise<GroupSummary> {
 }
 
 export async function deleteGroup(groupId: string): Promise<void> {
-  await db.update(users).set({ groupId: null }).where(eq(users.groupId, groupId));
+  await db
+    .update(users)
+    .set({ groupId: null })
+    .where(eq(users.groupId, groupId));
   await db.delete(groupLimits).where(eq(groupLimits.groupId, groupId));
   await db.delete(groups).where(eq(groups.id, groupId));
 }
 
-export async function setUserGroup(userId: string, groupId: string | null): Promise<void> {
+export async function setUserGroup(
+  userId: string,
+  groupId: string | null,
+): Promise<void> {
   await db.update(users).set({ groupId }).where(eq(users.id, userId));
 }
 
@@ -1082,15 +1157,21 @@ export async function getUserTheme(userId: string): Promise<string> {
     .where(eq(users.id, userId))
     .limit(1);
 
-  return row?.theme === "default" ? "dark" : row?.theme ?? "dark";
+  return row?.theme === "default" ? "dark" : (row?.theme ?? "dark");
 }
 
-export async function setUserTheme(userId: string, theme: string): Promise<void> {
+export async function setUserTheme(
+  userId: string,
+  theme: string,
+): Promise<void> {
   await db.update(users).set({ theme }).where(eq(users.id, userId));
 }
 
 function mapPatchNoteSummary(
-  row: Pick<typeof patchNotes.$inferSelect, "id" | "publishedAt" | "updatedAt" | "content">,
+  row: Pick<
+    typeof patchNotes.$inferSelect,
+    "id" | "publishedAt" | "updatedAt" | "content"
+  >,
 ): PatchNoteSummary {
   return {
     id: row.id,
@@ -1101,7 +1182,9 @@ function mapPatchNoteSummary(
   };
 }
 
-export async function listPatchNotes(limit?: number): Promise<PatchNoteSummary[]> {
+export async function listPatchNotes(
+  limit?: number,
+): Promise<PatchNoteSummary[]> {
   const rows =
     typeof limit === "number"
       ? await db
@@ -1127,8 +1210,14 @@ export async function listPatchNotes(limit?: number): Promise<PatchNoteSummary[]
   return rows.map(mapPatchNoteSummary);
 }
 
-export async function getPatchNoteById(id: string): Promise<PatchNoteEntry | undefined> {
-  const [row] = await db.select().from(patchNotes).where(eq(patchNotes.id, id)).limit(1);
+export async function getPatchNoteById(
+  id: string,
+): Promise<PatchNoteEntry | undefined> {
+  const [row] = await db
+    .select()
+    .from(patchNotes)
+    .where(eq(patchNotes.id, id))
+    .limit(1);
   if (!row) {
     return undefined;
   }
@@ -1142,7 +1231,9 @@ export async function getPatchNoteById(id: string): Promise<PatchNoteEntry | und
   };
 }
 
-export async function getLatestPatchNote(): Promise<PatchNoteEntry | undefined> {
+export async function getLatestPatchNote(): Promise<
+  PatchNoteEntry | undefined
+> {
   const [row] = await db
     .select()
     .from(patchNotes)
@@ -1161,7 +1252,9 @@ export async function getLatestPatchNote(): Promise<PatchNoteEntry | undefined> 
   };
 }
 
-export async function createPatchNote(content: string): Promise<PatchNoteEntry> {
+export async function createPatchNote(
+  content: string,
+): Promise<PatchNoteEntry> {
   const noteId = randomUUID();
   const now = new Date();
   await db.insert(patchNotes).values({
@@ -1212,7 +1305,9 @@ export async function deletePatchNote(id: string): Promise<boolean> {
   return result.length > 0;
 }
 
-export async function getUserLastPatchNoteDismissed(userId: string): Promise<string | undefined> {
+export async function getUserLastPatchNoteDismissed(
+  userId: string,
+): Promise<string | undefined> {
   const [row] = await db
     .select({ lastPatchNoteDismissed: users.lastPatchNoteDismissed })
     .from(users)
@@ -1246,7 +1341,10 @@ export type GroupLimits = {
   updatedAt: string;
 };
 
-const DEFAULT_LIMITS: Omit<GroupLimits, "id" | "groupId" | "createdAt" | "updatedAt"> = {
+const DEFAULT_LIMITS: Omit<
+  GroupLimits,
+  "id" | "groupId" | "createdAt" | "updatedAt"
+> = {
   maxFileSize: 512 * 1024 * 1024,
   maxImageSize: 512 * 1024 * 1024,
   maxVideoSize: 2 * 1024 * 1024 * 1024,
@@ -1272,14 +1370,21 @@ const DEFAULT_LIMITS: Omit<GroupLimits, "id" | "groupId" | "createdAt" | "update
 };
 
 function mapLimits(row: typeof groupLimits.$inferSelect): GroupLimits {
-  const maxImageSize = Number(row.maxImageSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxImageSize);
-  const maxVideoSize = Number(row.maxVideoSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxVideoSize);
+  const maxImageSize = Number(
+    row.maxImageSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxImageSize,
+  );
+  const maxVideoSize = Number(
+    row.maxVideoSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxVideoSize,
+  );
   const maxDocumentSize = Number(
     row.maxDocumentSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxDocumentSize,
   );
-  const maxOtherSize = Number(row.maxOtherSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxOtherSize);
+  const maxOtherSize = Number(
+    row.maxOtherSize ?? row.maxFileSize ?? DEFAULT_LIMITS.maxOtherSize,
+  );
   const maxFileSize = Number(
-    row.maxFileSize ?? Math.max(maxImageSize, maxVideoSize, maxDocumentSize, maxOtherSize),
+    row.maxFileSize ??
+      Math.max(maxImageSize, maxVideoSize, maxDocumentSize, maxOtherSize),
   );
   return {
     id: row.id,
@@ -1290,18 +1395,27 @@ function mapLimits(row: typeof groupLimits.$inferSelect): GroupLimits {
     maxDocumentSize,
     maxOtherSize,
     imageGenerationEnabled: row.imageGenerationEnabled,
-    allowedTypes: row.allowedTypes.split(",").map((item) => item.trim()).filter(Boolean),
+    allowedTypes: row.allowedTypes
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
     rateLimitPerMinute: row.rateLimitPerMinute,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-export async function getGroupLimits(groupId: string | null): Promise<GroupLimits> {
+export async function getGroupLimits(
+  groupId: string | null,
+): Promise<GroupLimits> {
   const [row] = await db
     .select()
     .from(groupLimits)
-    .where(groupId ? eq(groupLimits.groupId, groupId) : sql`${groupLimits.groupId} is null`)
+    .where(
+      groupId
+        ? eq(groupLimits.groupId, groupId)
+        : sql`${groupLimits.groupId} is null`,
+    )
     .limit(1);
 
   if (row) {
@@ -1348,7 +1462,11 @@ export async function upsertGroupLimits(input: {
   const [existing] = await db
     .select()
     .from(groupLimits)
-    .where(input.groupId ? eq(groupLimits.groupId, input.groupId) : sql`${groupLimits.groupId} is null`)
+    .where(
+      input.groupId
+        ? eq(groupLimits.groupId, input.groupId)
+        : sql`${groupLimits.groupId} is null`,
+    )
     .limit(1);
 
   const updatedAt = new Date();
@@ -1416,7 +1534,10 @@ export async function upsertGroupLimits(input: {
   };
 }
 
-export function getMaxAllowedBytesForKind(limits: GroupLimits, kind: MediaKind): number {
+export function getMaxAllowedBytesForKind(
+  limits: GroupLimits,
+  kind: MediaKind,
+): number {
   if (kind === "image") return limits.maxImageSize;
   if (kind === "video") return limits.maxVideoSize;
   if (kind === "document" || kind === "note") return limits.maxDocumentSize;
@@ -1514,7 +1635,8 @@ export async function getAdminStats(): Promise<{
     uploadsLast24h: Number(uploadsRow?.uploadsLast24h ?? 0),
     signupsLast24h: Number(signup24hRow?.signupsLast24h ?? 0),
     signupsLast30d: Number(signup30dRow?.signupsLast30d ?? 0),
-    sharedPercent: imageCount > 0 ? Math.round((sharedCount / imageCount) * 100) : 0,
+    sharedPercent:
+      imageCount > 0 ? Math.round((sharedCount / imageCount) * 100) : 0,
     averageFileSize: imageCount > 0 ? Math.round(totalBytes / imageCount) : 0,
     albumCount: Number(albumRow?.albumCount ?? 0),
     filetypeBreakdown: filetypeRows.map((rowItem) => ({
@@ -1590,7 +1712,9 @@ export async function getAppSettings(): Promise<AppSettings> {
     signupsEnabled: row.signupsEnabled,
     uploadsEnabled: row.uploadsEnabled,
     shareHtmlNavigationEnabled: row.shareHtmlNavigationEnabled,
-    resumableThresholdBytes: normalizeResumableThreshold(row.resumableThresholdBytes),
+    resumableThresholdBytes: normalizeResumableThreshold(
+      row.resumableThresholdBytes,
+    ),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -1659,4 +1783,3 @@ export async function updateAppSettings(input: {
     updatedAt: row.updatedAt.toISOString(),
   };
 }
-

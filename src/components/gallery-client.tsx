@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
   uploadSingleMedia,
 } from "@/lib/upload-client";
 import FancyCheckbox from "@/components/ui/fancy-checkbox";
+import { AlbumMediaDownloadButton } from "@/components/album-media-download-button";
 
 import { LightCaretRight } from "@energiz3r/icon-library/Icons/Light/LightCaretRight";
 import { LightCaretLeft } from "@energiz3r/icon-library/Icons/Light/LightCaretLeft";
@@ -34,6 +36,7 @@ import { ConfirmModal } from "@/components/confirm-modal";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
 import { isEditableTextDocument, isRiskyShareFile } from "@/lib/media-types";
+import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
@@ -71,6 +74,7 @@ type GalleryImage = {
   uploadedAt: string;
   updatedAt?: string;
   previewText?: string;
+  content?: string;
   shared?: boolean;
 };
 
@@ -201,6 +205,8 @@ export default function GalleryClient({
   kindFilter = "all",
   isAdmin = false,
   readOnly = false,
+  showDownloadLinks = false,
+  isCompactView = false,
 }: {
   media: GalleryImage[];
   onImagesChange?: (next: GalleryImage[]) => void;
@@ -213,6 +219,8 @@ export default function GalleryClient({
   kindFilter?: GalleryKindFilter;
   isAdmin?: boolean;
   readOnly?: boolean;
+  showDownloadLinks?: boolean;
+  isCompactView?: boolean;
 }) {
   const [items, setItems] = useState<GalleryImage[]>(media);
   const [active, setActive] = useState<GalleryImage | null>(null);
@@ -303,13 +311,15 @@ export default function GalleryClient({
   const lastHandledCreateNoteRequestIdRef = useRef(createNoteRequestId ?? 0);
   const uploadModalDismissTimeoutRef = useRef<number | null>(null);
   const isGalleryModalOpenRef = useRef(false);
+  const mediaRef = useRef(media);
+  mediaRef.current = media;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const inAlbumContext = Boolean(uploadAlbumId);
   const usePagination = !inAlbumContext;
 
   useEffect(() => {
-    setItems((current) => (current === media ? current : media));
+    setItems((current) => reconcileGalleryMedia(current, media));
   }, [media]);
 
   useEffect(() => {
@@ -628,6 +638,23 @@ export default function GalleryClient({
 
   function displayNameForMedia(image: GalleryImage): string {
     return image.originalFileName || image.baseName;
+  }
+
+  function galleryItemMetaLabel(image: GalleryImage): string {
+    if (image.width && image.height) {
+      return `${image.width}×${image.height}`;
+    }
+    if (image.kind === "note") {
+      return "markdown";
+    }
+    if (isEditableCodeGalleryItem(image)) {
+      return "editable";
+    }
+    return image.kind;
+  }
+
+  function stopCardActivation(event: { stopPropagation: () => void }) {
+    event.stopPropagation();
   }
 
   function noteAutosaveStorageKey(noteId: string): string {
@@ -2214,11 +2241,11 @@ export default function GalleryClient({
     if (!onImagesChange) {
       return;
     }
-    if (items === media) {
+    if (items === mediaRef.current) {
       return;
     }
     onImagesChange(items);
-  }, [items, media, onImagesChange]);
+  }, [items, onImagesChange]);
 
   useEffect(() => {
     onCreateNoteStateChange?.(isCreatingNote);
@@ -2908,7 +2935,13 @@ export default function GalleryClient({
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="grid justify-center gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(240px,320px))] [grid-template-columns:repeat(auto-fit,minmax(240px,100%))]">
+          <div
+            className={clsx(
+              isCompactView
+                ? "flex flex-col gap-2"
+                : "grid justify-center gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,100%))] sm:[grid-template-columns:repeat(auto-fit,minmax(240px,320px))]",
+            )}
+          >
             {pagedDisplayItems.map((image) => (
               <div
                 key={image.id}
@@ -2954,17 +2987,60 @@ export default function GalleryClient({
                   setDraggedImageId(null);
                   setDragOverImageId(null);
                 }}
-                className={`gallery-tile relative overflow-hidden rounded-md border text-left ${
+                onClick={() => openModal(image)}
+                className={clsx(
+                  "gallery-tile relative cursor-pointer overflow-hidden rounded-md border text-left",
+                  isCompactView ? "flex items-center gap-3 p-2" : "pt-8",
                   dragOverImageId === image.id
                     ? "border-black ring-2 ring-black/20"
-                    : "border-neutral-200"
-                } ${draggedImageId === image.id ? "opacity-70" : ""}`}
+                    : "border-neutral-200",
+                  draggedImageId === image.id ? "opacity-70" : "",
+                )}
               >
-                <SharePill isShared={image.shared} absolutePosition />
-                {readOnly ? null : (
+                {isCompactView ? null : (
+                  <SharePill isShared={image.shared} absolutePosition />
+                )}
+                {readOnly || isCompactView ? null : (
                   <>
+                    <div
+                      className="absolute left-1 top-1 z-10"
+                      onClick={stopCardActivation}
+                    >
+                      <FancyCheckbox
+                        className="tile-control text-xs"
+                        checked={selected.has(image.id)}
+                        onChange={(checked) => {
+                          const next = new Set(selected);
+                          if (checked) {
+                            next.add(image.id);
+                          } else {
+                            next.delete(image.id);
+                          }
+                          setSelected(next);
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        stopCardActivation(event);
+                        setImageToDelete(image);
+                      }}
+                      className="tile-control absolute right-1 top-1 z-10 rounded p-1"
+                      aria-label="Delete image"
+                      title="Delete image"
+                    >
+                      <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  </>
+                )}
+                {isCompactView && !readOnly ? (
+                  <div
+                    className="shrink-0 self-center"
+                    onClick={stopCardActivation}
+                  >
                     <FancyCheckbox
-                      className="tile-control absolute left-1 top-1 z-10 text-xs"
+                      className="tile-control text-xs"
                       checked={selected.has(image.id)}
                       onChange={(checked) => {
                         const next = new Set(selected);
@@ -2976,38 +3052,51 @@ export default function GalleryClient({
                         setSelected(next);
                       }}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setImageToDelete(image)}
-                      className="tile-control absolute right-1 top-1 z-10 rounded p-1"
-                      aria-label="Delete image"
-                      title="Delete image"
-                    >
-                      <LightTrashAlt className="h-4 w-4" fill="currentColor" />
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => openModal(image)}
-                  className="block w-full"
+                  </div>
+                ) : null}
+                <div
+                  className={clsx(
+                    isCompactView ? "relative shrink-0" : "block w-full",
+                  )}
                 >
                   {image.previewStatus === "pending" ? (
-                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                    <div
+                      className={clsx(
+                        "flex items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50",
+                        isCompactView
+                          ? "h-20 w-20"
+                          : "mt-2 h-48 max-h-64 w-full",
+                      )}
+                    >
                       <div className="flex flex-col items-center gap-2 text-xs text-neutral-500">
-                        <LightClock className="h-8 w-8" fill="currentColor" />
-                        <span>preview pending</span>
+                        <LightClock
+                          className={clsx(
+                            isCompactView ? "h-5 w-5" : "h-8 w-8",
+                          )}
+                          fill="currentColor"
+                        />
+                        {isCompactView ? null : <span>preview pending</span>}
                       </div>
                     </div>
                   ) : image.kind !== "image" &&
                     image.kind !== "note" &&
                     image.previewStatus !== "complete" ? (
-                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                    <div
+                      className={clsx(
+                        "flex items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50",
+                        isCompactView
+                          ? "h-20 w-20"
+                          : "mt-2 h-48 max-h-64 w-full",
+                      )}
+                    >
                       {(() => {
                         const Icon = getFileIconForExtension(image.ext);
                         return (
                           <Icon
-                            className="h-10 w-10 text-neutral-500"
+                            className={clsx(
+                              "text-neutral-500",
+                              isCompactView ? "h-6 w-6" : "h-10 w-10",
+                            )}
                             fill="currentColor"
                           />
                         );
@@ -3015,45 +3104,81 @@ export default function GalleryClient({
                     </div>
                   ) : image.kind === "image" &&
                     image.previewStatus !== "complete" ? (
-                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                    <div
+                      className={clsx(
+                        "flex items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50",
+                        isCompactView
+                          ? "h-20 w-20"
+                          : "mt-2 h-48 max-h-64 w-full",
+                      )}
+                    >
                       {(() => {
                         const Icon = getFileIconForExtension(image.ext);
                         return (
                           <Icon
-                            className="h-10 w-10 text-neutral-500"
+                            className={clsx(
+                              "text-neutral-500",
+                              isCompactView ? "h-6 w-6" : "h-10 w-10",
+                            )}
                             fill="currentColor"
                           />
                         );
                       })()}
                     </div>
                   ) : image.kind === "other" ? (
-                    <div className="mt-2 flex h-48 max-h-64 w-full items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50">
+                    <div
+                      className={clsx(
+                        "flex items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50",
+                        isCompactView
+                          ? "h-20 w-20"
+                          : "mt-2 h-48 max-h-64 w-full",
+                      )}
+                    >
                       {(() => {
                         const Icon = getFileIconForExtension(image.ext);
                         return (
                           <Icon
-                            className="h-10 w-10 text-neutral-500"
+                            className={clsx(
+                              "text-neutral-500",
+                              isCompactView ? "h-6 w-6" : "h-10 w-10",
+                            )}
                             fill="currentColor"
                           />
                         );
                       })()}
                     </div>
                   ) : image.kind === "note" ? (
-                    <div className="mt-2 flex h-48 max-h-64 w-full flex-col justify-between rounded border border-neutral-200 bg-neutral-50 p-4 text-left">
+                    <div
+                      className={clsx(
+                        "flex flex-col justify-between rounded border border-neutral-200 bg-neutral-50 text-left",
+                        isCompactView
+                          ? "h-20 w-20 p-2"
+                          : "mt-2 h-48 max-h-64 w-full p-4",
+                      )}
+                    >
                       <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
                         note
                       </div>
-                      <div className="line-clamp-6 text-sm text-neutral-700">
-                        {image.previewText || "Empty note"}
-                      </div>
+                      {isCompactView ? null : (
+                        <div className="line-clamp-6 text-sm text-neutral-700">
+                          {image.previewText || "Empty note"}
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="relative mt-2">
+                    <div
+                      className={clsx("relative", isCompactView ? "" : "mt-2")}
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={image.thumbUrl}
                         alt="Uploaded"
-                        className="sm:h-48 max-h-64 w-full object-cover"
+                        className={clsx(
+                          "object-cover",
+                          isCompactView
+                            ? "h-20 w-20 rounded"
+                            : "max-h-64 w-full sm:h-48",
+                        )}
                         loading="lazy"
                         draggable={false}
                         onDragStart={(event) => event.preventDefault()}
@@ -3061,7 +3186,10 @@ export default function GalleryClient({
                       {image.kind === "video" ? (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                           <LightPlayCircle
-                            className="h-12 w-12 text-white/75 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
+                            className={clsx(
+                              "text-white/75 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]",
+                              isCompactView ? "h-6 w-6" : "h-12 w-12",
+                            )}
                             fill="currentColor"
                             opacity={0.5}
                           />
@@ -3074,24 +3202,74 @@ export default function GalleryClient({
                       ) : null}
                     </div>
                   )}
-                </button>
-                <div className="flex items-center justify-between px-3 py-2 text-xs text-neutral-500">
-                  <span className="truncate">{displayNameForMedia(image)}</span>
-                  <span>
-                    {image.width && image.height
-                      ? `${image.width}×${image.height}`
-                      : image.kind === "note"
-                        ? "markdown"
-                        : isEditableCodeGalleryItem(image)
-                          ? "editable"
-                          : image.kind}
-                  </span>
                 </div>
-                {inAlbumContext && image.albumCaption ? (
-                  <p className="px-3 pb-3 text-xs text-neutral-600">
-                    {image.albumCaption}
-                  </p>
-                ) : null}
+                <div
+                  className={clsx(
+                    "flex items-center gap-2",
+                    isCompactView ? "min-w-0 flex-1 py-1" : "px-3 py-2",
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    {isCompactView ? (
+                      <>
+                        <div className="text-xs text-neutral-500">
+                          {galleryItemMetaLabel(image)}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-neutral-700">
+                          {displayNameForMedia(image)}
+                        </div>
+                        {image.shared ? (
+                          <div className="mt-1">
+                            <SharePill
+                              isShared={image.shared}
+                              className="py-0.5 text-[11px]"
+                            />
+                          </div>
+                        ) : null}
+                        {inAlbumContext && image.albumCaption ? (
+                          <p className="mt-1 text-xs text-neutral-600">
+                            {image.albumCaption}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-2 text-xs text-neutral-500">
+                          <span className="truncate">
+                            {displayNameForMedia(image)}
+                          </span>
+                          <span className="shrink-0">
+                            {galleryItemMetaLabel(image)}
+                          </span>
+                        </div>
+                        {inAlbumContext && image.albumCaption ? (
+                          <p className="mt-1 text-xs text-neutral-600">
+                            {image.albumCaption}
+                          </p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                  {isCompactView && !readOnly ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        stopCardActivation(event);
+                        setImageToDelete(image);
+                      }}
+                      className="tile-control shrink-0 rounded p-1"
+                      aria-label="Delete image"
+                      title="Delete image"
+                    >
+                      <LightTrashAlt className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  ) : null}
+                  {showDownloadLinks ? (
+                    <div onClick={stopCardActivation}>
+                      <AlbumMediaDownloadButton item={image} />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>

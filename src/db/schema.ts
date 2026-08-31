@@ -88,6 +88,9 @@ export const albums = pgTable("albums", {
   displayAsDownloadPage: boolean("display_as_download_page")
     .notNull()
     .default(false),
+  displayAsCompactView: boolean("display_as_compact_view")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
 
@@ -386,7 +389,7 @@ export const imageGenerations = pgTable(
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
     completedAt: timestamp("completed_at", { mode: "date" }),
   },
-  table => ({
+  (table) => ({
     userCreatedAtIdx: index("image_generations_user_created_at_idx").on(
       table.userId,
       table.createdAt,
@@ -412,8 +415,12 @@ export const userPgpKeys = pgTable(
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
   },
   (table) => ({
-    userPgpKeysUserUnique: uniqueIndex("user_pgp_keys_user_id_unique").on(table.userId),
-    userPgpKeysFingerprintIdx: index("user_pgp_keys_fingerprint_idx").on(table.fingerprint),
+    userPgpKeysUserUnique: uniqueIndex("user_pgp_keys_user_id_unique").on(
+      table.userId,
+    ),
+    userPgpKeysFingerprintIdx: index("user_pgp_keys_fingerprint_idx").on(
+      table.fingerprint,
+    ),
   }),
 );
 
@@ -429,14 +436,12 @@ export const senderHashes = pgTable(
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   },
   (table) => ({
-    senderHashesPairUnique: uniqueIndex("sender_hashes_recipient_sender_unique").on(
-      table.recipientFingerprint,
-      table.senderUserId,
-    ),
-    senderHashesDisplayUnique: uniqueIndex("sender_hashes_recipient_display_unique").on(
-      table.recipientFingerprint,
-      table.displayHash,
-    ),
+    senderHashesPairUnique: uniqueIndex(
+      "sender_hashes_recipient_sender_unique",
+    ).on(table.recipientFingerprint, table.senderUserId),
+    senderHashesDisplayUnique: uniqueIndex(
+      "sender_hashes_recipient_display_unique",
+    ).on(table.recipientFingerprint, table.displayHash),
   }),
 );
 
@@ -459,10 +464,9 @@ export const messages = pgTable(
       table.recipientFingerprint,
       table.createdAt,
     ),
-    messagesRecipientSenderHashIdx: index("messages_recipient_sender_hash_idx").on(
-      table.recipientFingerprint,
-      table.senderHash,
-    ),
+    messagesRecipientSenderHashIdx: index(
+      "messages_recipient_sender_hash_idx",
+    ).on(table.recipientFingerprint, table.senderHash),
   }),
 );
 
@@ -477,10 +481,9 @@ export const messageMutes = pgTable(
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   },
   (table) => ({
-    messageMutesUserHashUnique: uniqueIndex("message_mutes_user_sender_hash_unique").on(
-      table.userId,
-      table.senderHash,
-    ),
+    messageMutesUserHashUnique: uniqueIndex(
+      "message_mutes_user_sender_hash_unique",
+    ).on(table.userId, table.senderHash),
   }),
 );
 
@@ -501,7 +504,9 @@ export const deviceAuthCodes = pgTable(
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   },
   (table) => ({
-    deviceAuthCodesStatusIdx: index("device_auth_codes_status_idx").on(table.status),
+    deviceAuthCodesStatusIdx: index("device_auth_codes_status_idx").on(
+      table.status,
+    ),
   }),
 );
 

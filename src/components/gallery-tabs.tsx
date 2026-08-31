@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
+import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import type { MediaKind } from "@/lib/media-types";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
@@ -124,7 +125,7 @@ export default function GalleryTabs({
 
   if (media !== mediaFromServer) {
     setMediaFromServer(media);
-    setImageItems(media);
+    setImageItems((current) => reconcileGalleryMedia(current, media));
   }
 
   if (albums !== albumsFromServer) {

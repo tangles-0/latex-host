@@ -9,7 +9,6 @@ import {
 import { listMediaForAlbum } from "@/lib/media-store";
 import GalleryClient from "@/components/gallery-client";
 import AlbumShareControls from "@/components/album-share-controls";
-import { AlbumDownloadList } from "@/components/album-download-list";
 import PatchNoteBanner from "@/components/patch-note-banner";
 import PageHeader from "@/components/ui/page-header";
 
@@ -45,9 +44,7 @@ export default async function AlbumPage({
     <main className="flex min-h-screen w-full flex-col gap-6 px-2 py-2 text-sm sm:px-6 sm:py-10">
       <PageHeader
         title={album.name}
-        subtitle={`${media.length} file${media.length === 1 ? "" : "s"} in this album${
-          album.displayAsDownloadPage ? " · download page" : ""
-        }.`}
+        subtitle={`${media.length} file${media.length === 1 ? "" : "s"} in this album.`}
         backLink={{ href: "/gallery?tab=albums", label: "cd .. (albums)" }}
       >
         {media.length === 0 ? (
@@ -67,17 +64,16 @@ export default async function AlbumPage({
       <AlbumShareControls
         albumId={albumId}
         isDisplayAsDownloadPage={album.displayAsDownloadPage}
+        isDisplayAsCompactView={album.displayAsCompactView}
       />
 
-      {album.displayAsDownloadPage ? (
-        <AlbumDownloadList items={media} />
-      ) : (
-        <GalleryClient
-          media={media}
-          showAlbumImageToggle={false}
-          uploadAlbumId={albumId}
-        />
-      )}
+      <GalleryClient
+        media={media}
+        showAlbumImageToggle={false}
+        uploadAlbumId={albumId}
+        showDownloadLinks={album.displayAsDownloadPage}
+        isCompactView={album.displayAsCompactView}
+      />
     </main>
   );
 }
