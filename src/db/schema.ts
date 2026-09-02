@@ -92,6 +92,7 @@ export const selfHostedNodes = pgTable(
     status: text("status").notNull().default("not_linked"),
     forwardingEnabled: boolean("forwarding_enabled").notNull().default(false),
     isOwnerDisabled: boolean("is_owner_disabled").notNull().default(false),
+    isAdminDisabled: boolean("is_admin_disabled").notNull().default(false),
     authSecretHash: text("auth_secret_hash"),
     cloudAccessSecret: text("cloud_access_secret"),
     lastPingAt: timestamp("last_ping_at", { mode: "date" }),

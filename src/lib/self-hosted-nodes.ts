@@ -7,7 +7,7 @@ import {
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -37,6 +37,13 @@ export type SelfHostedNodeSummary = {
   lastPingAt: string | null;
   lastReachabilityAt: string | null;
   createdAt: string;
+};
+
+export type AdminSelfHostedNodeSummary = SelfHostedNodeSummary & {
+  userId: string;
+  ownerUsername: string;
+  ownerEmail: string;
+  isAdminDisabled: boolean;
 };
 
 const hashToken = (value: string): string =>
@@ -244,6 +251,27 @@ export const listSelfHostedNodes = async (
   return rows.map(mapNodeSummary);
 };
 
+export const listAllSelfHostedNodes = async (): Promise<
+  AdminSelfHostedNodeSummary[]
+> => {
+  const rows = await db
+    .select({
+      node: selfHostedNodes,
+      ownerUsername: users.username,
+      ownerEmail: users.email,
+    })
+    .from(selfHostedNodes)
+    .innerJoin(users, eq(selfHostedNodes.userId, users.id))
+    .orderBy(desc(selfHostedNodes.createdAt));
+  return rows.map(({ node, ownerUsername, ownerEmail }) => ({
+    ...mapNodeSummary(node),
+    userId: node.userId,
+    ownerUsername,
+    ownerEmail,
+    isAdminDisabled: node.isAdminDisabled,
+  }));
+};
+
 export const getSelfHostedNodeForUser = async (
   nodeHash: string,
   userId: string,
@@ -289,7 +317,8 @@ export const setNodeOwnerDisabled = async (
     .update(selfHostedNodes)
     .set({
       isOwnerDisabled: isDisabled,
-      forwardingEnabled: isDisabled ? false : isReachable,
+      forwardingEnabled:
+        isDisabled || existing.isAdminDisabled ? false : isReachable,
       status: isDisabled
         ? "not_reachable"
         : isReachable
@@ -303,6 +332,67 @@ export const setNodeOwnerDisabled = async (
   return mapNodeSummary(updated);
 };
 
+export const setNodeAdminDisabled = async (
+  nodeId: string,
+  isDisabled: boolean,
+): Promise<AdminSelfHostedNodeSummary | null> => {
+  const [existing] = await db
+    .select({
+      node: selfHostedNodes,
+      ownerUsername: users.username,
+      ownerEmail: users.email,
+    })
+    .from(selfHostedNodes)
+    .innerJoin(users, eq(selfHostedNodes.userId, users.id))
+    .where(eq(selfHostedNodes.id, nodeId))
+    .limit(1);
+  if (!existing) {
+    return null;
+  }
+
+  let isReachable = false;
+  if (
+    !isDisabled &&
+    !existing.node.isOwnerDisabled &&
+    existing.node.nodeHash &&
+    existing.node.publicHttpsUrl
+  ) {
+    isReachable = await probeNodeReachability(
+      existing.node.publicHttpsUrl,
+      existing.node.nodeHash,
+    );
+  }
+  const now = new Date();
+  const [updated] = await db
+    .update(selfHostedNodes)
+    .set({
+      isAdminDisabled: isDisabled,
+      forwardingEnabled:
+        isDisabled || existing.node.isOwnerDisabled ? false : isReachable,
+      status: !existing.node.nodeHash
+        ? "not_linked"
+        : isDisabled
+          ? "not_reachable"
+          : isReachable
+            ? "ok"
+            : "not_reachable",
+      lastReachabilityAt:
+        isDisabled || !existing.node.nodeHash
+          ? existing.node.lastReachabilityAt
+          : now,
+      updatedAt: now,
+    })
+    .where(eq(selfHostedNodes.id, nodeId))
+    .returning();
+  return {
+    ...mapNodeSummary(updated),
+    userId: updated.userId,
+    ownerUsername: existing.ownerUsername,
+    ownerEmail: existing.ownerEmail,
+    isAdminDisabled: updated.isAdminDisabled,
+  };
+};
+
 export const deleteSelfHostedNode = async (
   nodeId: string,
   userId: string,
@@ -312,6 +402,16 @@ export const deleteSelfHostedNode = async (
     .where(
       and(eq(selfHostedNodes.id, nodeId), eq(selfHostedNodes.userId, userId)),
     )
+    .returning({ id: selfHostedNodes.id });
+  return Boolean(deleted[0]);
+};
+
+export const deleteSelfHostedNodeAsAdmin = async (
+  nodeId: string,
+): Promise<boolean> => {
+  const deleted = await db
+    .delete(selfHostedNodes)
+    .where(eq(selfHostedNodes.id, nodeId))
     .returning({ id: selfHostedNodes.id });
   return Boolean(deleted[0]);
 };
@@ -342,6 +442,7 @@ export const registerSelfHostedNode = async (input: {
   if (
     !node ||
     node.nodeHash ||
+    node.isAdminDisabled ||
     !node.linkCodeHash ||
     !node.linkCodeExpiresAt ||
     node.linkCodeExpiresAt.getTime() <= Date.now()
@@ -443,8 +544,11 @@ export const pingSelfHostedNode = async (
     .update(selfHostedNodes)
     .set({
       status: isReachable ? "ok" : "not_reachable",
-      forwardingEnabled:
-        isReachable && !node.isOwnerDisabled ? true : node.forwardingEnabled,
+      forwardingEnabled: node.isAdminDisabled
+        ? false
+        : isReachable && !node.isOwnerDisabled
+          ? true
+          : node.forwardingEnabled,
       lastReachabilityAt: new Date(),
       updatedAt: new Date(),
     })
@@ -486,7 +590,7 @@ export const resolveNodeShareTarget = async (
       .where(eq(selfHostedNodes.id, node.id));
     return { kind: "unavailable" };
   }
-  if (!node.forwardingEnabled || node.isOwnerDisabled) {
+  if (!node.forwardingEnabled || node.isOwnerDisabled || node.isAdminDisabled) {
     return { kind: "unavailable" };
   }
   return {
@@ -501,7 +605,7 @@ export const createNodeLoginAuthorization = async (
   userId: string,
 ): Promise<string | null> => {
   const node = await getSelfHostedNodeForUser(nodeHash, userId);
-  if (!node?.publicHttpsUrl || node.isOwnerDisabled) {
+  if (!node?.publicHttpsUrl || node.isOwnerDisabled || node.isAdminDisabled) {
     return null;
   }
   const code = randomBytes(32).toString("base64url");
@@ -525,7 +629,7 @@ export const exchangeNodeLoginCode = async (input: {
   authSecret: string;
 }): Promise<{ id: string; email: string; username: string } | null> => {
   const node = await authenticateNode(input.nodeHash, input.authSecret);
-  if (!node || node.isOwnerDisabled) {
+  if (!node || node.isOwnerDisabled || node.isAdminDisabled) {
     return null;
   }
   const [loginCode] = await db

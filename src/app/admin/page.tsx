@@ -47,6 +47,9 @@ export default async function AdminHomePage() {
           <TextLink href="/admin/groups" className="text-sm">
             Groups
           </TextLink>
+          <TextLink href="/admin/nodes" className="text-sm">
+            Nodes
+          </TextLink>
           <TextLink href="/admin/limits" className="text-sm">
             Limits
           </TextLink>
@@ -100,4 +103,3 @@ export default async function AdminHomePage() {
     </main>
   );
 }
-
