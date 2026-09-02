@@ -6,6 +6,7 @@ import {
   getAlbumShareForUser,
 } from "@/lib/metadata-store";
 import { getSessionUserId } from "@/lib/auth";
+import { buildPublicAlbumShareUrl } from "@/lib/public-share-urls";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,10 @@ export async function GET(request: Request): Promise<NextResponse> {
   const albumId = url.searchParams.get("albumId")?.trim();
 
   if (!albumId) {
-    return NextResponse.json({ error: "Album id is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Album id is required." },
+      { status: 400 },
+    );
   }
 
   const album = await getAlbumForUser(albumId, userId);
@@ -32,7 +36,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ share: null });
   }
 
-  const baseUrl = `/share/${share.code ?? share.id}`;
+  const baseUrl = await buildPublicAlbumShareUrl(share.code ?? share.id);
   return NextResponse.json({ share, url: baseUrl });
 }
 
@@ -46,7 +50,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   const albumId = payload?.albumId?.trim();
 
   if (!albumId) {
-    return NextResponse.json({ error: "Album id is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Album id is required." },
+      { status: 400 },
+    );
   }
 
   const share = await createAlbumShare(albumId, userId);
@@ -56,7 +63,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   return NextResponse.json({
     share,
-    url: `/share/${share.code ?? share.id}`,
+    url: await buildPublicAlbumShareUrl(share.code ?? share.id),
   });
 }
 
@@ -70,10 +77,12 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   const albumId = payload?.albumId?.trim();
 
   if (!albumId) {
-    return NextResponse.json({ error: "Album id is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Album id is required." },
+      { status: 400 },
+    );
   }
 
   const deleted = await deleteAlbumShareForUser(albumId, userId);
   return NextResponse.json({ deleted });
 }
-

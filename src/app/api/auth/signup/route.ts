@@ -4,10 +4,17 @@ import { randomUUID } from "crypto";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { getAppSettings } from "@/lib/metadata-store";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (isNodeMode()) {
+    return NextResponse.json(
+      { error: "Use Log in with latex.gg on this node." },
+      { status: 404 },
+    );
+  }
   const payload = (await request.json()) as {
     email?: string;
     username?: string;
@@ -21,7 +28,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const settings = await getAppSettings();
   if (!settings.signupsEnabled) {
-    return NextResponse.json({ error: "Signups are currently disabled." }, { status: 403 });
+    return NextResponse.json(
+      { error: "Signups are currently disabled." },
+      { status: 403 },
+    );
   }
 
   if (!email || !username || !password || !confirmPassword) {
@@ -34,7 +44,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   const emailRegex =
     /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
   if (!emailRegex.test(email)) {
-    return NextResponse.json({ error: "Email format is invalid." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Email format is invalid." },
+      { status: 400 },
+    );
   }
 
   if (username.length < 3) {
@@ -44,7 +57,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  if (password.length <= 6 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+  if (
+    password.length <= 6 ||
+    !/[a-zA-Z]/.test(password) ||
+    !/[0-9]/.test(password)
+  ) {
     return NextResponse.json(
       { error: "Password must be >6 chars and include letters and numbers." },
       { status: 400 },
@@ -52,7 +69,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   if (password !== confirmPassword) {
-    return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Passwords do not match." },
+      { status: 400 },
+    );
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
@@ -68,11 +88,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "23505") {
-    return NextResponse.json({ error: "Email already in use." }, { status: 409 });
+      return NextResponse.json(
+        { error: "Email already in use." },
+        { status: 409 },
+      );
     }
     throw error;
   }
 
   return NextResponse.json({ ok: true });
 }
-

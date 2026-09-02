@@ -5,12 +5,15 @@ import {
 } from "@/lib/media-store";
 import { storeGeneratedPreviewForMedia } from "@/lib/media-storage";
 import { isWorkerIngestAuthorized } from "@/lib/preview-worker";
+import { readNodePreviewScratchFile } from "@/lib/node-preview-path";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
 
 export const runtime = "nodejs";
 
 type ThumbnailUploadPayload = {
   mediaId?: string;
   thumbnailBase64?: string;
+  thumbnailPath?: string;
   contentType?: string;
   generationDurationMs?: number;
 };
@@ -40,7 +43,10 @@ export async function POST(
       { status: 400 },
     );
   }
-  if (!payload.thumbnailBase64?.trim()) {
+  if (
+    !payload.thumbnailBase64?.trim() &&
+    !(isNodeMode() && payload.thumbnailPath?.trim())
+  ) {
     return NextResponse.json(
       { error: "thumbnailBase64 is required." },
       { status: 400 },
@@ -65,12 +71,16 @@ export async function POST(
   }
 
   try {
+    const previewImageBuffer =
+      isNodeMode() && payload.thumbnailPath?.trim()
+        ? await readNodePreviewScratchFile(payload.thumbnailPath)
+        : decodeBase64Image(payload.thumbnailBase64 ?? "");
     const generated = await storeGeneratedPreviewForMedia({
       kind: media.kind,
       baseName: media.baseName,
       ext: media.ext,
       uploadedAt: new Date(media.uploadedAt),
-      previewImageBuffer: decodeBase64Image(payload.thumbnailBase64),
+      previewImageBuffer,
     });
     const updated = await updateMediaPreviewForUser({
       userId: media.userId,

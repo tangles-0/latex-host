@@ -16,6 +16,12 @@ export const groups = pgTable("groups", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
 
+export const shareCodeRegistry = pgTable("share_code_registry", {
+  code: text("code").primaryKey(),
+  kind: text("kind").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+});
+
 export const groupLimits = pgTable("group_limits", {
   id: text("id").primaryKey(),
   groupId: text("group_id").references(() => groups.id),
@@ -72,6 +78,66 @@ export const users = pgTable("users", {
   bannedAt: timestamp("banned_at", { mode: "date" }),
 });
 
+export const selfHostedNodes = pgTable(
+  "self_hosted_nodes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    linkCodeHash: text("link_code_hash").unique(),
+    linkCodeExpiresAt: timestamp("link_code_expires_at", { mode: "date" }),
+    nodeHash: text("node_hash").unique(),
+    publicHttpsUrl: text("public_https_url"),
+    status: text("status").notNull().default("not_linked"),
+    forwardingEnabled: boolean("forwarding_enabled").notNull().default(false),
+    isOwnerDisabled: boolean("is_owner_disabled").notNull().default(false),
+    authSecretHash: text("auth_secret_hash"),
+    cloudAccessSecret: text("cloud_access_secret"),
+    lastPingAt: timestamp("last_ping_at", { mode: "date" }),
+    lastReachabilityAt: timestamp("last_reachability_at", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    userIdIdx: index("self_hosted_nodes_user_id_idx").on(table.userId),
+    nodeHashIdx: uniqueIndex("self_hosted_nodes_node_hash_idx").on(
+      table.nodeHash,
+    ),
+  }),
+);
+
+export const nodeLoginCodes = pgTable(
+  "node_login_codes",
+  {
+    id: text("id").primaryKey(),
+    nodeId: text("node_id")
+      .notNull()
+      .references(() => selfHostedNodes.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+    consumedAt: timestamp("consumed_at", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    nodeIdIdx: index("node_login_codes_node_id_idx").on(table.nodeId),
+    expiresAtIdx: index("node_login_codes_expires_at_idx").on(table.expiresAt),
+  }),
+);
+
+export const nodeInstanceSettings = pgTable("node_instance_settings", {
+  id: text("id").primaryKey(),
+  cloudBaseUrl: text("cloud_base_url").notNull(),
+  publicHttpsUrl: text("public_https_url"),
+  nodeHash: text("node_hash"),
+  authSecret: text("auth_secret"),
+  cloudAccessSecret: text("cloud_access_secret"),
+  setupChallenge: text("setup_challenge").notNull(),
+  linkedCloudUserId: text("linked_cloud_user_id"),
+  linkedAt: timestamp("linked_at", { mode: "date" }),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+});
+
 export const patchNotes = pgTable("patch_notes", {
   id: text("id").primaryKey(),
   content: text("content").notNull(),
@@ -93,6 +159,224 @@ export const albums = pgTable("albums", {
     .default(false),
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
+
+export const nodeImportJobs = pgTable(
+  "node_import_jobs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    selectedPaths: jsonb("selected_paths").$type<string[]>().notNull(),
+    albumId: text("album_id").references(() => albums.id, {
+      onDelete: "set null",
+    }),
+    isShareAll: boolean("is_share_all").notNull().default(false),
+    totalFiles: integer("total_files").notNull().default(0),
+    completedFiles: integer("completed_files").notNull().default(0),
+    failedFiles: integer("failed_files").notNull().default(0),
+    error: text("error"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+    completedAt: timestamp("completed_at", { mode: "date" }),
+  },
+  (table) => ({
+    statusCreatedAtIdx: index("node_import_jobs_status_created_at_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+    userIdIdx: index("node_import_jobs_user_id_idx").on(table.userId),
+  }),
+);
+
+export const nodeImportItems = pgTable(
+  "node_import_items",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => nodeImportJobs.id, { onDelete: "cascade" }),
+    relativePath: text("relative_path").notNull(),
+    status: text("status").notNull().default("pending"),
+    mediaId: text("media_id"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    jobPathUnique: uniqueIndex("node_import_items_job_path_unique").on(
+      table.jobId,
+      table.relativePath,
+    ),
+    jobStatusIdx: index("node_import_items_job_status_idx").on(
+      table.jobId,
+      table.status,
+    ),
+  }),
+);
+
+export const thumbnailGenerationJobs = pgTable(
+  "thumbnail_generation_jobs",
+  {
+    mediaId: text("media_id").primaryKey(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    failureReason: text("failure_reason"),
+    lastError: text("last_error"),
+    sourceUrl: text("source_url"),
+    localSourcePath: text("local_source_path"),
+    contentType: text("content_type").notNull(),
+    mimeType: text("mime_type").notNull().default("application/octet-stream"),
+    youtubeId: text("youtube_id"),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    downloadedPath: text("downloaded_path"),
+    thumbnailPath: text("thumbnail_path"),
+    generationDurationMs: integer("generation_duration_ms"),
+    sourceMetadata: jsonb("source_metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    downloadedAt: timestamp("downloaded_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    startedAt: timestamp("started_at", { mode: "date", withTimezone: true }),
+    createdThumbnailAt: timestamp("created_thumbnail_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    completedAt: timestamp("completed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    nextAttemptAt: timestamp("next_attempt_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    claimToken: text("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+  },
+  (table) => ({
+    statusIdx: index("thumbnail_generation_jobs_status_idx").on(table.status),
+    queueIdx: index("thumbnail_generation_jobs_queue_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    createdAtIdx: index("thumbnail_generation_jobs_created_at_idx").on(
+      table.createdAt,
+    ),
+  }),
+);
+
+// Shared with latex-preview-gen when the node stack uses one PostgreSQL.
+export const youtubeVideos = pgTable(
+  "youtube_videos",
+  {
+    youtubeId: text("youtube_id").primaryKey(),
+    sourceUrl: text("source_url").notNull(),
+    title: text("title").notNull(),
+    channelName: text("channel_name").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    qualities: jsonb("qualities")
+      .$type<
+        Array<{
+          id: string;
+          label: string;
+          height: number | null;
+          fps: number | null;
+          ext: string;
+          filesizeBytes: number | null;
+        }>
+      >()
+      .notNull(),
+    thumbnailUrl: text("thumbnail_url"),
+    thumbnailPath: text("thumbnail_path"),
+    rawMetadata: jsonb("raw_metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => ({
+    titleIdx: index("youtube_videos_title_idx").on(table.title),
+  }),
+);
+
+export const youtubeIngestJobs = pgTable(
+  "youtube_ingest_jobs",
+  {
+    ingestId: text("ingest_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    youtubeId: text("youtube_id")
+      .notNull()
+      .references(() => youtubeVideos.youtubeId),
+    qualityId: text("quality_id").notNull(),
+    outputType: text("output_type").notNull().default("video"),
+    status: text("status").notNull().default("pending"),
+    progress: integer("progress").notNull().default(0),
+    error: text("error"),
+    downloadedPath: text("downloaded_path"),
+    uploadedMediaId: text("uploaded_media_id"),
+    fileName: text("file_name"),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
+    mimeType: text("mime_type"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    youtubeIdIdx: index("youtube_ingest_jobs_youtube_id_idx").on(
+      table.youtubeId,
+    ),
+    statusIdx: index("youtube_ingest_jobs_status_idx").on(table.status),
+  }),
+);
+
+export const imageGenerationJobs = pgTable(
+  "image_generation_jobs",
+  {
+    generationId: text("generation_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    prompt: text("prompt").notNull(),
+    negativePrompt: text("negative_prompt"),
+    status: text("status").notNull().default("pending"),
+    failureReason: text("failure_reason"),
+    outputPath: text("output_path"),
+    uploadedMediaId: text("uploaded_media_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    statusIdx: index("image_generation_jobs_status_idx").on(table.status),
+    createdAtIdx: index("image_generation_jobs_created_at_idx").on(
+      table.createdAt,
+    ),
+  }),
+);
 
 export const mediaInAlbums = pgTable(
   "media_in_albums",

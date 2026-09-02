@@ -1068,7 +1068,7 @@ export default function UploadDropzone({
       return;
     }
     await navigator.clipboard.writeText(
-      `${window.location.origin}${share.urls.original}`,
+      new URL(share.urls.original, window.location.origin).toString(),
     );
     setCopied(image.id);
     window.setTimeout(

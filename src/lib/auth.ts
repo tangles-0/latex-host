@@ -1,22 +1,25 @@
 import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth/next";
 import Credentials from "next-auth/providers/credentials";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { isDatabaseUnavailableError } from "@/lib/db-errors";
 import { checkLoginRateLimit, resetLoginRateLimit } from "@/lib/rate-limit";
+import { exchangeCloudLoginForNode, isNodeMode } from "@/lib/self-hosted-nodes";
 
-type RequestHeaders =
-  | Headers
-  | Record<string, string | string[] | undefined>;
+type RequestHeaders = Headers | Record<string, string | string[] | undefined>;
 
 type RequestLike = {
   headers?: RequestHeaders;
 };
 
-function readHeader(headers: RequestHeaders | undefined, key: string): string | undefined {
+function readHeader(
+  headers: RequestHeaders | undefined,
+  key: string,
+): string | undefined {
   if (!headers) return undefined;
   if (headers instanceof Headers) {
     return headers.get(key) ?? undefined;
@@ -35,7 +38,8 @@ function getClientKey(request: RequestLike | undefined): string {
   // ALB appends the immediate peer to the right-most side of x-forwarded-for.
   // Trusting the first hop allows clients to spoof a custom value and bypass IP-based rate limits.
   const forwarded = forwardedChain?.[forwardedChain.length - 1];
-  const ip = forwarded || readHeader(request?.headers, "x-real-ip") || "unknown";
+  const ip =
+    forwarded || readHeader(request?.headers, "x-real-ip") || "unknown";
   return ip;
 }
 
@@ -61,6 +65,9 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials, request) {
+        if (isNodeMode()) {
+          return null;
+        }
         const email = credentials?.email?.toString().trim().toLowerCase();
         const password = credentials?.password?.toString();
 
@@ -94,6 +101,65 @@ export const authOptions: NextAuthOptions = {
 
         await resetLoginRateLimit(key);
         return { id: user.id, email: user.email, name: user.username };
+      },
+    }),
+    Credentials({
+      id: "node-login",
+      name: "latex.gg",
+      credentials: {
+        code: { label: "Authorization code", type: "text" },
+        nodeHash: { label: "Node", type: "text" },
+      },
+      async authorize(credentials) {
+        if (!isNodeMode()) {
+          return null;
+        }
+        const code = credentials?.code?.toString();
+        const nodeHash = credentials?.nodeHash?.toString();
+        if (!code || !nodeHash) {
+          return null;
+        }
+        const cloudUser = await exchangeCloudLoginForNode(code, nodeHash);
+        if (!cloudUser) {
+          return null;
+        }
+        const [existing] = await db
+          .select()
+          .from(users)
+          .where(
+            or(eq(users.id, cloudUser.id), eq(users.email, cloudUser.email)),
+          )
+          .limit(1);
+        const now = new Date();
+        if (existing) {
+          await db
+            .update(users)
+            .set({
+              username: cloudUser.username,
+              email: cloudUser.email,
+              bannedAt: null,
+              lastLoginAt: now,
+            })
+            .where(eq(users.id, existing.id));
+          return {
+            id: existing.id,
+            email: cloudUser.email,
+            name: cloudUser.username,
+          };
+        }
+        await db.insert(users).values({
+          id: cloudUser.id,
+          username: cloudUser.username,
+          email: cloudUser.email,
+          passwordHash: `node-sso:${randomBytes(32).toString("hex")}`,
+          createdAt: now,
+          lastLoginAt: now,
+        });
+        return {
+          id: cloudUser.id,
+          email: cloudUser.email,
+          name: cloudUser.username,
+        };
       },
     }),
   ],
@@ -136,7 +202,10 @@ export const authOptions: NextAuthOptions = {
         return;
       }
       try {
-        await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+        await db
+          .update(users)
+          .set({ lastLoginAt: new Date() })
+          .where(eq(users.id, user.id));
       } catch (error) {
         if (!isDatabaseUnavailableError(error)) {
           throw error;
@@ -158,4 +227,3 @@ export async function getSessionUserId(): Promise<string | null> {
     throw error;
   }
 }
-

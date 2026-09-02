@@ -6,27 +6,34 @@ import {
 } from "@/lib/media-types";
 export { isAsyncPreviewKind } from "@/lib/media-types";
 
-type PreviewRequestPayload = {
+type PreviewRequestPayloadBase = {
   mediaId: string;
   kind: AsyncPreviewKind;
   ext: string;
   mimeType: string;
   fileSizeBytes: number;
-  downloadUrl: string;
   youtubeId?: string;
 };
+
+type PreviewRequestPayload = PreviewRequestPayloadBase &
+  (
+    | { downloadUrl: string; localSourcePath?: never }
+    | { downloadUrl?: never; localSourcePath: string }
+  );
 
 export type ThumbnailServiceContentType = "image" | "video" | "doc" | "text";
 
 export type ThumbnailServiceRequestPayload = {
   mediaId: string;
-  downloadUrl: string;
   contentType: ThumbnailServiceContentType;
   fileSizeBytes: number;
   mimeType: string;
   youtubeId?: string;
   ext?: string;
-};
+} & (
+  | { downloadUrl: string; localSourcePath?: never }
+  | { downloadUrl?: never; localSourcePath: string }
+);
 
 export type YoutubeMetadataPayload = {
   youtubeId: string;
@@ -127,9 +134,12 @@ export async function requestPreviewGeneration(
   }
 
   const webhookSecret = outgoingSecret();
+  const source =
+    payload.localSourcePath !== undefined
+      ? { localSourcePath: payload.localSourcePath }
+      : { downloadUrl: payload.downloadUrl };
   const workerPayload: ThumbnailServiceRequestPayload = {
     mediaId: payload.mediaId,
-    downloadUrl: payload.downloadUrl,
     contentType: thumbnailContentTypeForKind(
       payload.kind,
       payload.mimeType,
@@ -139,6 +149,7 @@ export async function requestPreviewGeneration(
     mimeType: payload.mimeType,
     youtubeId: payload.youtubeId,
     ext: payload.ext,
+    ...source,
   };
   try {
     const response = await fetch(

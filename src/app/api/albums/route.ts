@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAlbum, listAlbums } from "@/lib/metadata-store";
 import { getSessionUserId } from "@/lib/auth";
+import { hasTrustedOrigin } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,6 @@ export async function GET(): Promise<NextResponse> {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-
   const albums = await listAlbums(userId);
   return NextResponse.json({ albums });
 }
@@ -19,15 +19,20 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  if (!hasTrustedOrigin(request)) {
+    return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
+  }
 
   const payload = (await request.json()) as { name?: string };
   const name = payload?.name?.trim();
 
   if (!name) {
-    return NextResponse.json({ error: "Album name is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Album name is required." },
+      { status: 400 },
+    );
   }
 
   const album = await createAlbum(name, userId);
   return NextResponse.json({ album });
 }
-

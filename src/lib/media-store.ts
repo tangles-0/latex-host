@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 
 import bcrypt from "bcryptjs";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -7,7 +7,6 @@ import stripMarkdown from "strip-markdown";
 import { db } from "@/db";
 import type { BlobMediaKind, MediaKind } from "@/lib/media-types";
 import {
-  albumShares,
   documentShares,
   documents,
   fileShares,
@@ -33,6 +32,7 @@ import {
   updateAlbumMembershipCaptionForUser,
 } from "@/lib/album-membership-store";
 import { deleteConstrainedShareImage, deleteImageFiles } from "@/lib/storage";
+import { generateUniqueShareCode } from "@/lib/share-code";
 export type { MediaKind } from "@/lib/media-types";
 export type PreviewStatus = "pending" | "started" | "complete" | "error";
 
@@ -66,7 +66,6 @@ export type MediaEntry = {
 
 type BlobMediaEntry = Omit<MediaEntry, "kind"> & { kind: BlobMediaKind };
 
-const SHARE_CODE_LENGTH = 8;
 const NOTE_SHARE_PASSWORD_HASH_ROUNDS = 12;
 
 export type NoteSharePublicMeta = {
@@ -259,55 +258,8 @@ function noteEntryFromRow(
 }
 
 async function generateShareCode(kind: MediaKind): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const raw = randomBytes(6);
-    const code = raw
-      .toString("base64url")
-      .replace(/[-_]/g, "0")
-      .slice(0, SHARE_CODE_LENGTH);
-    const existing =
-      kind === "image"
-        ? await db
-            .select({ id: shares.id })
-            .from(shares)
-            .where(eq(shares.code, code))
-            .limit(1)
-        : kind === "video"
-          ? await db
-              .select({ id: videoShares.id })
-              .from(videoShares)
-              .where(eq(videoShares.code, code))
-              .limit(1)
-          : kind === "document"
-            ? await db
-                .select({ id: documentShares.id })
-                .from(documentShares)
-                .where(eq(documentShares.code, code))
-                .limit(1)
-            : kind === "other"
-              ? await db
-                  .select({ id: fileShares.id })
-                  .from(fileShares)
-                  .where(eq(fileShares.code, code))
-                  .limit(1)
-              : await db
-                  .select({ id: noteShares.id })
-                  .from(noteShares)
-                  .where(eq(noteShares.code, code))
-                  .limit(1);
-    const [albumCollision] =
-      kind === "note"
-        ? await db
-            .select({ id: albumShares.id })
-            .from(albumShares)
-            .where(eq(albumShares.code, code))
-            .limit(1)
-        : [undefined];
-    if (!existing[0] && !albumCollision) {
-      return code;
-    }
-  }
-  return randomUUID().replace(/-/g, "").slice(0, SHARE_CODE_LENGTH);
+  void kind;
+  return generateUniqueShareCode();
 }
 
 export async function addMediaForUser(input: {

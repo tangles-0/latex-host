@@ -19,6 +19,7 @@ import { LightInbox } from "@energiz3r/icon-library/Icons/Light/LightInbox";
 import { LightSignOut } from "@energiz3r/icon-library/Icons/Light/LightSignOut";
 import { LightUpload } from "@energiz3r/icon-library/Icons/Light/LightUpload";
 import { LightUserSecret } from "@energiz3r/icon-library/Icons/Light/LightUserSecret";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
 
 const headerButtonClass =
   "inline-flex flex-1 items-center justify-center gap-1 rounded border border-neutral-200 px-3 py-1 sm:flex-none";
@@ -53,6 +54,7 @@ const GalleryPage = async ({
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialTab =
     resolvedSearchParams?.tab === "albums" ? "albums" : "files";
+  const nodeMode = isNodeMode();
   const pageTitle = initialTab === "albums" ? "ur albums" : "ur gallery";
   const shouldShowPatchBanner =
     latestPatchNote &&
@@ -89,22 +91,30 @@ const GalleryPage = async ({
               />
               upload
             </Link>
-            <ImageGenerationDialog
-              hasAccess={hasImageGenerationAccess}
-              className={headerButtonClass}
-            />
-            <Link href="/messages" className={headerButtonClass}>
-              <LightInbox
-                className="h-6.5 sm:h-3.5 w-3.5"
-                fill="currentColor"
-              />
-              messages
-            </Link>
+            {nodeMode ? (
+              <Link href="/import" className={headerButtonClass}>
+                import
+              </Link>
+            ) : (
+              <>
+                <ImageGenerationDialog
+                  hasAccess={hasImageGenerationAccess}
+                  className={headerButtonClass}
+                />
+                <Link href="/messages" className={headerButtonClass}>
+                  <LightInbox
+                    className="h-6.5 sm:h-3.5 w-3.5"
+                    fill="currentColor"
+                  />
+                  messages
+                </Link>
+              </>
+            )}
             <Link href="/account" className={headerButtonClass}>
               <LightCog className="h-6.5 sm:h-3.5 w-3.5" fill="currentColor" />
               account
             </Link>
-            {isAdmin ? (
+            {isAdmin && !nodeMode ? (
               <Link href="/admin" className={headerButtonClass}>
                 <LightUserSecret
                   className="h-6.5 sm:h-3.5 w-3.5"

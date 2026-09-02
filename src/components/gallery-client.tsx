@@ -315,6 +315,8 @@ export default function GalleryClient({
   mediaRef.current = media;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const absoluteShareUrl = (url: string): string =>
+    new URL(url, origin || "http://localhost").toString();
   const inAlbumContext = Boolean(uploadAlbumId);
   const usePagination = !inAlbumContext;
 
@@ -2344,7 +2346,7 @@ export default function GalleryClient({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [items]);
+  }, [items, readOnly]);
 
   useEffect(() => {
     if (!usePagination) {
@@ -4010,7 +4012,7 @@ export default function GalleryClient({
                             type="button"
                             onClick={() =>
                               copyText(
-                                `${origin}${share.urls.original}`,
+                                absoluteShareUrl(share.urls.original),
                                 "direct",
                               )
                             }
@@ -4018,7 +4020,7 @@ export default function GalleryClient({
                           >
                             {copied === "direct"
                               ? "Copied link to clipboard!"
-                              : `${origin}${share.urls.original}`}
+                              : absoluteShareUrl(share.urls.original)}
                           </button>
                         </div>
 
@@ -4094,7 +4096,7 @@ export default function GalleryClient({
                               type="button"
                               onClick={() =>
                                 copyText(
-                                  `[img]${origin}${share.urls.original}[/img]`,
+                                  `[img]${absoluteShareUrl(share.urls.original)}[/img]`,
                                   "bbcode",
                                 )
                               }
@@ -4102,7 +4104,7 @@ export default function GalleryClient({
                             >
                               {copied === "bbcode"
                                 ? "Copied link to clipboard!"
-                                : `[img]${origin}${share.urls.original}[/img]`}
+                                : `[img]${absoluteShareUrl(share.urls.original)}[/img]`}
                             </button>
                           </div>
                         ) : null}
@@ -4117,7 +4119,7 @@ export default function GalleryClient({
                                 type="button"
                                 onClick={() =>
                                   copyText(
-                                    `[url=${origin}${share.urls.original}][img]${origin}${share.urls.sm}[/img][/url]`,
+                                    `[url=${absoluteShareUrl(share.urls.original)}][img]${absoluteShareUrl(share.urls.sm)}[/img][/url]`,
                                     "linked",
                                   )
                                 }
@@ -4125,14 +4127,14 @@ export default function GalleryClient({
                               >
                                 {copied === "linked"
                                   ? "Copied link to clipboard!"
-                                  : `[url=${origin}${share.urls.original}][img]${origin}${share.urls.sm}[/img][/url]`}
+                                  : `[url=${absoluteShareUrl(share.urls.original)}][img]${absoluteShareUrl(share.urls.sm)}[/img][/url]`}
                               </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() =>
                                   copyText(
-                                    `[url]${origin}${share.urls.original}[/url]`,
+                                    `[url]${absoluteShareUrl(share.urls.original)}[/url]`,
                                     "linked",
                                   )
                                 }
@@ -4140,7 +4142,7 @@ export default function GalleryClient({
                               >
                                 {copied === "linked"
                                   ? "Copied link to clipboard!"
-                                  : `[url]${origin}${share.urls.original}[/url]`}
+                                  : `[url]${absoluteShareUrl(share.urls.original)}[/url]`}
                               </button>
                             )}
                           </div>
@@ -4160,7 +4162,9 @@ export default function GalleryClient({
                                 type="button"
                                 onClick={() =>
                                   copyText(
-                                    `${origin}${to640VariantUrl(share.urls.original)}`,
+                                    absoluteShareUrl(
+                                      to640VariantUrl(share.urls.original),
+                                    ),
                                     "640",
                                   )
                                 }
@@ -4168,7 +4172,9 @@ export default function GalleryClient({
                               >
                                 {copied === "640"
                                   ? "Copied link to clipboard!"
-                                  : `${origin}${to640VariantUrl(share.urls.original)}`}
+                                  : absoluteShareUrl(
+                                      to640VariantUrl(share.urls.original),
+                                    )}
                               </button>
                             ) : (
                               <button

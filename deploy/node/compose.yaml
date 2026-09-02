@@ -1,0 +1,124 @@
+name: latex-node
+
+services:
+  secrets:
+    image: alpine:3.22
+    network_mode: none
+    restart: "no"
+    volumes:
+      - node_secrets:/secrets
+      - preview_scratch:/scratch
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        test -s /secrets/nextauth || od -An -N48 -tx1 /dev/urandom | tr -d ' \n' > /secrets/nextauth
+        test -s /secrets/preview || od -An -N48 -tx1 /dev/urandom | tr -d ' \n' > /secrets/preview
+        chmod 0444 /secrets/nextauth /secrets/preview
+        mkdir -p /scratch/downloads /scratch/thumbnails /scratch/tmp
+        chown -R ${PUID:-1001}:${PGID:-1001} /scratch
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: latex
+      POSTGRES_USER: latex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-latex-node-internal-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U latex -d latex"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - internal
+
+  app:
+    image: ${LATEX_NODE_IMAGE:-ghcr.io/tangles-0/latex-node:latest}
+    restart: unless-stopped
+    user: "${PUID:-1001}:${PGID:-1001}"
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_MODE: "true"
+      LATEX_CLOUD_URL: ${LATEX_CLOUD_URL:-https://latex.gg}
+      DATABASE_URL: postgresql://latex:${POSTGRES_PASSWORD:-latex-node-internal-only}@db:5432/latex
+      STORAGE_BACKEND: local
+      LATEX_DATA_DIR: /storage/.latex
+      NODE_BROWSE_ROOT: /storage
+      NODE_BROWSE_IGNORE_NAMES: ${NODE_BROWSE_IGNORE_NAMES:-.latex,.ssh,.gnupg,.aws,.kube,.docker,.env}
+      NODE_PREVIEW_SCRATCH_ROOT: /scratch
+      RUN_DB_MIGRATIONS_ON_STARTUP: "true"
+      THUMBNAIL_SERVICE_WEBHOOK_URL: http://preview:3000/api
+    volumes:
+      - ${STORAGE_PATH:?Set STORAGE_PATH in .env}:/storage
+      - preview_scratch:/scratch:ro
+      - node_secrets:/run/node-secrets:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        export NEXTAUTH_SECRET="$$(cat /run/node-secrets/nextauth)"
+        export THUMBNAIL_SERVICE_WEBHOOK_SECRET="$$(cat /run/node-secrets/preview)"
+        export THUMBNAIL_SERVICE_INGEST_SECRET="$$(cat /run/node-secrets/preview)"
+        exec sh ./scripts/docker-entrypoint.sh
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -q -O- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    networks:
+      - default
+      - internal
+
+  preview:
+    image: ${LATEX_PREVIEW_IMAGE:-ghcr.io/tangles-0/latex-preview-gen:latest}
+    restart: unless-stopped
+    user: "${PUID:-1001}:${PGID:-1001}"
+    environment:
+      DATABASE_URL: postgresql://latex:${POSTGRES_PASSWORD:-latex-node-internal-only}@db:5432/latex
+      LATEX_API_BASE_URL: http://app:3000
+      NODE_LIBRARY_PATH: /storage/.latex
+      DOWNLOAD_PATH: /scratch/downloads
+      THUMBNAIL_PATH: /scratch/thumbnails
+      LATEX_PREVIEW_TMP_DIR: /scratch/tmp
+      PREVIEW_CONCURRENCY: ${PREVIEW_CONCURRENCY:-2}
+      IMAGE_GENERATION_ENABLED: "false"
+    volumes:
+      - ${STORAGE_PATH:?Set STORAGE_PATH in .env}:/storage:ro
+      - preview_scratch:/scratch
+      - node_secrets:/run/node-secrets:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        export LATEX_INCOMING_API_SECRET_KEY="$$(cat /run/node-secrets/preview)"
+        export LATEX_OUTGOING_API_SECRET_KEY="$$(cat /run/node-secrets/preview)"
+        exec node server.js
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - internal
+
+networks:
+  internal:
+    internal: true
+
+volumes:
+  node_secrets:
+  postgres_data:
+  preview_scratch:

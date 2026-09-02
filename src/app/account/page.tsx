@@ -2,11 +2,17 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { listApiKeysForUser } from "@/lib/api-keys";
-import { listApiDevices, formatUserCode, normalizeUserCode } from "@/lib/device-auth";
+import {
+  listApiDevices,
+  formatUserCode,
+  normalizeUserCode,
+} from "@/lib/device-auth";
 import { getUserById } from "@/lib/metadata-store";
 import { getUserPgpKey } from "@/lib/messaging-store";
 import AccountClient from "@/components/account-client";
+import SelfHostedNodesClient from "@/components/self-hosted-nodes-client";
 import PageHeader from "@/components/ui/page-header";
+import { isNodeMode, listSelfHostedNodes } from "@/lib/self-hosted-nodes";
 
 export default async function AccountPage({
   searchParams,
@@ -26,11 +32,12 @@ export default async function AccountPage({
       ? formatUserCode(rawDeviceCode)
       : rawDeviceCode;
 
-  const [user, key, devices, apiKeys] = await Promise.all([
+  const [user, key, devices, apiKeys, selfHostedNodes] = await Promise.all([
     getUserById(userId),
     getUserPgpKey(userId),
     listApiDevices(userId),
     listApiKeysForUser(userId),
+    isNodeMode() ? Promise.resolve([]) : listSelfHostedNodes(userId),
   ]);
   if (!user) {
     redirect("/");
@@ -77,6 +84,9 @@ export default async function AccountPage({
             : null
         }
       />
+      {!isNodeMode() ? (
+        <SelfHostedNodesClient initialNodes={selfHostedNodes} />
+      ) : null}
     </main>
   );
 }

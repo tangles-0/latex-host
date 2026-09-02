@@ -79,6 +79,13 @@ pnpm dev
 
 App runs on `http://localhost:3000`.
 
+## Self-hosted node
+
+The single-port node stack is in `deploy/node/`. It runs this app in
+`NODE_MODE`, PostgreSQL, and `latex-preview-gen`, with a mounted browse/library
+path and latex.gg account linking. See `deploy/node/README.md` for TLS, install,
+linking, backup, and update instructions.
+
 ## Useful Scripts
 
 - `pnpm dev` - start local dev server

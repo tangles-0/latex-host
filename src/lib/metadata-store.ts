@@ -1,5 +1,5 @@
-import { randomUUID, randomBytes } from "crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { remark } from "remark";
 import stripMarkdown from "strip-markdown";
 import { db } from "@/db";
@@ -13,8 +13,6 @@ import {
   groupLimits,
   groups,
   images,
-  notes,
-  noteShares,
   patchNotes,
   shares,
   users,
@@ -33,6 +31,7 @@ import {
   updateAlbumMembershipCaptionForUser,
 } from "@/lib/album-membership-store";
 import { deleteConstrainedShareImage } from "@/lib/storage";
+import { generateUniqueShareCode } from "@/lib/share-code";
 
 export type Album = {
   id: string;
@@ -86,8 +85,6 @@ export type PatchNoteSummary = {
 export type PatchNoteEntry = PatchNoteSummary & {
   content: string;
 };
-
-const SHARE_CODE_LENGTH = 8;
 
 function normalizePatchNoteMarkdown(input: string): string {
   // Support custom link syntax: [https://some-link.com](link text)
@@ -153,22 +150,7 @@ function withAlbumMembership(
 }
 
 async function generateShareCode(): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const raw = randomBytes(6);
-    const code = raw
-      .toString("base64url")
-      .replace(/[-_]/g, "0")
-      .slice(0, SHARE_CODE_LENGTH);
-    const [existing] = await db
-      .select({ id: shares.id })
-      .from(shares)
-      .where(eq(shares.code, code))
-      .limit(1);
-    if (!existing) {
-      return code;
-    }
-  }
-  return randomUUID().replace(/-/g, "").slice(0, SHARE_CODE_LENGTH);
+  return generateUniqueShareCode();
 }
 
 export async function listAlbums(userId: string): Promise<Album[]> {
@@ -763,27 +745,7 @@ export type AlbumShare = {
 };
 
 async function generateAlbumShareCode(): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const raw = randomBytes(6);
-    const code = raw
-      .toString("base64url")
-      .replace(/[-_]/g, "0")
-      .slice(0, SHARE_CODE_LENGTH);
-    const [existing] = await db
-      .select({ id: albumShares.id })
-      .from(albumShares)
-      .where(eq(albumShares.code, code))
-      .limit(1);
-    const [noteCollision] = await db
-      .select({ id: noteShares.id })
-      .from(noteShares)
-      .where(eq(noteShares.code, code))
-      .limit(1);
-    if (!existing && !noteCollision) {
-      return code;
-    }
-  }
-  return randomUUID().replace(/-/g, "").slice(0, SHARE_CODE_LENGTH);
+  return generateUniqueShareCode();
 }
 
 async function ensureAlbumShareCode(shareId: string): Promise<string> {

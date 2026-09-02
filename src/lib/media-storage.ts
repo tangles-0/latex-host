@@ -29,7 +29,9 @@ export type StoredMediaResult = {
   previewStatus: "pending" | "started" | "complete" | "error";
 };
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.resolve(
+  process.env.LATEX_DATA_DIR?.trim() || path.join(process.cwd(), "data"),
+);
 function resolveStorageBackend(): StorageBackend {
   const raw = process.env.STORAGE_BACKEND;
   if (raw === "blob" || raw === "local") {
@@ -914,6 +916,108 @@ export async function getMediaSignedUrl(input: {
     "Direct media URLs are not available for local storage backend.",
   );
 }
+
+const linkOrCopyLocalFile = async (
+  sourcePath: string,
+  destinationKey: string,
+): Promise<void> => {
+  if (STORAGE_BACKEND !== "local") {
+    throw new Error("Mounted-file imports require local storage.");
+  }
+  const destinationPath = absolutePathForKey(destinationKey);
+  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+  try {
+    await fs.link(sourcePath, destinationPath);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "";
+    if (!["EXDEV", "EPERM", "EACCES", "EMLINK"].includes(code)) {
+      throw error;
+    }
+    await fs.copyFile(sourcePath, destinationPath);
+  }
+};
+
+export async function storeMediaFromLocalFile(input: {
+  sourcePath: string;
+  kind: BlobMediaKind;
+  ext: string;
+  mimeType: string;
+  sizeOriginal: number;
+  uploadedAt: Date;
+  deferPreview: boolean;
+}): Promise<StoredMediaResult> {
+  if (input.kind === "image" && !input.deferPreview) {
+    return storeImageMediaFromBuffer({
+      buffer: await fs.readFile(input.sourcePath),
+      ext: input.ext,
+      mimeType: input.mimeType,
+      uploadedAt: input.uploadedAt,
+    });
+  }
+
+  const baseName = buildMediaBaseName(input.uploadedAt);
+  const originalKey = buildStorageKey(
+    input.kind,
+    baseName,
+    input.ext,
+    "original",
+    input.uploadedAt,
+  );
+  await linkOrCopyLocalFile(input.sourcePath, originalKey);
+
+  if (input.deferPreview) {
+    return {
+      baseName,
+      ext: input.ext,
+      mimeType: input.mimeType,
+      sizeOriginal: input.sizeOriginal,
+      sizeSm: 0,
+      sizeLg: 0,
+      previewStatus: "pending",
+    };
+  }
+
+  const lgBuffer = await asPreviewPng("File Preview");
+  const smBuffer = await sharp(lgBuffer)
+    .resize({ width: 320, withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  await writeKey(
+    buildStorageKey(input.kind, baseName, "png", "sm", input.uploadedAt),
+    "png",
+    smBuffer,
+  );
+  await writeKey(
+    buildStorageKey(input.kind, baseName, "png", "lg", input.uploadedAt),
+    "png",
+    lgBuffer,
+  );
+  return {
+    baseName,
+    ext: input.ext,
+    mimeType: input.mimeType,
+    sizeOriginal: input.sizeOriginal,
+    sizeSm: smBuffer.length,
+    sizeLg: lgBuffer.length,
+    previewStatus: "complete",
+  };
+}
+
+export const getMediaLocalPath = (input: {
+  kind: BlobMediaKind;
+  baseName: string;
+  ext: string;
+  size: MediaSize;
+  uploadedAt: Date;
+}): string | null => {
+  if (STORAGE_BACKEND !== "local") {
+    return null;
+  }
+  return absolutePathForKey(mediaStorageKey(input));
+};
 
 export async function storeGeneratedPreviewForMedia(input: {
   kind: BlobMediaKind;

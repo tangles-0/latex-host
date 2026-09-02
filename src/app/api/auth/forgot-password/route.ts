@@ -8,6 +8,7 @@ import {
   getPasswordResetExpiryDate,
   sendPasswordResetEmail,
 } from "@/lib/password-reset";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,12 @@ const EMAIL_REGEX =
   /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (isNodeMode()) {
+    return NextResponse.json(
+      { error: "Password reset is managed on latex.gg." },
+      { status: 404 },
+    );
+  }
   const payload = (await request.json()) as { email?: string };
   const email = payload?.email?.trim().toLowerCase();
 
@@ -24,10 +31,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
   }
   if (!EMAIL_REGEX.test(email)) {
-    return NextResponse.json({ error: "Email format is invalid." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Email format is invalid." },
+      { status: 400 },
+    );
   }
 
-  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
   if (!user) {
     return NextResponse.json({ ok: true, message: GENERIC_SUCCESS_MESSAGE });
   }
@@ -55,8 +69,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   if (!emailSent && process.env.NODE_ENV !== "production") {
-    console.info("[password-reset] Resend is not configured. Reset link:", resetUrl);
+    console.info(
+      "[password-reset] Resend is not configured. Reset link:",
+      resetUrl,
+    );
   }
 
-  return NextResponse.json({ ok: true, message: GENERIC_SUCCESS_MESSAGE, emailSent });
+  return NextResponse.json({
+    ok: true,
+    message: GENERIC_SUCCESS_MESSAGE,
+    emailSent,
+  });
 }

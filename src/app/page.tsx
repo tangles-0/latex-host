@@ -1,13 +1,21 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { getAppSettings, getLatestPatchNote, getUserUploadStats } from "@/lib/metadata-store";
+import {
+  getAppSettings,
+  getLatestPatchNote,
+  getUserUploadStats,
+} from "@/lib/metadata-store";
 import AuthForms from "@/components/auth-forms";
 import AlertBanner from "@/components/ui/alert-banner";
 import TextLink from "@/components/ui/text-link";
 import GalleryEntryLink from "@/components/gallery-entry-link";
-import { BrandsGithub } from '@energiz3r/icon-library/Icons/Brands/BrandsGithub';
+import { BrandsGithub } from "@energiz3r/icon-library/Icons/Brands/BrandsGithub";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import PatchNoteMarkdown from "@/components/patch-note-markdown";
+import NodeHome from "@/components/node-home";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
+import { getNodeUpdateInfo } from "@/lib/node-version";
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -21,14 +29,33 @@ function formatBytes(value: number): string {
   return `${next.toFixed(next < 10 ? 1 : 0)} ${units[unitIndex]}`;
 }
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams?: Promise<{ node_authorize?: string }>;
+}) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
+
+  if (isNodeMode()) {
+    return (
+      <NodeHome
+        isSignedIn={Boolean(userId)}
+        updateInfo={await getNodeUpdateInfo()}
+      />
+    );
+  }
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const nodeAuthorize = resolvedSearchParams?.node_authorize;
+  if (userId && nodeAuthorize && /^[A-Za-z0-9]{2,64}$/.test(nodeAuthorize)) {
+    redirect(`/account/nodes/${encodeURIComponent(nodeAuthorize)}/authorize`);
+  }
 
   const settings = await getAppSettings();
   const funded = settings.fundedThisMonth;
   const cost = settings.costThisMonth;
-  const progress = cost > 0 ? Math.min(100, Math.round((funded / cost) * 100)) : 0;
+  const progress =
+    cost > 0 ? Math.min(100, Math.round((funded / cost) * 100)) : 0;
   const userStats = userId ? await getUserUploadStats(userId) : null;
   const latestPatchNote = await getLatestPatchNote();
 
@@ -36,14 +63,22 @@ export default async function Home() {
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-6 py-2 sm:py-10 text-sm">
       <header className="space-y-2">
         <div className="relative">
-          <h1 className="text-2xl font-semibold mt-1">latex <span className="font-medium text-neutral-500">img_srv</span></h1>
+          <h1 className="text-2xl font-semibold mt-1">
+            latex <span className="font-medium text-neutral-500">img_srv</span>
+          </h1>
           <div className="absolute top-[-15px] left-[-22px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/latex-logo.png" alt="latex" width="32px" className="latex-logo z-5" />
+            <img
+              src="/latex-logo.png"
+              alt="latex"
+              width="32px"
+              className="latex-logo z-5"
+            />
           </div>
         </div>
         <p className="text-neutral-600">
-          create acct to upload imgs, mkdir albums, and create symlinks to send to frendz/foez
+          create acct to upload imgs, mkdir albums, and create symlinks to send
+          to frendz/foez
         </p>
       </header>
 
@@ -53,7 +88,7 @@ export default async function Home() {
       </section> */}
 
       <section className="rounded-md border border-neutral-200 p-4 text-sm relative">
-      <div className="sm:absolute relative top-0 right-0 flex">
+        <div className="sm:absolute relative top-0 right-0 flex">
           <div className="flex items-center gap-2">
             {latestPatchNote ? (
               <p className="text-xs text-neutral-500">
@@ -70,7 +105,6 @@ export default async function Home() {
             href="https://github.com/tangles-0/latex"
             target="_blank"
             rel="noopener noreferrer"
-
           >
             <BrandsGithub className="p-2 h-10 w-10" fill="currentColor" />
           </Link>
@@ -83,7 +117,9 @@ export default async function Home() {
             </div>
           </div>
         ) : (
-          <p className="mt-2 text-xs text-neutral-500">No patch notes published yet.</p>
+          <p className="mt-2 text-xs text-neutral-500">
+            No patch notes published yet.
+          </p>
         )}
       </section>
 
@@ -92,10 +128,15 @@ export default async function Home() {
           {/* <h2 className="text-lg font-medium">I C U AGAIN</h2> 
           <p className="text-lg text-neutral-600">*/}
           <h2 className="text-lg font-medium">
-            u r <span className="font-bold text-emerald-500">{session?.user?.name ?? session?.user?.email ?? "...who r u?"}</span>. wb fren &lt;3
+            u r{" "}
+            <span className="font-bold text-emerald-500">
+              {session?.user?.name ?? session?.user?.email ?? "...who r u?"}
+            </span>
+            . wb fren &lt;3
           </h2>
           <p className="text-xs text-neutral-600">
-            u hav {userStats?.imageCount ?? 0} imgs, {userStats?.videoCount ?? 0} vids, and{" "}
+            u hav {userStats?.imageCount ?? 0} imgs,{" "}
+            {userStats?.videoCount ?? 0} vids, and{" "}
             {userStats?.otherFileCount ?? 0} other files uploaded using{" "}
             {formatBytes(userStats?.totalBytes ?? 0)} of spinning rust
           </p>
@@ -110,7 +151,8 @@ export default async function Home() {
         <>
           {!settings.signupsEnabled ? (
             <AlertBanner>
-              New signups are currently disabled. Existing users can still log in.
+              New signups are currently disabled. Existing users can still log
+              in.
             </AlertBanner>
           ) : null}
 
@@ -122,8 +164,8 @@ export default async function Home() {
         <section className="space-y-3 rounded-md border border-neutral-200 p-4">
           <h2 className="text-lg font-medium">Support this thing</h2>
           <p className="text-xs text-neutral-600">
-            This site is developed and maintained by a single dev. If you found it useful, please
-            consider supporting it :)
+            This site is developed and maintained by a single dev. If you found
+            it useful, please consider supporting it :)
           </p>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-neutral-500">
@@ -159,13 +201,16 @@ export default async function Home() {
       ) : null}
 
       <section className="space-y-2 rounded-md border border-neutral-200 p-4">
-        <h2 className="text-lg font-medium"><span className="text-emerald-500 animate-pulse">pro tip:</span> thumbnail links</h2>
+        <h2 className="text-lg font-medium">
+          <span className="text-emerald-500 animate-pulse">pro tip:</span>{" "}
+          thumbnail links
+        </h2>
         <p className="text-xs text-neutral-600">
-          create a share link, then append <code>-sm</code> or <code>-lg</code> before the file
-          extension for thumbnails.
+          create a share link, then append <code>-sm</code> or <code>-lg</code>{" "}
+          before the file extension for thumbnails.
         </p>
         <p className="text-neutral-500 text-xs">
-          eg: <code>/share/&lt;file&gt;.png</code>{" "} becomes {" "}
+          eg: <code>/share/&lt;file&gt;.png</code> becomes{" "}
           <code>/share/&lt;file&gt;-sm.png</code>
         </p>
       </section>
@@ -177,4 +222,3 @@ export default async function Home() {
     </main>
   );
 }
-

@@ -13,7 +13,7 @@ description: >-
 - Tailwind CSS
 - PostgreSQL with Drizzle ORM
 - NextAuth session authentication
-- Vercel Functions and private Vercel Blob storage
+- Vercel Functions/private Vercel Blob for cloud, or Docker/local storage in `NODE_MODE`
 - pnpm
 
 ## Layout and conventions
@@ -24,6 +24,8 @@ description: >-
 - Schema and migrations: `src/db/`
 - Keep authorization server-side and validate API payloads with Zod.
 - Reuse multipart upload sessions; never proxy large bodies through Vercel.
+- Keep node management APIs cloud-only and mounted-file APIs node-only.
+- Public node bytes use no-store 307 redirects; management and imports require a local authenticated session.
 - Follow `.agent/CODESTYLEGUIDE.md` and the frontend checklist.
 - Apply schema changes with `pnpm db:push`.
 - Document new environment variables in `.env.example`.

@@ -1,9 +1,15 @@
 import path from "path";
 import { promises as fs } from "fs";
 import sharp from "sharp";
-import { del as blobDelete, get as blobGet, put as blobPut } from "@vercel/blob";
+import {
+  del as blobDelete,
+  get as blobGet,
+  put as blobPut,
+} from "@vercel/blob";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.resolve(
+  process.env.LATEX_DATA_DIR?.trim() || path.join(process.cwd(), "data"),
+);
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 
 const THUMBNAIL_SIZES = {
@@ -57,7 +63,11 @@ export function buildBaseName(uploadedAt: Date): string {
   return `${iso}-${suffix}`;
 }
 
-function datePathParts(uploadedAt: Date): { year: string; month: string; day: string } {
+function datePathParts(uploadedAt: Date): {
+  year: string;
+  month: string;
+  day: string;
+} {
   const year = uploadedAt.getUTCFullYear().toString();
   const month = (uploadedAt.getUTCMonth() + 1).toString().padStart(2, "0");
   const day = uploadedAt.getUTCDate().toString().padStart(2, "0");
@@ -71,7 +81,15 @@ function buildStorageKey(
   uploadedAt: Date,
 ): string {
   const { year, month, day } = datePathParts(uploadedAt);
-  return path.posix.join("uploads", year, month, day, "image", size, `${baseName}.${ext}`);
+  return path.posix.join(
+    "uploads",
+    year,
+    month,
+    day,
+    "image",
+    size,
+    `${baseName}.${ext}`,
+  );
 }
 
 export function getImagePath(
@@ -92,8 +110,14 @@ export async function storeImageAndThumbnails(
 
   const baseName = buildBaseName(uploadedAt);
   const outputFormat = await resolveOutputFormat(buffer);
-  const sourceOptions = outputFormat.format === "gif" ? { animated: true } : undefined;
-  const originalPath = getImagePath(baseName, outputFormat.ext, "original", uploadedAt);
+  const sourceOptions =
+    outputFormat.format === "gif" ? { animated: true } : undefined;
+  const originalPath = getImagePath(
+    baseName,
+    outputFormat.ext,
+    "original",
+    uploadedAt,
+  );
   const smPath = getImagePath(baseName, outputFormat.ext, "sm", uploadedAt);
   const lgPath = getImagePath(baseName, outputFormat.ext, "lg", uploadedAt);
 
@@ -104,20 +128,36 @@ export async function storeImageAndThumbnails(
 
   const originalBuffer = await encodeOutput(image.clone(), outputFormat, 85);
   const smBuffer = await encodeOutput(
-    sharp(buffer, sourceOptions).rotate().resize({ width: THUMBNAIL_SIZES.sm, withoutEnlargement: true }),
+    sharp(buffer, sourceOptions)
+      .rotate()
+      .resize({ width: THUMBNAIL_SIZES.sm, withoutEnlargement: true }),
     outputFormat,
     80,
   );
   const lgBuffer = await encodeOutput(
-    sharp(buffer, sourceOptions).rotate().resize({ width: THUMBNAIL_SIZES.lg, withoutEnlargement: true }),
+    sharp(buffer, sourceOptions)
+      .rotate()
+      .resize({ width: THUMBNAIL_SIZES.lg, withoutEnlargement: true }),
     outputFormat,
     82,
   );
 
   if (STORAGE_BACKEND === "blob") {
-    await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "original", uploadedAt), outputFormat.ext, originalBuffer);
-    await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "sm", uploadedAt), outputFormat.ext, smBuffer);
-    await writeToBlob(buildStorageKey(baseName, outputFormat.ext, "lg", uploadedAt), outputFormat.ext, lgBuffer);
+    await writeToBlob(
+      buildStorageKey(baseName, outputFormat.ext, "original", uploadedAt),
+      outputFormat.ext,
+      originalBuffer,
+    );
+    await writeToBlob(
+      buildStorageKey(baseName, outputFormat.ext, "sm", uploadedAt),
+      outputFormat.ext,
+      smBuffer,
+    );
+    await writeToBlob(
+      buildStorageKey(baseName, outputFormat.ext, "lg", uploadedAt),
+      outputFormat.ext,
+      lgBuffer,
+    );
   } else {
     await fs.mkdir(path.dirname(originalPath), { recursive: true });
     await fs.mkdir(path.dirname(smPath), { recursive: true });
@@ -235,12 +275,16 @@ export async function overwriteImageAndThumbnails(
 
   const originalBuffer = await encodeOutput(image.clone(), outputFormat, 85);
   const smBuffer = await encodeOutput(
-    image.clone().resize({ width: THUMBNAIL_SIZES.sm, withoutEnlargement: true }),
+    image
+      .clone()
+      .resize({ width: THUMBNAIL_SIZES.sm, withoutEnlargement: true }),
     outputFormat,
     80,
   );
   const lgBuffer = await encodeOutput(
-    image.clone().resize({ width: THUMBNAIL_SIZES.lg, withoutEnlargement: true }),
+    image
+      .clone()
+      .resize({ width: THUMBNAIL_SIZES.lg, withoutEnlargement: true }),
     outputFormat,
     82,
   );
@@ -313,7 +357,11 @@ async function encodeOutput(
   return image.jpeg({ quality }).toBuffer();
 }
 
-async function writeToBlob(key: string, ext: string, body: Buffer): Promise<void> {
+async function writeToBlob(
+  key: string,
+  ext: string,
+  body: Buffer,
+): Promise<void> {
   await blobPut(key, body, {
     access: BLOB_ACCESS,
     addRandomSuffix: false,
@@ -341,7 +389,12 @@ export async function getImageBuffer(
   }
 
   // Lazily generate constrained derivatives on first request.
-  const original = await readStoredBuffer(baseName, ext, "original", uploadedAt);
+  const original = await readStoredBuffer(
+    baseName,
+    ext,
+    "original",
+    uploadedAt,
+  );
   const generated =
     size === "x512"
       ? await generate512Buffer(original, ext)
@@ -358,7 +411,10 @@ async function readStoredBuffer(
 ): Promise<Buffer> {
   const key = buildStorageKey(baseName, ext, size, uploadedAt);
   if (STORAGE_BACKEND === "blob") {
-    const response = await blobGet(key, { access: BLOB_ACCESS, useCache: false });
+    const response = await blobGet(key, {
+      access: BLOB_ACCESS,
+      useCache: false,
+    });
     if (!response || response.statusCode !== 200 || !response.stream) {
       throw new Error("Blob object was not found.");
     }
@@ -387,7 +443,11 @@ async function writeStoredBuffer(
 ): Promise<void> {
   const filePath = getImagePath(baseName, ext, size, uploadedAt);
   if (STORAGE_BACKEND === "blob") {
-    await writeToBlob(buildStorageKey(baseName, ext, size, uploadedAt), ext, data);
+    await writeToBlob(
+      buildStorageKey(baseName, ext, size, uploadedAt),
+      ext,
+      data,
+    );
     return;
   }
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -421,7 +481,10 @@ function outputFormatFromExt(ext: string): OutputFormat {
   return { ext: "jpg", format: "jpeg" };
 }
 
-async function generate640Buffer(original: Buffer, ext: string): Promise<Buffer> {
+async function generate640Buffer(
+  original: Buffer,
+  ext: string,
+): Promise<Buffer> {
   const sourceOptions = ext === "gif" ? { animated: true } : undefined;
   const resized = sharp(original, sourceOptions).resize({
     width: MAX_640_SIZE.width,
@@ -439,7 +502,10 @@ export async function generateConstrainedShareImageBuffer(
   return generate512Buffer(original, ext);
 }
 
-async function generate512Buffer(original: Buffer, ext: string): Promise<Buffer> {
+async function generate512Buffer(
+  original: Buffer,
+  ext: string,
+): Promise<Buffer> {
   const sourceOptions = ext === "gif" ? { animated: true } : undefined;
   const resized = sharp(original, sourceOptions).resize({
     width: MAX_512_SIZE.width,
@@ -466,7 +532,12 @@ export async function ensureConstrainedShareImage(
   if (exists) {
     return;
   }
-  const original = await readStoredBuffer(baseName, ext, "original", uploadedAt);
+  const original = await readStoredBuffer(
+    baseName,
+    ext,
+    "original",
+    uploadedAt,
+  );
   const generated = await generate512Buffer(original, ext);
   await writeStoredBuffer(baseName, ext, "x512", uploadedAt, generated);
 }
@@ -481,7 +552,9 @@ export async function deleteConstrainedShareImage(
       await deleteFromBlob(buildStorageKey(baseName, ext, "x512", uploadedAt));
       return;
     }
-    await fs.rm(getImagePath(baseName, ext, "x512", uploadedAt), { force: true });
+    await fs.rm(getImagePath(baseName, ext, "x512", uploadedAt), {
+      force: true,
+    });
   } catch {
     // Missing variants are expected when sharing was enabled only in the UI.
   }
@@ -499,4 +572,3 @@ function contentTypeForExt(ext: string): string {
       return "image/jpeg";
   }
 }
-

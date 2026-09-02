@@ -47,7 +47,14 @@ function withPublicImageCors(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Range",
+  );
+  headers.set(
+    "Access-Control-Expose-Headers",
+    "Accept-Ranges, Content-Length, Content-Range",
+  );
   headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   return new Response(response.body, {
     status: response.status,
@@ -106,9 +113,7 @@ async function constrainedShareImageResponse(input: {
   if (input.downloadRequested) {
     applyAttachmentDisposition(headers, input.downloadFileName);
   }
-  return withPublicImageCors(
-    new Response(new Uint8Array(data), { headers }),
-  );
+  return withPublicImageCors(new Response(new Uint8Array(data), { headers }));
 }
 
 function isDocumentNavigation(request: NextRequest): boolean {
@@ -295,7 +300,10 @@ export async function GET(
     if (imageShare) {
       const image = await getImage(imageShare.imageId);
       if (image && image.ext === parsed.ext) {
-        const imageRequestedSize = resolveImageShareSize(image.ext, parsed.size);
+        const imageRequestedSize = resolveImageShareSize(
+          image.ext,
+          parsed.size,
+        );
         const imageDownloadFileName = resolveDownloadFileName({
           requestedFileName: fileName,
           requestedSize: imageRequestedSize,
@@ -521,4 +529,15 @@ export async function GET(
     }
     return withPublicImageCors(await unavailableImageResponse(parsed.ext));
   }
+}
+
+export async function HEAD(
+  request: NextRequest,
+  context: { params: Promise<{ fileName: string }> },
+): Promise<Response> {
+  return GET(request, context);
+}
+
+export function OPTIONS(): Response {
+  return withPublicImageCors(new Response(null, { status: 204 }));
 }

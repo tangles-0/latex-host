@@ -12,8 +12,11 @@ function normalizeOrigin(value: string | null): string | null {
 
 export function hasTrustedOrigin(request: Request): boolean {
   const origin = normalizeOrigin(request.headers.get("origin"));
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  const host =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto =
+    request.headers.get("x-forwarded-proto") ??
+    new URL(request.url).protocol.replace(":", "");
 
   if (!host) {
     return false;
@@ -30,4 +33,3 @@ export function hasTrustedOrigin(request: Request): boolean {
 
   return origin === expectedOrigin;
 }
-

@@ -111,7 +111,7 @@ export default function AlbumShareControls({
     if (!shareUrl) {
       return;
     }
-    await navigator.clipboard.writeText(`${origin}${shareUrl}`);
+    await navigator.clipboard.writeText(new URL(shareUrl, origin).toString());
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   }
@@ -146,7 +146,7 @@ export default function AlbumShareControls({
     }
   }
 
-  const fullShareUrl = shareUrl ? `${origin}${shareUrl}` : "";
+  const fullShareUrl = shareUrl ? new URL(shareUrl, origin).toString() : "";
 
   const layoutButtonClass = (isActive: boolean) =>
     clsx(
@@ -238,7 +238,10 @@ export default function AlbumShareControls({
         </section>
 
         <section
-          className={clsx(optionCardClass, "min-w-0 flex-1 basis-full sm:basis-0")}
+          className={clsx(
+            optionCardClass,
+            "min-w-0 flex-1 basis-full sm:basis-0",
+          )}
         >
           <h2
             className={clsx(

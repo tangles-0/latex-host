@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPasswordResetToken } from "@/lib/password-reset";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,12 @@ function isValidPassword(value: string): boolean {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (isNodeMode()) {
+    return NextResponse.json(
+      { error: "Password reset is managed on latex.gg." },
+      { status: 404 },
+    );
+  }
   const payload = (await request.json()) as {
     token?: string;
     password?: string;
@@ -37,7 +44,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   if (password !== confirmPassword) {
-    return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Passwords do not match." },
+      { status: 400 },
+    );
   }
 
   const tokenHash = hashPasswordResetToken(token);
@@ -55,7 +65,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     .limit(1);
 
   if (!user) {
-    return NextResponse.json({ error: "Reset token is invalid or has expired." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Reset token is invalid or has expired." },
+      { status: 400 },
+    );
   }
 
   const passwordHash = await bcrypt.hash(password, 12);

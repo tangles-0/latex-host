@@ -9,31 +9,13 @@ import {
   type MediaKind,
 } from "@/lib/media-store";
 import { isMediaKind } from "@/lib/media-types";
+import { buildPublicShareUrls } from "@/lib/public-share-urls";
 
 export const runtime = "nodejs";
 const NOTE_SHARE_PASSWORD_MAX_LENGTH = 256;
 
 function parseKind(input: string | null): MediaKind | null {
   return isMediaKind(input) ? input : null;
-}
-
-function buildShareUrls(
-  kind: MediaKind,
-  code: string,
-  ext: string,
-): { original: string; sm: string; lg: string } {
-  const base = kind === "note" ? `/share/${code}` : `/share/${code}.${ext}`;
-  return {
-    original: base,
-    sm:
-      kind === "note"
-        ? base
-        : `/share/${code}-sm.${kind === "image" ? ext : "png"}`,
-    lg:
-      kind === "note"
-        ? base
-        : `/share/${code}-lg.${kind === "image" ? ext : "png"}`,
-  };
 }
 
 function parseNoteSharePassword(input: unknown): string | null | undefined {
@@ -100,7 +82,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   return NextResponse.json({
     share,
-    urls: buildShareUrls(kind, share.code, media.ext),
+    urls: await buildPublicShareUrls(kind, share.code, media.ext),
   });
 }
 
@@ -127,7 +109,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
   return NextResponse.json({
     share,
-    urls: buildShareUrls(kind, share.code, media.ext),
+    urls: await buildPublicShareUrls(kind, share.code, media.ext),
   });
 }
 
@@ -178,7 +160,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   }
   return NextResponse.json({
     share,
-    urls: buildShareUrls(kind, share.code, media.ext),
+    urls: await buildPublicShareUrls(kind, share.code, media.ext),
   });
 }
 
