@@ -20,33 +20,58 @@ content.
 
 ## Install
 
-1. Copy `compose.yaml` and `.env.example` into an empty directory.
-2. Rename `.env.example` to `.env`.
-3. Set only:
+1. Create directories for the Compose configuration and node storage:
+
+   ```bash
+   sudo mkdir -p /opt/latex-node /srv/latex-node
+   sudo chown 1001:1001 /srv/latex-node
+   ```
+
+2. Download the Compose file and example configuration:
+
+   ```bash
+   cd /opt/latex-node
+   sudo curl -fsSLO https://raw.githubusercontent.com/tangles-0/latex-host/main/deploy/node/compose.yaml
+   sudo curl -fsSL https://raw.githubusercontent.com/tangles-0/latex-host/main/deploy/node/.env.example -o .env
+   ```
+
+3. Edit `/opt/latex-node/.env`:
+
+   ```bash
+   sudo nano /opt/latex-node/.env
+   ```
+
+   Set the port, storage path, and exact public HTTPS origin:
 
    ```dotenv
    PORT=3000
    STORAGE_PATH=/srv/latex-node
+   NEXTAUTH_URL=https://files.example.com
    ```
 
-4. Create the storage directory and make it writable by `PUID`/`PGID` (1001 by
-   default):
+   Replace `files.example.com` with the node's domain. If you change `PUID` or
+   `PGID`, make the storage directory writable by those IDs.
+
+4. Pull and start the complete stack:
 
    ```bash
-   sudo install -d -o 1001 -g 1001 /srv/latex-node
+   cd /opt/latex-node
+   sudo docker compose pull
+   sudo docker compose up -d
+   sudo docker compose ps
    ```
 
-5. Start the node:
+   Compose automatically installs and runs the node app, PostgreSQL, and the
+   preview generator. Check startup errors with:
 
    ```bash
-   docker compose up -d
+   sudo docker compose logs -f app preview db
    ```
 
-6. Reverse-proxy your HTTPS hostname to `http://127.0.0.1:3000`. Set
-   `NEXTAUTH_URL=https://your-node.example` in `.env`, using that exact public
-   origin, then run `docker compose up -d` again.
-7. Open `http://<server-ip>:3000` locally, or the configured HTTPS hostname.
-8. On latex.gg, open **Account → Add self-hosted node**. Copy the one-time code
+5. Point the domain's DNS to the server and reverse-proxy its HTTPS origin to
+   `http://127.0.0.1:3000`. The public origin must have a valid TLS certificate.
+6. Open `http://<server-ip>:3000` locally, or the configured HTTPS hostname.
+7. On latex.gg, open **Account → Add self-hosted node**. Copy the one-time code
    into the node setup page with the public HTTPS URL.
 
 After linking, management login is delegated to latex.gg. The node never asks
