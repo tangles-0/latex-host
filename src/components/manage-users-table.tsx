@@ -1,7 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import clsx from "clsx";
+
+import {
+  nextUserSort,
+  sortUsers,
+  type UserSortDirection,
+  type UserSortKey,
+} from "@/components/manage-users-table-sort";
 
 type UserStats = {
   id: string;
@@ -16,6 +25,54 @@ type UserStats = {
   bannedAt?: string;
 };
 
+const SORTABLE_COLUMNS: { key: UserSortKey; label: string }[] = [
+  { key: "username", label: "Username" },
+  { key: "email", label: "Email" },
+  { key: "groupName", label: "Group" },
+  { key: "imageCount", label: "Files" },
+  { key: "totalBytes", label: "Total Size" },
+  { key: "averageBytes", label: "Avg Size" },
+  { key: "lastUploadAt", label: "Last Upload" },
+  { key: "lastLoginAt", label: "Last Login" },
+];
+
+const SortHeader = ({
+  column,
+  label,
+  sortKey,
+  sortDirection,
+  onSort,
+}: {
+  column: UserSortKey;
+  label: string;
+  sortKey: UserSortKey;
+  sortDirection: UserSortDirection;
+  onSort: (key: UserSortKey) => void;
+}) => {
+  const isActive = sortKey === column;
+  const ariaSort = isActive ? (sortDirection === "asc" ? "ascending" : "descending") : "none";
+  const Icon = isActive ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <th className="px-3 py-2" aria-sort={ariaSort} scope="col">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={clsx(
+          "inline-flex items-center gap-1 uppercase hover:text-neutral-800",
+          isActive ? "text-neutral-700" : "text-neutral-500",
+        )}
+      >
+        {label}
+        <Icon
+          aria-hidden="true"
+          className={clsx("size-3", isActive ? "text-neutral-700" : "text-neutral-300")}
+        />
+      </button>
+    </th>
+  );
+};
+
 export default function ManageUsersTable({
   currentUserId,
   users,
@@ -26,6 +83,19 @@ export default function ManageUsersTable({
   const [items, setItems] = useState(users);
   const [error, setError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<UserSortKey>("email");
+  const [sortDirection, setSortDirection] = useState<UserSortDirection>("asc");
+
+  const sortedItems = useMemo(
+    () => sortUsers(items, sortKey, sortDirection),
+    [items, sortKey, sortDirection],
+  );
+
+  const requestSort = (key: UserSortKey) => {
+    const nextSort = nextUserSort(sortKey, sortDirection, key);
+    setSortKey(nextSort.key);
+    setSortDirection(nextSort.direction);
+  };
 
   async function requestDeleteFiles(userId: string) {
     setError(null);
@@ -119,19 +189,23 @@ export default function ManageUsersTable({
         <table className="min-w-[920px] w-full border-collapse text-xs">
           <thead className="bg-neutral-50 text-left text-[11px] uppercase text-neutral-500">
             <tr>
-              <th className="px-3 py-2">Username</th>
-              <th className="px-3 py-2">Email</th>
-              <th className="px-3 py-2">Group</th>
-              <th className="px-3 py-2">Files</th>
-              <th className="px-3 py-2">Total Size</th>
-              <th className="px-3 py-2">Avg Size</th>
-              <th className="px-3 py-2">Last Upload</th>
-              <th className="px-3 py-2">Last Login</th>
-              <th className="px-3 py-2">Actions</th>
+              {SORTABLE_COLUMNS.map((column) => (
+                <SortHeader
+                  key={column.key}
+                  column={column.key}
+                  label={column.label}
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={requestSort}
+                />
+              ))}
+              <th className="px-3 py-2" scope="col">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
-            {items.map((user) => (
+            {sortedItems.map((user) => (
               <tr key={user.id} className="border-t border-neutral-200">
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2">
