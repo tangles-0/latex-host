@@ -3,9 +3,7 @@ import {
   getGroupLimits,
   getUserGroupInfo,
 } from "@/lib/metadata-store";
-import {
-  createNoteForUser,
-} from "@/lib/media-store";
+import { createNoteForUser } from "@/lib/media-store";
 import { withApiV1Route } from "@/lib/api-v1/handler";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { listNotesPageForUser } from "@/lib/api-v1/list";
@@ -13,7 +11,7 @@ import {
   ensureShareForVisibility,
   resolveVisibilityForMedia,
 } from "@/lib/api-v1/media-register";
-import { originFromRequest, toNoteResource } from "@/lib/api-v1/resources";
+import { sharePrefixFromRequest, toNoteResource } from "@/lib/api-v1/resources";
 import {
   createNoteBodySchema,
   notesListQuerySchema,
@@ -48,7 +46,7 @@ export const GET = withApiV1Route(async (request, auth) => {
     cursor: parsed.data.cursor,
     albumId: parsed.data.albumId,
   });
-  const origin = originFromRequest(request);
+  const sharePrefix = await sharePrefixFromRequest(request);
   const notes = await Promise.all(
     page.items.map(async (note) => {
       const share = await resolveVisibilityForMedia({
@@ -58,7 +56,7 @@ export const GET = withApiV1Route(async (request, auth) => {
       });
       return toNoteResource({
         note,
-        origin,
+        sharePrefix,
         visibility: share.visibility,
         shareCode: share.shareCode,
         includeContent: false,
@@ -69,7 +67,7 @@ export const GET = withApiV1Route(async (request, auth) => {
 });
 
 export const POST = withApiV1Route(async (request, auth) => {
-  const json = await request.json().catch(() => null);
+  const json: unknown = await request.json().catch(() => null);
   const parsed = createNoteBodySchema.safeParse(json);
   if (!parsed.success) {
     return apiV1Error(
@@ -90,7 +88,9 @@ export const POST = withApiV1Route(async (request, auth) => {
 
   const groupInfo = await getUserGroupInfo(auth.userId);
   const groupLimits = await getGroupLimits(groupInfo.groupId);
-  if (Buffer.byteLength(parsed.data.content, "utf8") > groupLimits.maxDocumentSize) {
+  if (
+    Buffer.byteLength(parsed.data.content, "utf8") > groupLimits.maxDocumentSize
+  ) {
     return apiV1Error(413, "payload_too_large", "Note exceeds size limit.");
   }
 
@@ -113,7 +113,7 @@ export const POST = withApiV1Route(async (request, auth) => {
 
   const resource = toNoteResource({
     note,
-    origin: originFromRequest(request),
+    sharePrefix: await sharePrefixFromRequest(request),
     visibility: share.visibility,
     shareCode: share.code,
     includeContent: true,

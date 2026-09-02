@@ -1,7 +1,4 @@
-import {
-  getGroupLimits,
-  getUserGroupInfo,
-} from "@/lib/metadata-store";
+import { getGroupLimits, getUserGroupInfo } from "@/lib/metadata-store";
 import {
   deleteMediaForUser,
   getNoteForUser,
@@ -10,7 +7,7 @@ import {
 import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { resolveVisibilityForMedia } from "@/lib/api-v1/media-register";
-import { originFromRequest, toNoteResource } from "@/lib/api-v1/resources";
+import { sharePrefixFromRequest, toNoteResource } from "@/lib/api-v1/resources";
 import { patchNoteBodySchema } from "@/lib/api-v1/schemas";
 
 export const runtime = "nodejs";
@@ -33,7 +30,7 @@ export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
   return apiV1Json({
     note: toNoteResource({
       note,
-      origin: originFromRequest(request),
+      sharePrefix: await sharePrefixFromRequest(request),
       visibility: share.visibility,
       shareCode: share.shareCode,
       includeContent: true,
@@ -47,7 +44,7 @@ export const PATCH = withApiV1ParamsRoute(async (request, auth, context) => {
   if (!id) {
     return apiV1Error(400, "invalid_request", "id is required.");
   }
-  const json = await request.json().catch(() => null);
+  const json: unknown = await request.json().catch(() => null);
   const parsed = patchNoteBodySchema.safeParse(json);
   if (!parsed.success) {
     return apiV1Error(
@@ -65,7 +62,9 @@ export const PATCH = withApiV1ParamsRoute(async (request, auth, context) => {
 
   const groupInfo = await getUserGroupInfo(auth.userId);
   const groupLimits = await getGroupLimits(groupInfo.groupId);
-  if (Buffer.byteLength(parsed.data.content, "utf8") > groupLimits.maxDocumentSize) {
+  if (
+    Buffer.byteLength(parsed.data.content, "utf8") > groupLimits.maxDocumentSize
+  ) {
     return apiV1Error(413, "payload_too_large", "Note exceeds size limit.");
   }
 
@@ -86,7 +85,7 @@ export const PATCH = withApiV1ParamsRoute(async (request, auth, context) => {
   return apiV1Json({
     note: toNoteResource({
       note,
-      origin: originFromRequest(request),
+      sharePrefix: await sharePrefixFromRequest(request),
       visibility: share.visibility,
       shareCode: share.shareCode,
       includeContent: true,

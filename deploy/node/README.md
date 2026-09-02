@@ -42,7 +42,9 @@ content.
    docker compose up -d
    ```
 
-6. Reverse-proxy your HTTPS hostname to `http://127.0.0.1:3000`.
+6. Reverse-proxy your HTTPS hostname to `http://127.0.0.1:3000`. Set
+   `NEXTAUTH_URL=https://your-node.example` in `.env`, using that exact public
+   origin, then run `docker compose up -d` again.
 7. Open `http://<server-ip>:3000` locally, or the configured HTTPS hostname.
 8. On latex.gg, open **Account → Add self-hosted node**. Copy the one-time code
    into the node setup page with the public HTTPS URL.

@@ -1,7 +1,4 @@
-import {
-  getAlbumForUser,
-  getAppSettings,
-} from "@/lib/metadata-store";
+import { getAlbumForUser, getAppSettings } from "@/lib/metadata-store";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import {
   completeUploadSession,
@@ -15,7 +12,7 @@ import {
   ensureShareForVisibility,
   registerMediaFromUploadSession,
 } from "@/lib/api-v1/media-register";
-import { originFromRequest, toFileResource } from "@/lib/api-v1/resources";
+import { sharePrefixFromRequest, toFileResource } from "@/lib/api-v1/resources";
 import { completeUploadBodySchema } from "@/lib/api-v1/schemas";
 
 export const runtime = "nodejs";
@@ -29,7 +26,11 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
 
   const settings = await getAppSettings();
   if (!settings.uploadsEnabled) {
-    return apiV1Error(403, "uploads_disabled", "Uploads are currently disabled.");
+    return apiV1Error(
+      403,
+      "uploads_disabled",
+      "Uploads are currently disabled.",
+    );
   }
 
   const rate = await consumeRequestRateLimit({
@@ -48,7 +49,7 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
     );
   }
 
-  const json = await request.json().catch(() => ({}));
+  const json: unknown = await request.json().catch(() => ({}));
   const parsed = completeUploadBodySchema.safeParse(json);
   if (!parsed.success) {
     return apiV1Error(
@@ -85,12 +86,9 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
 
   const missing = listMissingUploadPartNumbers(session);
   if (missing.length > 0) {
-    return apiV1Error(
-      409,
-      "conflict",
-      "Upload is missing parts.",
-      { missingParts: missing },
-    );
+    return apiV1Error(409, "conflict", "Upload is missing parts.", {
+      missingParts: missing,
+    });
   }
 
   let completed;
@@ -110,7 +108,11 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
   }
 
   if (!completed.storageKey) {
-    return apiV1Error(500, "internal_error", "Upload completed without storage key.");
+    return apiV1Error(
+      500,
+      "internal_error",
+      "Upload completed without storage key.",
+    );
   }
 
   const media = await registerMediaFromUploadSession({
@@ -136,7 +138,7 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
 
   const resource = toFileResource({
     media,
-    origin: originFromRequest(request),
+    sharePrefix: await sharePrefixFromRequest(request),
     visibility: share.visibility,
     shareCode: share.code,
   });

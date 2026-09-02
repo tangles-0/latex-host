@@ -4,8 +4,8 @@ import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { getBlobFileForUser } from "@/lib/api-v1/list";
 import { ensureShareForVisibility } from "@/lib/api-v1/media-register";
 import {
-  buildAbsoluteShareUrls,
-  originFromRequest,
+  buildShareUrlsFromPrefix,
+  sharePrefixFromRequest,
 } from "@/lib/api-v1/resources";
 
 export const runtime = "nodejs";
@@ -29,8 +29,12 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
   if (!share.code) {
     return apiV1Error(500, "internal_error", "Unable to create share.");
   }
-  const origin = originFromRequest(request);
-  const urls = buildAbsoluteShareUrls(origin, media.kind, share.code, media.ext);
+  const urls = buildShareUrlsFromPrefix(
+    await sharePrefixFromRequest(request),
+    media.kind,
+    share.code,
+    media.ext,
+  );
   return apiV1Json({
     share: { code: share.code },
     shareUrl: urls.original,

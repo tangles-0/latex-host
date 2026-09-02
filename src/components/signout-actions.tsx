@@ -13,7 +13,12 @@ export default function SignOutActions({ callbackUrl }: SignOutActionsProps) {
   async function handleSignOut() {
     if (isSigningOut) return;
     setIsSigningOut(true);
-    await signOut({ callbackUrl });
+    try {
+      await signOut({ callbackUrl, redirect: false });
+      window.location.assign(callbackUrl);
+    } catch {
+      setIsSigningOut(false);
+    }
   }
 
   return (
@@ -27,4 +32,3 @@ export default function SignOutActions({ callbackUrl }: SignOutActionsProps) {
     </button>
   );
 }
-

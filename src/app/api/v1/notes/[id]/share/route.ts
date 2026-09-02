@@ -2,7 +2,7 @@ import { deleteShareForMedia, getNoteForUser } from "@/lib/media-store";
 import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { ensureShareForVisibility } from "@/lib/api-v1/media-register";
-import { absoluteUrl, originFromRequest } from "@/lib/api-v1/resources";
+import { sharePrefixFromRequest } from "@/lib/api-v1/resources";
 import { createShareBodySchema } from "@/lib/api-v1/schemas";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
     return apiV1Error(404, "not_found", "Note not found.");
   }
 
-  const json = await request.json().catch(() => ({}));
+  const json: unknown = await request.json().catch(() => ({}));
   const parsed = createShareBodySchema.safeParse(json);
   if (!parsed.success) {
     return apiV1Error(
@@ -39,8 +39,7 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
   if (!share.code) {
     return apiV1Error(500, "internal_error", "Unable to create share.");
   }
-  const origin = originFromRequest(request);
-  const shareUrl = absoluteUrl(origin, `/share/${share.code}`);
+  const shareUrl = `${await sharePrefixFromRequest(request)}/${share.code}`;
   return apiV1Json({
     share: { code: share.code },
     shareUrl,

@@ -24,20 +24,22 @@ export default async function AccountPage({
   if (!userId) {
     redirect("/");
   }
+  const nodeMode = isNodeMode();
 
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const rawDeviceCode = resolvedSearchParams?.device_code?.trim() ?? "";
-  const initialDeviceCode =
-    normalizeUserCode(rawDeviceCode).length === 8
+  const initialDeviceCode = nodeMode
+    ? ""
+    : normalizeUserCode(rawDeviceCode).length === 8
       ? formatUserCode(rawDeviceCode)
       : rawDeviceCode;
 
   const [user, key, devices, apiKeys, selfHostedNodes] = await Promise.all([
     getUserById(userId),
-    getUserPgpKey(userId),
-    listApiDevices(userId),
+    nodeMode ? Promise.resolve(null) : getUserPgpKey(userId),
+    nodeMode ? Promise.resolve([]) : listApiDevices(userId),
     listApiKeysForUser(userId),
-    isNodeMode() ? Promise.resolve([]) : listSelfHostedNodes(userId),
+    nodeMode ? Promise.resolve([]) : listSelfHostedNodes(userId),
   ]);
   if (!user) {
     redirect("/");
@@ -47,7 +49,11 @@ export default async function AccountPage({
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10 text-sm">
       <PageHeader
         title="Account"
-        subtitle="Profile, API keys, devices, PGP key, and account controls."
+        subtitle={
+          nodeMode
+            ? "Profile and API access for this self-hosted node."
+            : "Profile, API keys, devices, PGP key, and account controls."
+        }
         backLink={{ href: "/gallery", label: "back 2 gallery" }}
       />
       <AccountClient
@@ -83,8 +89,9 @@ export default async function AccountPage({
               }
             : null
         }
+        nodeMode={nodeMode}
       />
-      {!isNodeMode() ? (
+      {!nodeMode ? (
         <SelfHostedNodesClient initialNodes={selfHostedNodes} />
       ) : null}
     </main>

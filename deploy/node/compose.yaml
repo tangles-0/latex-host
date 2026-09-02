@@ -45,6 +45,7 @@ services:
     environment:
       NODE_MODE: "true"
       LATEX_CLOUD_URL: ${LATEX_CLOUD_URL:-https://latex.gg}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-}
       DATABASE_URL: postgresql://latex:${POSTGRES_PASSWORD:-latex-node-internal-only}@db:5432/latex
       STORAGE_BACKEND: local
       LATEX_DATA_DIR: /storage/.latex

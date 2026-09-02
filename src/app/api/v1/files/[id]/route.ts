@@ -3,7 +3,7 @@ import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { getBlobFileForUser } from "@/lib/api-v1/list";
 import { resolveVisibilityForMedia } from "@/lib/api-v1/media-register";
-import { originFromRequest, toFileResource } from "@/lib/api-v1/resources";
+import { sharePrefixFromRequest, toFileResource } from "@/lib/api-v1/resources";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,7 @@ export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
   return apiV1Json({
     file: toFileResource({
       media,
-      origin: originFromRequest(request),
+      sharePrefix: await sharePrefixFromRequest(request),
       visibility: share.visibility,
       shareCode: share.shareCode,
     }),

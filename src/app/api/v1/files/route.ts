@@ -14,18 +14,14 @@ import {
 import { isAllowedUploadType } from "@/lib/upload-allowlist";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { withApiV1Route } from "@/lib/api-v1/handler";
-import {
-  apiV1Error,
-  apiV1Json,
-  rateLimitHeaders,
-} from "@/lib/api-v1/errors";
+import { apiV1Error, apiV1Json, rateLimitHeaders } from "@/lib/api-v1/errors";
 import {
   ensureShareForVisibility,
   registerMediaFromBuffer,
   resolveVisibilityForMedia,
 } from "@/lib/api-v1/media-register";
 import { listFilesPageForUser } from "@/lib/api-v1/list";
-import { originFromRequest, toFileResource } from "@/lib/api-v1/resources";
+import { sharePrefixFromRequest, toFileResource } from "@/lib/api-v1/resources";
 import { listQuerySchema, visibilitySchema } from "@/lib/api-v1/schemas";
 
 export const runtime = "nodejs";
@@ -61,7 +57,7 @@ export const GET = withApiV1Route(async (request, auth) => {
     kind: parsed.data.kind,
     albumId: parsed.data.albumId,
   });
-  const origin = originFromRequest(request);
+  const sharePrefix = await sharePrefixFromRequest(request);
   const files = await Promise.all(
     page.items.map(async (media) => {
       const share = await resolveVisibilityForMedia({
@@ -71,7 +67,7 @@ export const GET = withApiV1Route(async (request, auth) => {
       });
       return toFileResource({
         media,
-        origin,
+        sharePrefix,
         visibility: share.visibility,
         shareCode: share.shareCode,
       });
@@ -87,7 +83,11 @@ export const POST = withApiV1Route(async (request, auth) => {
     getAppSettings(),
   ]);
   if (!settings.uploadsEnabled) {
-    return apiV1Error(403, "uploads_disabled", "Uploads are currently disabled.");
+    return apiV1Error(
+      403,
+      "uploads_disabled",
+      "Uploads are currently disabled.",
+    );
   }
   const groupLimits = await getGroupLimits(groupInfo.groupId);
   const rate = await consumeRequestRateLimit({
@@ -102,13 +102,10 @@ export const POST = withApiV1Route(async (request, auth) => {
     resetSeconds: rate.retryAfterSeconds,
   });
   if (!rate.allowed && !isAdmin) {
-    return apiV1Error(
-      429,
-      "rate_limited",
-      "Rate limit exceeded.",
-      undefined,
-      { ...rateHeaders, "Retry-After": String(rate.retryAfterSeconds) },
-    );
+    return apiV1Error(429, "rate_limited", "Rate limit exceeded.", undefined, {
+      ...rateHeaders,
+      "Retry-After": String(rate.retryAfterSeconds),
+    });
   }
 
   const formData = await request.formData();
@@ -155,7 +152,11 @@ export const POST = withApiV1Route(async (request, auth) => {
       ext,
     })
   ) {
-    return apiV1Error(415, "unsupported_media_type", "File type is not allowed.");
+    return apiV1Error(
+      415,
+      "unsupported_media_type",
+      "File type is not allowed.",
+    );
   }
 
   const threshold = settings.resumableThresholdBytes;
@@ -206,10 +207,10 @@ export const POST = withApiV1Route(async (request, auth) => {
     visibility,
   });
 
-  const origin = originFromRequest(request);
+  const sharePrefix = await sharePrefixFromRequest(request);
   const resource = toFileResource({
     media,
-    origin,
+    sharePrefix,
     visibility: share.visibility,
     shareCode: share.code,
   });

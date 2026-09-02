@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAbsoluteShareUrls,
   buildSharePaths,
+  buildShareUrlsFromPrefix,
   toFileResource,
 } from "@/lib/api-v1/resources";
 import type { MediaEntry } from "@/lib/media-store";
@@ -52,7 +53,7 @@ describe("toFileResource", () => {
   it("includes constrained share URL when public", () => {
     const resource = toFileResource({
       media: imageEntry(),
-      origin: "https://example.test",
+      sharePrefix: "https://example.test/share",
       visibility: "public",
       shareCode: "AbC123",
     });
@@ -68,7 +69,7 @@ describe("toFileResource", () => {
   it("removes all share URLs when private", () => {
     const resource = toFileResource({
       media: imageEntry(),
-      origin: "https://example.test",
+      sharePrefix: "https://example.test/share",
       visibility: "private",
       shareCode: null,
     });
@@ -86,5 +87,20 @@ describe("buildAbsoluteShareUrls", () => {
       "png",
     );
     expect(urls.x512).toBe("https://example.test/share/AbC123-512.png");
+  });
+
+  it("supports a node-prefixed latex.gg share path", () => {
+    expect(
+      buildShareUrlsFromPrefix(
+        "https://latex.gg/share/n1",
+        "video",
+        "AbC123",
+        "mp4",
+      ),
+    ).toEqual({
+      original: "https://latex.gg/share/n1/AbC123.mp4",
+      sm: "https://latex.gg/share/n1/AbC123-sm.png",
+      lg: "https://latex.gg/share/n1/AbC123-lg.png",
+    });
   });
 });

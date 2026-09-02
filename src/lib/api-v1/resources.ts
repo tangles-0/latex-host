@@ -1,7 +1,12 @@
 import { getPublicAppOrigin } from "@/lib/device-auth";
 import type { MediaEntry, MediaKind } from "@/lib/media-store";
 import type { BlobMediaKind } from "@/lib/media-types";
-import type { FileResource, NoteResource, Visibility } from "@/lib/api-v1/schemas";
+import type {
+  FileResource,
+  NoteResource,
+  Visibility,
+} from "@/lib/api-v1/schemas";
+import { getPublicSharePrefix } from "@/lib/public-share-urls";
 
 export type ShareUrlSet = {
   original: string;
@@ -60,6 +65,35 @@ export function buildAbsoluteShareUrls(
   return urls;
 }
 
+export function buildShareUrlsFromPrefix(
+  sharePrefix: string,
+  kind: MediaKind,
+  code: string,
+  ext: string,
+): ShareUrlSet {
+  const suffixes = buildSharePaths(kind, code, ext);
+  const stripSharePrefix = (value: string): string =>
+    value.startsWith("/share/") ? value.slice("/share".length) : value;
+  const urls: ShareUrlSet = {
+    original: `${sharePrefix}${stripSharePrefix(suffixes.original)}`,
+    sm: `${sharePrefix}${stripSharePrefix(suffixes.sm)}`,
+    lg: `${sharePrefix}${stripSharePrefix(suffixes.lg)}`,
+  };
+  if (suffixes.x512) {
+    urls.x512 = `${sharePrefix}${stripSharePrefix(suffixes.x512)}`;
+  }
+  return urls;
+}
+
+export async function sharePrefixFromRequest(
+  request: Request,
+): Promise<string> {
+  const prefix = await getPublicSharePrefix();
+  return prefix.startsWith("http")
+    ? prefix
+    : absoluteUrl(getPublicAppOrigin(request), prefix);
+}
+
 export function originFromRequest(request: Request): string {
   return getPublicAppOrigin(request);
 }
@@ -76,15 +110,15 @@ export function fileNameForMedia(media: MediaEntry): string {
 
 export function toFileResource(input: {
   media: MediaEntry;
-  origin: string;
+  sharePrefix: string;
   visibility: Visibility;
   shareCode?: string | null;
 }): FileResource {
-  const { media, origin, visibility, shareCode } = input;
+  const { media, sharePrefix, visibility, shareCode } = input;
   const kind = media.kind as BlobMediaKind;
   const shareUrls =
     visibility === "public" && shareCode
-      ? buildAbsoluteShareUrls(origin, kind, shareCode, media.ext)
+      ? buildShareUrlsFromPrefix(sharePrefix, kind, shareCode, media.ext)
       : null;
   return {
     id: media.id,
@@ -108,16 +142,14 @@ export function toFileResource(input: {
 
 export function toNoteResource(input: {
   note: MediaEntry;
-  origin: string;
+  sharePrefix: string;
   visibility: Visibility;
   shareCode?: string | null;
   includeContent?: boolean;
 }): NoteResource {
-  const { note, origin, visibility, shareCode, includeContent } = input;
+  const { note, sharePrefix, visibility, shareCode, includeContent } = input;
   const shareUrl =
-    visibility === "public" && shareCode
-      ? absoluteUrl(origin, `/share/${shareCode}`)
-      : null;
+    visibility === "public" && shareCode ? `${sharePrefix}/${shareCode}` : null;
   return {
     id: note.id,
     kind: "note",
