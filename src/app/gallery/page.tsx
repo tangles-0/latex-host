@@ -20,6 +20,7 @@ import { LightSignOut } from "@energiz3r/icon-library/Icons/Light/LightSignOut";
 import { LightUpload } from "@energiz3r/icon-library/Icons/Light/LightUpload";
 import { LightUserSecret } from "@energiz3r/icon-library/Icons/Light/LightUserSecret";
 import { isNodeMode } from "@/lib/self-hosted-nodes";
+import { getNodeShareContext } from "@/lib/public-share-urls";
 
 const headerButtonClass =
   "inline-flex flex-1 items-center justify-center gap-1 rounded border border-neutral-200 px-3 py-1 sm:flex-none";
@@ -35,6 +36,7 @@ const GalleryPage = async ({
     redirect("/");
   }
 
+  const nodeMode = isNodeMode();
   const [
     albums,
     media,
@@ -42,6 +44,7 @@ const GalleryPage = async ({
     latestPatchNote,
     dismissedAt,
     hasImageGenerationAccess,
+    nodeShareContext,
   ] = await Promise.all([
     listAlbums(userId),
     listMediaForUser(userId),
@@ -49,12 +52,12 @@ const GalleryPage = async ({
     getLatestPatchNote(),
     getUserLastPatchNoteDismissed(userId),
     canUserGenerateImages(userId),
+    getNodeShareContext(),
   ]);
 
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialTab =
     resolvedSearchParams?.tab === "albums" ? "albums" : "files";
-  const nodeMode = isNodeMode();
   const pageTitle = initialTab === "albums" ? "ur albums" : "ur gallery";
   const shouldShowPatchBanner =
     latestPatchNote &&
@@ -82,6 +85,7 @@ const GalleryPage = async ({
         albums={albums.map((album) => ({ id: album.id, name: album.name }))}
         media={media}
         isAdmin={isAdmin}
+        nodeShareContext={nodeShareContext}
         actions={
           <>
             <Link href="/upload" className={headerButtonClass}>

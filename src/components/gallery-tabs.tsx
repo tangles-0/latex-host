@@ -7,6 +7,8 @@ import GalleryClient from "@/components/gallery-client";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import type { MediaKind } from "@/lib/media-types";
+import type { NodeShareContext } from "@/lib/share-link-format";
+import { useShareLinkFormat } from "@/hooks/use-share-link-format";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 import { LightFolderTimes } from "@energiz3r/icon-library/Icons/Light/LightFolderTimes";
@@ -85,6 +87,7 @@ export default function GalleryTabs({
   actions,
   readOnly = false,
   albumHrefBase = "/album",
+  nodeShareContext,
 }: {
   albums: AlbumInfo[];
   media: GalleryImage[];
@@ -93,6 +96,7 @@ export default function GalleryTabs({
   actions?: ReactNode;
   readOnly?: boolean;
   albumHrefBase?: string;
+  nodeShareContext?: NodeShareContext | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -122,6 +126,9 @@ export default function GalleryTabs({
   } catch {} // ignore storage errors
   const [hideAlbumImages, setHideAlbumImages] = useState(storedSetting === "1");
   const [delBtnLabel, setDelBtnLabel] = useState("del album");
+  const [shareLinkFormat, setShareLinkFormat] = useShareLinkFormat(
+    Boolean(nodeShareContext),
+  );
 
   if (media !== mediaFromServer) {
     setMediaFromServer(media);
@@ -300,6 +307,30 @@ export default function GalleryTabs({
           >
             files
           </button>
+          {nodeShareContext ? (
+            <div
+              className="flex items-center rounded border border-neutral-200"
+              role="group"
+              aria-label="Share link format"
+            >
+              <span className="px-2 text-neutral-500">share links:</span>
+              {(["cloud", "direct"] as const).map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  aria-pressed={shareLinkFormat === format}
+                  onClick={() => setShareLinkFormat(format)}
+                  className={`px-2 py-1 ${
+                    shareLinkFormat === format
+                      ? "bg-black text-white"
+                      : "text-neutral-600"
+                  }`}
+                >
+                  {format === "cloud" ? "latex.gg" : "direct"}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {activeTab === "files" ? (
             <>
               <button
@@ -593,6 +624,7 @@ export default function GalleryTabs({
           kindFilter={fileTypeFilter}
           isAdmin={isAdmin}
           readOnly={readOnly}
+          nodeShareContext={nodeShareContext}
         />
       )}
     </div>

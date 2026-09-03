@@ -38,6 +38,8 @@ import type { MediaKind } from "@/lib/media-types";
 import { isEditableTextDocument, isRiskyShareFile } from "@/lib/media-types";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
+import { formatShareUrl, type NodeShareContext } from "@/lib/share-link-format";
+import { useShareLinkFormat } from "@/hooks/use-share-link-format";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
@@ -207,6 +209,7 @@ export default function GalleryClient({
   readOnly = false,
   showDownloadLinks = false,
   isCompactView = false,
+  nodeShareContext,
 }: {
   media: GalleryImage[];
   onImagesChange?: (next: GalleryImage[]) => void;
@@ -221,6 +224,7 @@ export default function GalleryClient({
   readOnly?: boolean;
   showDownloadLinks?: boolean;
   isCompactView?: boolean;
+  nodeShareContext?: NodeShareContext | null;
 }) {
   const [items, setItems] = useState<GalleryImage[]>(media);
   const [active, setActive] = useState<GalleryImage | null>(null);
@@ -314,9 +318,10 @@ export default function GalleryClient({
   const mediaRef = useRef(media);
   mediaRef.current = media;
 
+  const [shareLinkFormat] = useShareLinkFormat(Boolean(nodeShareContext));
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const absoluteShareUrl = (url: string): string =>
-    new URL(url, origin || "http://localhost").toString();
+    formatShareUrl(url, shareLinkFormat, nodeShareContext, origin);
   const inAlbumContext = Boolean(uploadAlbumId);
   const usePagination = !inAlbumContext;
 
@@ -1708,7 +1713,7 @@ export default function GalleryClient({
       }
 
       setHas640Variant(true);
-      await copyText(`${origin}${variantUrl}`, "640");
+      await copyText(absoluteShareUrl(variantUrl), "640");
     } catch (error) {
       setShareError(
         error instanceof Error
@@ -4006,7 +4011,7 @@ export default function GalleryClient({
                       <div className="space-y-3">
                         <div className="space-y-2">
                           <label className="text-xs font-medium text-neutral-600">
-                            Direct link
+                            Share link
                           </label>
                           <button
                             type="button"

@@ -9,6 +9,8 @@ import { LightImages } from "@energiz3r/icon-library/Icons/Light/LightImages";
 import { LightLink } from "@energiz3r/icon-library/Icons/Light/LightLink";
 import { LightThList } from "@energiz3r/icon-library/Icons/Light/LightThList";
 import { LightUnlink } from "@energiz3r/icon-library/Icons/Light/LightUnlink";
+import { useShareLinkFormat } from "@/hooks/use-share-link-format";
+import { formatShareUrl, type NodeShareContext } from "@/lib/share-link-format";
 
 const optionCardClass =
   "flex flex-col overflow-hidden rounded border border-neutral-200";
@@ -23,10 +25,12 @@ export default function AlbumShareControls({
   albumId,
   isDisplayAsDownloadPage: initialDisplayAsDownloadPage,
   isDisplayAsCompactView: initialDisplayAsCompactView,
+  nodeShareContext,
 }: {
   albumId: string;
   isDisplayAsDownloadPage: boolean;
   isDisplayAsCompactView: boolean;
+  nodeShareContext?: NodeShareContext | null;
 }) {
   const router = useRouter();
   const [shareEnabled, setShareEnabled] = useState(false);
@@ -41,7 +45,11 @@ export default function AlbumShareControls({
   const [copied, setCopied] = useState(false);
   const [isSavingDisplayMode, setIsSavingDisplayMode] = useState(false);
 
+  const [shareLinkFormat] = useShareLinkFormat(Boolean(nodeShareContext));
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const fullShareUrl = shareUrl
+    ? formatShareUrl(shareUrl, shareLinkFormat, nodeShareContext, origin)
+    : "";
 
   useEffect(() => {
     setIsDisplayAsDownloadPage(initialDisplayAsDownloadPage);
@@ -111,7 +119,7 @@ export default function AlbumShareControls({
     if (!shareUrl) {
       return;
     }
-    await navigator.clipboard.writeText(new URL(shareUrl, origin).toString());
+    await navigator.clipboard.writeText(fullShareUrl);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   }
@@ -145,8 +153,6 @@ export default function AlbumShareControls({
       setIsSavingDisplayMode(false);
     }
   }
-
-  const fullShareUrl = shareUrl ? new URL(shareUrl, origin).toString() : "";
 
   const layoutButtonClass = (isActive: boolean) =>
     clsx(
@@ -294,7 +300,7 @@ export default function AlbumShareControls({
                       copy url
                     </button>
                     <a
-                      href={shareUrl}
+                      href={fullShareUrl}
                       target="_blank"
                       rel="noreferrer"
                       className={clsx(

@@ -11,6 +11,7 @@ import GalleryClient from "@/components/gallery-client";
 import AlbumShareControls from "@/components/album-share-controls";
 import PatchNoteBanner from "@/components/patch-note-banner";
 import PageHeader from "@/components/ui/page-header";
+import { getNodeShareContext } from "@/lib/public-share-urls";
 
 export default async function AlbumPage({
   params,
@@ -29,11 +30,13 @@ export default async function AlbumPage({
     redirect("/gallery");
   }
 
-  const [media, latestPatchNote, dismissedAt] = await Promise.all([
-    listMediaForAlbum(userId, albumId),
-    getLatestPatchNote(),
-    getUserLastPatchNoteDismissed(userId),
-  ]);
+  const [media, latestPatchNote, dismissedAt, nodeShareContext] =
+    await Promise.all([
+      listMediaForAlbum(userId, albumId),
+      getLatestPatchNote(),
+      getUserLastPatchNoteDismissed(userId),
+      getNodeShareContext(),
+    ]);
   const shouldShowPatchBanner =
     latestPatchNote &&
     (!dismissedAt ||
@@ -65,6 +68,7 @@ export default async function AlbumPage({
         albumId={albumId}
         isDisplayAsDownloadPage={album.displayAsDownloadPage}
         isDisplayAsCompactView={album.displayAsCompactView}
+        nodeShareContext={nodeShareContext}
       />
 
       <GalleryClient
@@ -73,6 +77,7 @@ export default async function AlbumPage({
         uploadAlbumId={albumId}
         showDownloadLinks={album.displayAsDownloadPage}
         isCompactView={album.displayAsCompactView}
+        nodeShareContext={nodeShareContext}
       />
     </main>
   );

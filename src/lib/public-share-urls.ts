@@ -3,6 +3,23 @@ import {
   getOrCreateNodeInstanceSettings,
   isNodeMode,
 } from "@/lib/self-hosted-nodes";
+import type { NodeShareContext } from "@/lib/share-link-format";
+
+export const getNodeShareContext =
+  async (): Promise<NodeShareContext | null> => {
+    if (!isNodeMode()) {
+      return null;
+    }
+    const settings = await getOrCreateNodeInstanceSettings();
+    if (!settings.nodeHash || !settings.publicHttpsUrl) {
+      return null;
+    }
+    return {
+      cloudBaseUrl: settings.cloudBaseUrl,
+      nodeHash: settings.nodeHash,
+      publicHttpsUrl: settings.publicHttpsUrl,
+    };
+  };
 
 export const getPublicSharePrefix = async (): Promise<string> => {
   if (!isNodeMode()) {
