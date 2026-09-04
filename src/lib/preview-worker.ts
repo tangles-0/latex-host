@@ -300,6 +300,7 @@ export async function requestImageGeneration(input: {
   userId: string;
   prompt: string;
   negativePrompt?: string;
+  expandPrompt?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const url = workerUrl("image-generations");
   if (!url) {

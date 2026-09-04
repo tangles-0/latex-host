@@ -43,6 +43,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     title?: string;
     youtubeMediaType?: "video" | "audio";
     imageGenerationId?: string;
+    generationPrompt?: string;
   };
   if (!userId && isWorkerRequest) {
     userId = payload.userId?.trim() ?? "";
@@ -156,6 +157,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           ext: completed.ext,
         },
         keepOriginalFileName: true,
+        generationPrompt:
+          payload.generationPrompt?.trim() || generation.prompt,
       });
       await updateImageGenerationForUser({
         userId,

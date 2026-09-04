@@ -168,6 +168,7 @@ export const POST = async (request: Request) => {
     userId,
     prompt: generation.prompt,
     negativePrompt: generation.negativePrompt,
+    expandPrompt: generation.expandPrompt,
   });
 
   if (!queued.ok) {

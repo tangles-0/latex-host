@@ -13,6 +13,19 @@ describe("image generation requests", () => {
     ).toEqual({
       prompt: "a futuristic city",
       negativePrompt: "blurry",
+      expandPrompt: false,
+    });
+  });
+
+  it("accepts expandPrompt", () => {
+    expect(
+      imageGenerationInputSchema.parse({
+        prompt: "a city",
+        expandPrompt: true,
+      }),
+    ).toEqual({
+      prompt: "a city",
+      expandPrompt: true,
     });
   });
 

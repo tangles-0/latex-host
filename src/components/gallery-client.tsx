@@ -61,6 +61,7 @@ type GalleryImage = {
   kind: MediaKind;
   baseName: string;
   originalFileName?: string;
+  generationPrompt?: string;
   ext: string;
   mimeType?: string;
   albumId?: string;
@@ -3540,6 +3541,16 @@ export default function GalleryClient({
                       <p className="text-xs text-neutral-500">
                         {activeIndex + 1} / {displayItems.length}
                       </p>
+                    ) : null}
+                    {active.generationPrompt ? (
+                      <div className="mt-3 max-w-xl">
+                        <p className="text-xs font-medium text-neutral-700">
+                          generation prompt
+                        </p>
+                        <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs text-neutral-500">
+                          {active.generationPrompt}
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                   <div className="w-full sm:w-auto flex items-center justify-center gap-2">

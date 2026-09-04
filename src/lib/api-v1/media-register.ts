@@ -33,6 +33,7 @@ export async function registerMediaFromBuffer(input: {
   ext: string;
   albumId?: string;
   keepOriginalFileName?: boolean;
+  generationPrompt?: string;
 }): Promise<MediaEntry> {
   const kind = mediaKindFromType(input.mimeType, input.ext);
   const uploadedAt = new Date();
@@ -80,6 +81,7 @@ export async function registerMediaFromBuffer(input: {
     albumId: input.albumId,
     baseName: stored.baseName,
     originalFileName: input.keepOriginalFileName ? input.fileName : undefined,
+    generationPrompt: input.generationPrompt,
     ext: stored.ext,
     mimeType: stored.mimeType,
     width: stored.width,
@@ -134,6 +136,7 @@ export async function registerMediaFromUploadSession(input: {
   };
   albumId?: string;
   keepOriginalFileName?: boolean;
+  generationPrompt?: string;
 }): Promise<MediaEntry> {
   const kind = mediaKindFromType(input.session.mimeType, input.session.ext);
   const uploadedAt = new Date();
@@ -191,6 +194,7 @@ export async function registerMediaFromUploadSession(input: {
     originalFileName: input.keepOriginalFileName
       ? input.session.fileName
       : undefined,
+    generationPrompt: input.generationPrompt,
     ext: stored.ext,
     mimeType: stored.mimeType,
     width: stored.width,

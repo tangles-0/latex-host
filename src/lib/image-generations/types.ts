@@ -3,6 +3,7 @@ import { z } from "zod";
 export const imageGenerationInputSchema = z.object({
   prompt: z.string().trim().min(1).max(2000),
   negativePrompt: z.string().trim().max(2000).optional(),
+  expandPrompt: z.boolean().optional().default(false),
 });
 
 export type ImageGenerationStatus =

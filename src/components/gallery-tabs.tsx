@@ -27,6 +27,7 @@ type GalleryImage = {
   kind: MediaKind;
   baseName: string;
   originalFileName?: string;
+  generationPrompt?: string;
   ext: string;
   mimeType?: string;
   albumId?: string;

@@ -32,6 +32,7 @@ export const ImageGenerationDialog = ({
   const [isOpen, setIsOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
+  const [expandPrompt, setExpandPrompt] = useState(false);
   const [generations, setGenerations] = useState<ImageGenerationEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -168,6 +169,7 @@ export const ImageGenerationDialog = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: normalizedPrompt,
+          expandPrompt,
           ...(negativePrompt.trim()
             ? { negativePrompt: negativePrompt.trim() }
             : {}),
@@ -339,6 +341,22 @@ export const ImageGenerationDialog = ({
                   className="mt-1 w-full resize-y rounded border border-neutral-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
                   placeholder="blurry, distorted, artifacts"
                 />
+              </label>
+              <label className="flex items-start gap-2 text-xs font-medium text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={expandPrompt}
+                  disabled={!hasAccess || isSubmitting}
+                  onChange={(event) => setExpandPrompt(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  expand prompt with AI
+                  <span className="mt-0.5 block font-normal text-neutral-500">
+                    Adds typical image-prompt keywords (lighting, composition,
+                    quality) before generation.
+                  </span>
+                </span>
               </label>
 
               {error ? (

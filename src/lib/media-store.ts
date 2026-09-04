@@ -41,6 +41,7 @@ export type MediaEntry = {
   kind: MediaKind;
   baseName: string;
   originalFileName?: string;
+  generationPrompt?: string;
   ext: string;
   mimeType: string;
   youtubeId?: string;
@@ -101,12 +102,20 @@ function normalizePreviewStatus(
   return "pending";
 }
 
+function optionalGenerationPrompt(
+  value: string | null | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function mapImageRow(row: typeof images.$inferSelect): MediaEntry {
   return {
     id: row.id,
     kind: "image",
     baseName: row.baseName,
     originalFileName: row.originalFileName ?? undefined,
+    generationPrompt: optionalGenerationPrompt(row.generationPrompt),
     ext: row.ext,
     mimeType: `image/${row.ext === "jpg" ? "jpeg" : row.ext}`,
     albumOrder: 0,
@@ -127,6 +136,7 @@ function mapVideoRow(row: typeof videos.$inferSelect): MediaEntry {
     kind: "video",
     baseName: row.baseName,
     originalFileName: row.originalFileName ?? undefined,
+    generationPrompt: optionalGenerationPrompt(row.generationPrompt),
     ext: row.ext,
     mimeType: row.mimeType,
     youtubeId: row.youtubeId ?? undefined,
@@ -149,6 +159,7 @@ function mapDocumentRow(row: typeof documents.$inferSelect): MediaEntry {
     kind: "document",
     baseName: row.baseName,
     originalFileName: row.originalFileName ?? undefined,
+    generationPrompt: optionalGenerationPrompt(row.generationPrompt),
     ext: row.ext,
     mimeType: row.mimeType,
     albumOrder: 0,
@@ -168,6 +179,7 @@ function mapFileRow(row: typeof files.$inferSelect): MediaEntry {
     kind: "other",
     baseName: row.baseName,
     originalFileName: row.originalFileName ?? undefined,
+    generationPrompt: optionalGenerationPrompt(row.generationPrompt),
     ext: row.ext,
     mimeType: row.mimeType,
     albumOrder: 0,
@@ -211,6 +223,7 @@ function mapNoteRow(row: typeof notes.$inferSelect): MediaEntry {
     kind: "note",
     baseName: row.baseName,
     originalFileName: row.originalFileName ?? undefined,
+    generationPrompt: optionalGenerationPrompt(row.generationPrompt),
     ext: "md",
     mimeType: "text/markdown",
     albumOrder: 0,
@@ -267,6 +280,7 @@ export async function addMediaForUser(input: {
   kind: MediaKind;
   baseName: string;
   originalFileName?: string;
+  generationPrompt?: string;
   ext: string;
   mimeType: string;
   youtubeId?: string;
@@ -286,12 +300,16 @@ export async function addMediaForUser(input: {
   const id = randomUUID();
   const uploadedAt = new Date(input.uploadedAt);
 
+  const storedGenerationPrompt =
+    optionalGenerationPrompt(input.generationPrompt) ?? null;
+
   if (input.kind === "image") {
     await db.insert(images).values({
       id,
       userId: input.userId,
       baseName: input.baseName,
       originalFileName: input.originalFileName ?? null,
+      generationPrompt: storedGenerationPrompt,
       ext: input.ext,
       width: input.width ?? 0,
       height: input.height ?? 0,
@@ -323,6 +341,7 @@ export async function addMediaForUser(input: {
       kind: "image",
       baseName: input.baseName,
       originalFileName: input.originalFileName,
+      generationPrompt: storedGenerationPrompt ?? undefined,
       ext: input.ext,
       mimeType: input.mimeType,
       albumId: membership?.albumId,
@@ -345,6 +364,7 @@ export async function addMediaForUser(input: {
       userId: input.userId,
       baseName: input.baseName,
       originalFileName: input.originalFileName ?? null,
+      generationPrompt: storedGenerationPrompt,
       ext: input.ext,
       mimeType: input.mimeType,
       durationSeconds: input.durationSeconds ?? null,
@@ -363,6 +383,7 @@ export async function addMediaForUser(input: {
       userId: input.userId,
       baseName: input.baseName,
       originalFileName: input.originalFileName ?? null,
+      generationPrompt: storedGenerationPrompt,
       ext: input.ext,
       mimeType: input.mimeType,
       pageCount: input.pageCount ?? null,
@@ -379,6 +400,7 @@ export async function addMediaForUser(input: {
       userId: input.userId,
       baseName: input.baseName,
       originalFileName: input.originalFileName ?? null,
+      generationPrompt: storedGenerationPrompt,
       ext: input.ext,
       mimeType: input.mimeType,
       sizeOriginal: input.sizeOriginal,
@@ -394,6 +416,7 @@ export async function addMediaForUser(input: {
       userId: input.userId,
       baseName: input.baseName,
       originalFileName: input.originalFileName ?? null,
+      generationPrompt: storedGenerationPrompt,
       content: "",
       sizeOriginal: 0,
       uploadedAt,
@@ -423,6 +446,7 @@ export async function addMediaForUser(input: {
     kind: input.kind,
     baseName: input.baseName,
     originalFileName: input.originalFileName,
+    generationPrompt: storedGenerationPrompt ?? undefined,
     ext: input.ext,
     mimeType: input.mimeType,
     youtubeId: input.youtubeId,
@@ -559,6 +583,7 @@ export async function createNoteForUser(input: {
       albumOrder: membership?.albumOrder ?? 0,
       baseName: `note-${id.slice(0, 8)}`,
       originalFileName: input.originalFileName ?? "Untitled note",
+      generationPrompt: null,
       content,
       sizeOriginal: noteSizeBytes(content),
       uploadedAt: now,
