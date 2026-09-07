@@ -173,7 +173,7 @@ export const expireStaleImageGenerationsForUser = async (
     .update(imageGenerations)
     .set({
       status: "failed",
-      error: "Image generation exceeded the one-minute time limit.",
+      error: "Image generation did not complete in time.",
       completedAt: now,
       updatedAt: now,
     })

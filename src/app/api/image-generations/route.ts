@@ -9,7 +9,7 @@ import {
   listImageGenerationsForUser,
   updateImageGenerationForUser,
 } from "@/lib/image-generations/repository";
-import { imageGenerationMaxAgeMs } from "@/lib/image-generations/policy";
+import { imageGenerationJobSafetyMaxAgeMs } from "@/lib/image-generations/policy";
 import {
   imageGenerationInputSchema,
   type ImageGenerationEntry,
@@ -86,7 +86,7 @@ export const GET = async () => {
 
   await expireStaleImageGenerationsForUser(
     userId,
-    new Date(Date.now() - imageGenerationMaxAgeMs),
+    new Date(Date.now() - imageGenerationJobSafetyMaxAgeMs),
   );
   const generations = await listImageGenerationsForUser(userId);
   return NextResponse.json({

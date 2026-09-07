@@ -39,19 +39,19 @@ describe("image generation requests", () => {
     ).toBe(false);
   });
 
-  it("expires requests at one minute", () => {
+  it("uses a longer host safety timeout than the one-minute image generation phase", () => {
     const createdAt = "2026-08-29T00:00:00.000Z";
 
     expect(
       isImageGenerationExpired(
         createdAt,
-        new Date(createdAt).getTime() + 59_999,
+        new Date(createdAt).getTime() + 60_000,
       ),
     ).toBe(false);
     expect(
       isImageGenerationExpired(
         createdAt,
-        new Date(createdAt).getTime() + 60_000,
+        new Date(createdAt).getTime() + 5 * 60_000,
       ),
     ).toBe(true);
   });

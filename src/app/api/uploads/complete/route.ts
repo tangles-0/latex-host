@@ -138,7 +138,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           userId,
           generationId: imageGenerationId,
           status: "failed",
-          error: "Image generation exceeded the one-minute time limit.",
+          error: "Image generation did not complete in time.",
         });
         return NextResponse.json(
           { error: "Image generation has expired." },
