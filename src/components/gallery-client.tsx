@@ -261,6 +261,8 @@ export default function GalleryClient({
   const [previewActionError, setPreviewActionError] = useState<string | null>(
     null,
   );
+  const [watchPartyError, setWatchPartyError] = useState<string | null>(null);
+  const [isStartingWatchParty, setIsStartingWatchParty] = useState(false);
   const [isRegeneratingVideoPreview, setIsRegeneratingVideoPreview] =
     useState(false);
   const [albumEditError, setAlbumEditError] = useState<string | null>(null);
@@ -1584,6 +1586,35 @@ export default function GalleryClient({
       ),
     );
     return nextShare;
+  }
+
+  async function startWatchParty(image: GalleryImage) {
+    if (image.kind !== "video") {
+      setWatchPartyError("Watch parties are only available for videos.");
+      return;
+    }
+    setWatchPartyError(null);
+    setIsStartingWatchParty(true);
+    try {
+      const response = await fetch("/api/watch-parties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: image.id }),
+      });
+      const payload = (await response.json()) as {
+        party?: { hash?: string };
+        error?: string;
+      };
+      if (!response.ok || !payload.party?.hash) {
+        setWatchPartyError(payload.error ?? "Unable to start watch party.");
+        return;
+      }
+      window.open(`/watch/${payload.party.hash}`, "_blank", "noopener,noreferrer");
+    } catch {
+      setWatchPartyError("Unable to start watch party.");
+    } finally {
+      setIsStartingWatchParty(false);
+    }
   }
 
   async function requestEnableShare(image: GalleryImage) {
@@ -3917,6 +3948,18 @@ export default function GalleryClient({
                       </div>
                     </div>
 
+                    {active.kind === "video" && !readOnly ? (
+                      <button
+                        type="button"
+                        onClick={() => void startWatchParty(active)}
+                        disabled={isStartingWatchParty}
+                        className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                      >
+                        {isStartingWatchParty
+                          ? "Starting watch party..."
+                          : "Start watch party"}
+                      </button>
+                    ) : null}
                     {shareError ? (
                       <p className="text-xs text-red-600">{shareError}</p>
                     ) : null}
@@ -3930,6 +3973,9 @@ export default function GalleryClient({
                       <p className="text-xs text-red-600">
                         {previewActionError}
                       </p>
+                    ) : null}
+                    {watchPartyError ? (
+                      <p className="text-xs text-red-600">{watchPartyError}</p>
                     ) : null}
                     {albumEditError ? (
                       <p className="text-xs text-red-600">{albumEditError}</p>

@@ -18,6 +18,8 @@ describe("node route policy", () => {
       "/api/admin/settings",
       "/api/image-generations/abc",
       "/api/abuse-reports",
+      "/api/watch-parties",
+      "/api/watch-parties/abc",
     ]) {
       expect(isNodeDisabledApiPath(pathname)).toBe(true);
     }
@@ -42,5 +44,7 @@ describe("node route policy", () => {
     expect(isNodeDisabledPagePath("/messages")).toBe(true);
     expect(isNodeDisabledPagePath("/account")).toBe(false);
     expect(isNodeDisabledPagePath("/gallery")).toBe(false);
+    expect(isNodeDisabledPagePath("/watch")).toBe(true);
+    expect(isNodeDisabledPagePath("/watch/abc")).toBe(true);
   });
 });

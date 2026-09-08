@@ -394,6 +394,54 @@ export async function requestImageGenerationStatus(
   }
 }
 
+export async function requestWatchPartyEncode(input: {
+  videoId: string
+  downloadUrl: string
+  mimeType: string
+  ext: string
+  fileSizeBytes: number
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const url = workerUrl("watch-party-jobs")
+  if (!url) {
+    return {
+      ok: false,
+      error: "Thumbnail service webhook URL is not configured.",
+    }
+  }
+  const webhookSecret = outgoingSecret()
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(webhookSecret ? { Authorization: webhookSecret } : {}),
+      },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    })
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string
+      }
+      return {
+        ok: false,
+        error:
+          payload.error ??
+          `Watch party encode request failed with status ${response.status}.`,
+      }
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach watch party encode worker.",
+    }
+  }
+}
+
 export function isWorkerIngestAuthorized(request: Request): boolean {
   const configuredSecret = incomingSecret();
   if (!configuredSecret) {

@@ -844,6 +844,54 @@ export const apiKeys = pgTable(
   }),
 );
 
+export const watchPartyDerivatives = pgTable(
+  "watch_party_derivatives",
+  {
+    id: text("id").primaryKey(),
+    videoId: text("video_id")
+      .notNull()
+      .references(() => videos.id),
+    profile: text("profile").notNull(),
+    publicBlobKey: text("public_blob_key").notNull(),
+    publicBlobUrl: text("public_blob_url").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    videoProfileUnique: uniqueIndex("watch_party_derivatives_video_profile").on(
+      table.videoId,
+      table.profile,
+    ),
+  }),
+);
+
+export const watchParties = pgTable(
+  "watch_parties",
+  {
+    id: text("id").primaryKey(),
+    hash: text("hash").notNull().unique(),
+    hostUserId: text("host_user_id")
+      .notNull()
+      .references(() => users.id),
+    videoId: text("video_id")
+      .notNull()
+      .references(() => videos.id),
+    status: text("status").notNull().default("encoding"),
+    publicBlobUrl: text("public_blob_url"),
+    encodeError: text("encode_error"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+    endedAt: timestamp("ended_at", { mode: "date" }),
+  },
+  (table) => ({
+    watchPartiesHostIdx: index("watch_parties_host_user_id_idx").on(
+      table.hostUserId,
+    ),
+    watchPartiesVideoIdx: index("watch_parties_video_id_idx").on(table.videoId),
+    watchPartiesStatusIdx: index("watch_parties_status_idx").on(table.status),
+  }),
+);
+
 export const abuseReports = pgTable(
   "abuse_reports",
   {

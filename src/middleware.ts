@@ -32,5 +32,6 @@ export const config = {
     "/report-abuse",
     "/promote-admin",
     "/reset-password",
+    "/watch/:path*",
   ],
 };

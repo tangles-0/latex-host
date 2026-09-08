@@ -12,6 +12,7 @@ import {
   shareCodeRegistry,
   shares,
   videoShares,
+  watchParties,
 } from "@/db/schema";
 
 const CODE_ALPHABET =
@@ -71,6 +72,11 @@ export const isGlobalShareCodeTaken = async (
       .select({ code: shareCodeRegistry.code })
       .from(shareCodeRegistry)
       .where(eq(shareCodeRegistry.code, code))
+      .limit(1),
+    db
+      .select({ hash: watchParties.hash })
+      .from(watchParties)
+      .where(eq(watchParties.hash, code))
       .limit(1),
   ]);
 

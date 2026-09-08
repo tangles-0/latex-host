@@ -12,6 +12,7 @@ const NODE_DISABLED_API_PREFIXES = [
   "/api/auth/signup",
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
+  "/api/watch-parties",
 ] as const;
 
 const NODE_DISABLED_PAGE_PREFIXES = [
@@ -21,6 +22,7 @@ const NODE_DISABLED_PAGE_PREFIXES = [
   "/report-abuse",
   "/promote-admin",
   "/reset-password",
+  "/watch",
 ] as const;
 
 const matchesPrefix = (pathname: string, prefix: string): boolean =>
