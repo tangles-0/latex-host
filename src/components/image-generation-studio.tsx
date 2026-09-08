@@ -550,7 +550,7 @@ export const ImageGenerationStudio = ({
 
         <section
           aria-labelledby="generation-requests-title"
-          className="space-y-3"
+          className="min-w-0 space-y-3"
         >
           <div className="flex items-center justify-between gap-3">
             <h2
@@ -578,11 +578,11 @@ export const ImageGenerationStudio = ({
               No image generations yet.
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="flex flex-col gap-3">
               {generations.map((generation) => (
                 <article
                   key={generation.id}
-                  className="flex min-h-28 gap-3 rounded-xl border border-neutral-200 p-3"
+                  className="flex w-full min-h-28 gap-3 rounded-xl border border-neutral-200 p-3 sm:gap-4 sm:p-4"
                 >
                   <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-neutral-100">
                     {generation.thumbnailUrl ? (
