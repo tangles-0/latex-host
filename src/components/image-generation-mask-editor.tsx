@@ -343,9 +343,9 @@ export const ImageGenerationMaskEditor = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="mask-editor-title"
-      className="fixed inset-0 z-[70] flex flex-col bg-black text-white"
+      className="fixed inset-0 z-[70] flex flex-col bg-[var(--theme-bg)] text-[var(--theme-text)]"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/15 px-4 py-3 sm:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-[color-mix(in_srgb,var(--theme-panel)_92%,transparent)] px-4 py-3 sm:px-6">
         <div>
           <h2
             id="mask-editor-title"
@@ -353,7 +353,7 @@ export const ImageGenerationMaskEditor = ({
           >
             draw mask
           </h2>
-          <p className="text-[11px] text-white/65">
+          <p className="text-[11px] text-neutral-500">
             Painted areas can change. Everything else stays as it is.
           </p>
         </div>
@@ -361,14 +361,14 @@ export const ImageGenerationMaskEditor = ({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded border border-white/30 px-3 py-1.5 text-xs"
+            className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
           >
             cancel
           </button>
           <button
             type="button"
             onClick={() => void applyMask()}
-            className="rounded bg-white px-3 py-1.5 text-xs text-black"
+            className="rounded bg-black px-3 py-1.5 text-xs text-white"
           >
             use mask
           </button>
@@ -450,15 +450,15 @@ export const ImageGenerationMaskEditor = ({
             </div>
           </div>
           {!isReady ? (
-            <p className="absolute inset-0 flex items-center justify-center text-xs text-white/60">
+            <p className="absolute inset-0 flex items-center justify-center text-xs text-neutral-400">
               Loading image...
             </p>
           ) : null}
         </div>
 
-        <aside className="max-h-[42vh] space-y-4 overflow-y-auto border-t border-white/15 px-4 py-4 lg:max-h-none lg:w-80 lg:border-l lg:border-t-0 lg:px-5">
+        <aside className="max-h-[42vh] space-y-4 overflow-y-auto border-t border-neutral-200 bg-[var(--theme-panel)] px-4 py-4 lg:max-h-none lg:w-80 lg:border-l lg:border-t-0 lg:px-5">
           <fieldset className="space-y-2">
-            <legend className="text-[11px] font-medium uppercase tracking-wide text-white/55">
+            <legend className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
               brush
             </legend>
             <div className="flex gap-2">
@@ -468,8 +468,8 @@ export const ImageGenerationMaskEditor = ({
                 className={clsx(
                   "flex-1 rounded border px-2 py-1.5 text-xs",
                   tool === "paint"
-                    ? "border-white bg-white text-black"
-                    : "border-white/25",
+                    ? "border-neutral-900 bg-black text-white"
+                    : "border-neutral-200",
                 )}
               >
                 paint
@@ -480,8 +480,8 @@ export const ImageGenerationMaskEditor = ({
                 className={clsx(
                   "flex-1 rounded border px-2 py-1.5 text-xs",
                   tool === "erase"
-                    ? "border-white bg-white text-black"
-                    : "border-white/25",
+                    ? "border-neutral-900 bg-black text-white"
+                    : "border-neutral-200",
                 )}
               >
                 erase
@@ -496,15 +496,15 @@ export const ImageGenerationMaskEditor = ({
                   className={clsx(
                     "rounded border px-1 py-1 text-[10px]",
                     brushSize === preset.size
-                      ? "border-white bg-white/15"
-                      : "border-white/20",
+                      ? "border-neutral-900 bg-black text-white"
+                      : "border-neutral-200",
                   )}
                 >
                   {preset.label}
                 </button>
               ))}
             </div>
-            <label className="block text-[11px] text-white/75">
+            <label className="block text-[11px] text-neutral-600">
               size {brushSize}px
               <input
                 type="range"
@@ -515,7 +515,7 @@ export const ImageGenerationMaskEditor = ({
                 className="mt-1 w-full"
               />
             </label>
-            <label className="block text-[11px] text-white/75">
+            <label className="block text-[11px] text-neutral-600">
               hardness {hardness}%
               <input
                 type="range"
@@ -526,7 +526,7 @@ export const ImageGenerationMaskEditor = ({
                 className="mt-1 w-full"
               />
             </label>
-            <label className="block text-[11px] text-white/75">
+            <label className="block text-[11px] text-neutral-600">
               opacity {brushOpacity}%
               <input
                 type="range"
@@ -540,7 +540,7 @@ export const ImageGenerationMaskEditor = ({
           </fieldset>
 
           <fieldset className="space-y-2">
-            <legend className="text-[11px] font-medium uppercase tracking-wide text-white/55">
+            <legend className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
               mask display
             </legend>
             <div className="grid grid-cols-3 gap-1">
@@ -552,8 +552,8 @@ export const ImageGenerationMaskEditor = ({
                   className={clsx(
                     "rounded border px-1 py-1 text-[10px]",
                     displayMode === mode
-                      ? "border-white bg-white/15"
-                      : "border-white/20",
+                      ? "border-neutral-900 bg-black text-white"
+                      : "border-neutral-200",
                   )}
                 >
                   {mode}
@@ -569,15 +569,15 @@ export const ImageGenerationMaskEditor = ({
                   className={clsx(
                     "rounded border px-1 py-1 text-[10px]",
                     overlayColor === color.id
-                      ? "border-white bg-white/15"
-                      : "border-white/20",
+                      ? "border-neutral-900 bg-black text-white"
+                      : "border-neutral-200",
                   )}
                 >
                   {color.label}
                 </button>
               ))}
             </div>
-            <label className="block text-[11px] text-white/75">
+            <label className="block text-[11px] text-neutral-600">
               overlay {overlayOpacity}%
               <input
                 type="range"
@@ -594,28 +594,28 @@ export const ImageGenerationMaskEditor = ({
             <button
               type="button"
               onClick={undo}
-              className="rounded border border-white/25 px-2 py-1 text-[11px]"
+              className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
             >
               undo
             </button>
             <button
               type="button"
               onClick={redo}
-              className="rounded border border-white/25 px-2 py-1 text-[11px]"
+              className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
             >
               redo
             </button>
             <button
               type="button"
               onClick={invertMask}
-              className="rounded border border-white/25 px-2 py-1 text-[11px]"
+              className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
             >
               invert
             </button>
             <button
               type="button"
               onClick={clearMask}
-              className="rounded border border-white/25 px-2 py-1 text-[11px]"
+              className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
             >
               clear
             </button>
@@ -623,12 +623,12 @@ export const ImageGenerationMaskEditor = ({
           {error ? (
             <p
               role="alert"
-              className="text-[11px] text-red-300"
+              className="text-[11px] text-red-600"
             >
               {error}
             </p>
           ) : null}
-          <p className="text-[11px] leading-5 text-white/50">
+          <p className="text-[11px] leading-5 text-neutral-500">
             B paints, E erases, Esc cancels. White in the exported mask is the
             area the model may edit.
           </p>

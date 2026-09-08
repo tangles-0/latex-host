@@ -523,6 +523,12 @@ Example `.eslintrc` snippet (adapt as needed):
 
 ---
 
+## Theming
+
+Observe the active theme. `bg-black` and `text-white` are remapped to button colors; opacity variants like `text-white/65` are not. Fullscreen chrome belongs on `--theme-bg` / `--theme-panel` / `--theme-text`. See [`THEME.md`](./THEME.md).
+
+---
+
 ## Commit & PR Hygiene
 
 - Small, focused commits with descriptive messages.

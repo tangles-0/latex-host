@@ -113,4 +113,5 @@ Align with ESLint: React, hooks, jsx-a11y, import order, unused imports, no `any
 - [ ] `Boolean()` / `??` / optional chaining used appropriately
 - [ ] Hooks rules and effect deps respected
 - [ ] a11y for interactive controls and images
+- [ ] Chrome uses theme tokens (`THEME.md`); no remapped `bg-black`/`text-white` mixed with `text-white/N`
 - [ ] No stray `console.log`; errors handled meaningfully

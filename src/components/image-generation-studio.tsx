@@ -793,12 +793,12 @@ export const ImageGenerationStudio = ({
           aria-modal="true"
           aria-label="Generated image preview"
           onClick={() => setLightbox(null)}
-          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-black/90 p-4 sm:p-8"
+          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-[color-mix(in_srgb,var(--theme-bg)_20%,black_80%)] p-4 sm:p-8"
         >
           <button
             type="button"
             onClick={() => setLightbox(null)}
-            className="absolute right-4 top-4 rounded border border-white/40 bg-black/40 px-3 py-1.5 text-xs text-white"
+            className="absolute right-4 top-4 rounded bg-black px-3 py-1.5 text-xs text-white"
           >
             close
           </button>

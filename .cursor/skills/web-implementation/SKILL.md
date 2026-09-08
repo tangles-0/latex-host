@@ -27,7 +27,7 @@ description: >-
 - Reuse multipart upload sessions; never proxy large bodies through Vercel.
 - Keep node management APIs cloud-only and mounted-file APIs node-only.
 - Public node bytes use no-store 307 redirects; management and imports require a local authenticated session.
-- Follow `.agent/CODESTYLEGUIDE.md` and the frontend checklist.
+- Follow `.agent/CODESTYLEGUIDE.md`, the frontend checklist, and `.agent/THEME.md` (observe the theme; do not fake dark overlays with remapped `bg-black` / `text-white`).
 - Apply schema changes with `pnpm db:push`.
 - Document new environment variables in `.env.example`.
 

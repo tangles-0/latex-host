@@ -75,11 +75,12 @@ export const WatchPartyPlayer = ({
     if (!response.ok || !payload.party) {
       throw new Error(payload.error ?? "Watch party is unavailable.")
     }
+    const nextParty = payload.party
     setParty(current => ({
-      ...payload.party,
-      hostToken: current.hostToken ?? payload.party.hostToken
+      ...nextParty,
+      hostToken: current.hostToken ?? nextParty.hostToken
     }))
-    return payload.party
+    return nextParty
   }, [initialParty.hash])
 
   useEffect(() => {
@@ -304,9 +305,10 @@ export const WatchPartyPlayer = ({
       setError(payload.error ?? "Unable to update title.")
       throw new Error(payload.error ?? "Unable to update title.")
     }
+    const nextParty = payload.party
     setParty(current => ({
-      ...payload.party,
-      hostToken: current.hostToken ?? payload.party.hostToken
+      ...nextParty,
+      hostToken: current.hostToken ?? nextParty.hostToken
     }))
   }
 

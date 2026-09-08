@@ -6,4 +6,4 @@ alwaysApply: false
 
 # Front-end rules
 
-Follow [`.agent/AGENT_FRONTEND_CHECKLIST.md`](../../.agent/AGENT_FRONTEND_CHECKLIST.md) and [`.agent/CODESTYLEGUIDE.md`](../../.agent/CODESTYLEGUIDE.md) for changes in TypeScript and TSX.
+Follow [`.agent/AGENT_FRONTEND_CHECKLIST.md`](../../.agent/AGENT_FRONTEND_CHECKLIST.md), [`.agent/CODESTYLEGUIDE.md`](../../.agent/CODESTYLEGUIDE.md), and [`.agent/THEME.md`](../../.agent/THEME.md) for changes in TypeScript and TSX.
