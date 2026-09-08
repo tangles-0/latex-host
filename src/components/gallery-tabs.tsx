@@ -85,6 +85,7 @@ export default function GalleryTabs({
   media,
   initialTab = "files",
   isAdmin,
+  isImageGenerationAvailable = false,
   actions,
   readOnly = false,
   albumHrefBase = "/album",
@@ -94,6 +95,7 @@ export default function GalleryTabs({
   media: GalleryImage[];
   initialTab?: "albums" | "files";
   isAdmin?: boolean;
+  isImageGenerationAvailable?: boolean;
   actions?: ReactNode;
   readOnly?: boolean;
   albumHrefBase?: string;
@@ -624,6 +626,7 @@ export default function GalleryTabs({
           hideImagesInAlbums={hideAlbumImages}
           kindFilter={fileTypeFilter}
           isAdmin={isAdmin}
+          isImageGenerationAvailable={isImageGenerationAvailable}
           readOnly={readOnly}
           nodeShareContext={nodeShareContext}
         />

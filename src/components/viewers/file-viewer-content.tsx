@@ -8,15 +8,12 @@ import {
 } from "@/lib/FileIconHelper";
 
 export function FileViewerContent({
-  isAdmin,
   kind,
   previewStatus,
   fullUrl,
   previewUrl,
   ext,
   mimeType,
-  onRegenerateThumbnail,
-  isRegeneratingThumbnail,
 }: {
   kind: "video" | "document" | "other";
   previewStatus?: "pending" | "started" | "complete" | "error";
@@ -24,9 +21,6 @@ export function FileViewerContent({
   previewUrl: string;
   ext?: string;
   mimeType?: string;
-  onRegenerateThumbnail?: () => void;
-  isRegeneratingThumbnail?: boolean;
-  isAdmin?: boolean;
 }) {
   const iconClass = "h-12 w-12 text-neutral-500";
 
@@ -46,18 +40,6 @@ export function FileViewerContent({
               <span>preview pending</span>
             </div>
           </div>
-        ) : null}
-        {isAdmin && onRegenerateThumbnail ? (
-          <button
-            type="button"
-            onClick={onRegenerateThumbnail}
-            disabled={Boolean(isRegeneratingThumbnail)}
-            className="rounded border border-neutral-200 px-2 py-1 text-[11px] disabled:opacity-50"
-          >
-            {isRegeneratingThumbnail
-              ? "Regenerating..."
-              : "Regenerate thumbnail"}
-          </button>
         ) : null}
       </div>
     );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import clsx from "clsx";
 import {
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
@@ -207,6 +208,7 @@ export default function GalleryClient({
   hideImagesInAlbums = false,
   kindFilter = "all",
   isAdmin = false,
+  isImageGenerationAvailable = false,
   readOnly = false,
   showDownloadLinks = false,
   isCompactView = false,
@@ -222,6 +224,7 @@ export default function GalleryClient({
   hideImagesInAlbums?: boolean;
   kindFilter?: GalleryKindFilter;
   isAdmin?: boolean;
+  isImageGenerationAvailable?: boolean;
   readOnly?: boolean;
   showDownloadLinks?: boolean;
   isCompactView?: boolean;
@@ -3870,7 +3873,6 @@ export default function GalleryClient({
                       renderCodeFileEditor()
                     ) : (
                       <FileViewerContent
-                        isAdmin={isAdmin}
                         kind={active.kind}
                         previewStatus={active.previewStatus}
                         fullUrl={
@@ -3883,16 +3885,6 @@ export default function GalleryClient({
                         }
                         ext={active.ext}
                         mimeType={active.mimeType}
-                        onRegenerateThumbnail={
-                          active.kind === "video" && !readOnly
-                            ? () => void regenerateVideoThumbnail()
-                            : undefined
-                        }
-                        isRegeneratingThumbnail={
-                          active.kind === "video"
-                            ? isRegeneratingVideoPreview
-                            : false
-                        }
                       />
                     )}
                   </div>
@@ -3948,18 +3940,6 @@ export default function GalleryClient({
                       </div>
                     </div>
 
-                    {active.kind === "video" && !readOnly ? (
-                      <button
-                        type="button"
-                        onClick={() => void startWatchParty(active)}
-                        disabled={isStartingWatchParty}
-                        className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
-                      >
-                        {isStartingWatchParty
-                          ? "Starting watch party..."
-                          : "Start watch party"}
-                      </button>
-                    ) : null}
                     {shareError ? (
                       <p className="text-xs text-red-600">{shareError}</p>
                     ) : null}
@@ -4258,6 +4238,45 @@ export default function GalleryClient({
                         Share links are disabled for this file.
                       </p>
                     )}
+
+                    {!readOnly &&
+                    (active.kind === "image" || active.kind === "video") ? (
+                      <div className="flex flex-wrap gap-2">
+                        {active.kind === "image" &&
+                        isImageGenerationAvailable ? (
+                          <Link
+                            href={`/generate?source=${encodeURIComponent(active.id)}`}
+                            className="rounded border border-neutral-200 px-3 py-1 text-xs"
+                          >
+                            Image to image
+                          </Link>
+                        ) : null}
+                        {active.kind === "video" ? (
+                          <button
+                            type="button"
+                            onClick={() => void startWatchParty(active)}
+                            disabled={isStartingWatchParty}
+                            className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                          >
+                            {isStartingWatchParty
+                              ? "Starting watch party..."
+                              : "Start watch party"}
+                          </button>
+                        ) : null}
+                        {active.kind === "video" && isAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => void regenerateVideoThumbnail()}
+                            disabled={isRegeneratingVideoPreview}
+                            className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+                          >
+                            {isRegeneratingVideoPreview
+                              ? "Regenerating..."
+                              : "Regenerate thumbnail"}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </>

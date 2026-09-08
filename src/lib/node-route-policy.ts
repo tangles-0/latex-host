@@ -23,6 +23,7 @@ const NODE_DISABLED_PAGE_PREFIXES = [
   "/promote-admin",
   "/reset-password",
   "/watch",
+  "/generate",
 ] as const;
 
 const matchesPrefix = (pathname: string, prefix: string): boolean =>

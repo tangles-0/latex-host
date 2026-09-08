@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { canUserGenerateImages } from "@/lib/image-generations/access";
 import {
   getLatestPatchNote,
   getUserLastPatchNoteDismissed,
@@ -11,10 +10,10 @@ import {
 } from "@/lib/metadata-store";
 import { listMediaForUser } from "@/lib/media-store";
 import GalleryTabs from "@/components/gallery-tabs";
-import { ImageGenerationDialog } from "@/components/image-generation-dialog";
 import PatchNoteBanner from "@/components/patch-note-banner";
 import PageHeader from "@/components/ui/page-header";
 import { LightCog } from "@energiz3r/icon-library/Icons/Light/LightCog";
+import { LightFileImage } from "@energiz3r/icon-library/Icons/Light/LightFileImage";
 import { LightInbox } from "@energiz3r/icon-library/Icons/Light/LightInbox";
 import { LightSignOut } from "@energiz3r/icon-library/Icons/Light/LightSignOut";
 import { LightUpload } from "@energiz3r/icon-library/Icons/Light/LightUpload";
@@ -43,7 +42,6 @@ const GalleryPage = async ({
     isAdmin,
     latestPatchNote,
     dismissedAt,
-    hasImageGenerationAccess,
     nodeShareContext,
   ] = await Promise.all([
     listAlbums(userId),
@@ -51,7 +49,6 @@ const GalleryPage = async ({
     isAdminUser(userId),
     getLatestPatchNote(),
     getUserLastPatchNoteDismissed(userId),
-    canUserGenerateImages(userId),
     getNodeShareContext(),
   ]);
 
@@ -85,6 +82,7 @@ const GalleryPage = async ({
         albums={albums.map((album) => ({ id: album.id, name: album.name }))}
         media={media}
         isAdmin={isAdmin}
+        isImageGenerationAvailable={!nodeMode}
         nodeShareContext={nodeShareContext}
         actions={
           <>
@@ -101,10 +99,13 @@ const GalleryPage = async ({
               </Link>
             ) : (
               <>
-                <ImageGenerationDialog
-                  hasAccess={hasImageGenerationAccess}
-                  className={headerButtonClass}
-                />
+                <Link href="/generate" className={headerButtonClass}>
+                  <LightFileImage
+                    className="h-6.5 w-3.5 sm:h-3.5"
+                    fill="currentColor"
+                  />
+                  generate
+                </Link>
                 <Link href="/messages" className={headerButtonClass}>
                   <LightInbox
                     className="h-6.5 sm:h-3.5 w-3.5"

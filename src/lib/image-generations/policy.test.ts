@@ -14,6 +14,9 @@ describe("image generation requests", () => {
       prompt: "a futuristic city",
       negativePrompt: "blurry",
       expandPrompt: false,
+      sourceMediaId: undefined,
+      denoisingStrength: undefined,
+      maskPngBase64: undefined,
     });
   });
 
@@ -26,6 +29,9 @@ describe("image generation requests", () => {
     ).toEqual({
       prompt: "a city",
       expandPrompt: true,
+      sourceMediaId: undefined,
+      denoisingStrength: undefined,
+      maskPngBase64: undefined,
     });
   });
 

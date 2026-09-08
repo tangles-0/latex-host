@@ -301,6 +301,11 @@ export async function requestImageGeneration(input: {
   prompt: string;
   negativePrompt?: string;
   expandPrompt?: boolean;
+  sourceMediaId?: string;
+  sourceDownloadUrl?: string;
+  sourceMimeType?: string;
+  denoisingStrength?: number;
+  maskPngBase64?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const url = workerUrl("image-generations");
   if (!url) {

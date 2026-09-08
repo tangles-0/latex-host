@@ -46,5 +46,6 @@ describe("node route policy", () => {
     expect(isNodeDisabledPagePath("/gallery")).toBe(false);
     expect(isNodeDisabledPagePath("/watch")).toBe(true);
     expect(isNodeDisabledPagePath("/watch/abc")).toBe(true);
+    expect(isNodeDisabledPagePath("/generate")).toBe(true);
   });
 });

@@ -4,6 +4,10 @@ import { and, desc, eq, inArray, lt } from "drizzle-orm";
 
 import { db } from "@/db";
 import { imageGenerations } from "@/db/schema";
+import {
+  denoisingPercentToStrength,
+  denoisingStrengthToPercent,
+} from "@/lib/image-generations/img2img";
 import type {
   ImageGenerationEntry,
   ImageGenerationInput,
@@ -23,6 +27,12 @@ const mapImageGeneration = (
   prompt: row.prompt,
   negativePrompt: row.negativePrompt ?? undefined,
   expandPrompt: row.expandPrompt,
+  sourceMediaId: row.sourceMediaId ?? undefined,
+  denoisingStrength:
+    row.denoisingStrength == null
+      ? undefined
+      : denoisingPercentToStrength(row.denoisingStrength),
+  hasMask: row.hasMask,
   status: row.status as ImageGenerationStatus,
   error: row.error ?? undefined,
   mediaId: row.mediaId ?? undefined,
@@ -44,6 +54,12 @@ export const createImageGenerationForUser = async (
       prompt: input.prompt,
       negativePrompt: input.negativePrompt || null,
       expandPrompt: input.expandPrompt,
+      sourceMediaId: input.sourceMediaId || null,
+      denoisingStrength:
+        input.denoisingStrength == null
+          ? null
+          : denoisingStrengthToPercent(input.denoisingStrength),
+      hasMask: Boolean(input.maskPngBase64),
       status: "pending",
       createdAt: now,
       updatedAt: now,

@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
 import { canUserGenerateImages } from "@/lib/image-generations/access";
 import {
+  decodeImageGenerationMask,
+  isImg2ImgSourceExtension,
+} from "@/lib/image-generations/img2img";
+import {
   clearTerminalImageGenerationsForUser,
   createImageGenerationForUser,
   expireStaleImageGenerationsForUser,
@@ -21,6 +25,7 @@ import {
   getUserGroupInfo,
 } from "@/lib/metadata-store";
 import {
+  buildAppUrl,
   requestImageGeneration,
   requestImageGenerationStatus,
 } from "@/lib/preview-worker";
@@ -30,22 +35,31 @@ import { isAllowedUploadType } from "@/lib/upload-allowlist";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const mediaUrls = (
+  media: NonNullable<Awaited<ReturnType<typeof getMediaForUser>>>,
+) => ({
+  thumbnailUrl: `/media/image/${media.id}/${media.baseName}-sm.${media.ext}`,
+  imageUrl: `/media/image/${media.id}/${media.baseName}.${media.ext}`,
+});
+
 const withThumbnail = async (
   userId: string,
   generation: ImageGenerationEntry,
 ) => {
-  if (!generation.mediaId) {
-    return generation;
-  }
+  const [output, source] = await Promise.all([
+    generation.mediaId
+      ? getMediaForUser("image", generation.mediaId, userId)
+      : Promise.resolve(undefined),
+    generation.sourceMediaId
+      ? getMediaForUser("image", generation.sourceMediaId, userId)
+      : Promise.resolve(undefined),
+  ]);
 
-  const media = await getMediaForUser("image", generation.mediaId, userId);
-  return media
-    ? {
-        ...generation,
-        thumbnailUrl: `/media/image/${media.id}/${media.baseName}-sm.${media.ext}`,
-        imageUrl: `/media/image/${media.id}/${media.baseName}.${media.ext}`,
-      }
-    : generation;
+  return {
+    ...generation,
+    ...(output ? mediaUrls(output) : {}),
+    ...(source ? { sourceThumbnailUrl: mediaUrls(source).thumbnailUrl } : {}),
+  };
 };
 
 export const GET = async () => {
@@ -146,6 +160,41 @@ export const POST = async (request: Request) => {
     );
   }
 
+  let sourceMedia: Awaited<ReturnType<typeof getMediaForUser>> | undefined;
+  let maskPngBase64: string | undefined;
+  if (parsed.data.sourceMediaId) {
+    sourceMedia = await getMediaForUser(
+      "image",
+      parsed.data.sourceMediaId,
+      userId,
+    );
+    if (!sourceMedia) {
+      return NextResponse.json(
+        { error: "Source image not found." },
+        { status: 404 },
+      );
+    }
+    if (!isImg2ImgSourceExtension(sourceMedia.ext)) {
+      return NextResponse.json(
+        { error: "That image format cannot be used for image-to-image." },
+        { status: 415 },
+      );
+    }
+  }
+  if (parsed.data.maskPngBase64) {
+    try {
+      maskPngBase64 = decodeImageGenerationMask(parsed.data.maskPngBase64).encoded;
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Mask image is invalid.",
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const rate = await consumeRequestRateLimit({
     namespace: "image-generation",
     key: userId,
@@ -169,6 +218,18 @@ export const POST = async (request: Request) => {
     prompt: generation.prompt,
     negativePrompt: generation.negativePrompt,
     expandPrompt: generation.expandPrompt,
+    ...(sourceMedia
+      ? {
+          sourceMediaId: sourceMedia.id,
+          sourceDownloadUrl: buildAppUrl(
+            request,
+            `/api/thumbnails/${sourceMedia.id}/source`,
+          ),
+          sourceMimeType: sourceMedia.mimeType,
+          denoisingStrength: generation.denoisingStrength,
+        }
+      : {}),
+    ...(maskPngBase64 ? { maskPngBase64 } : {}),
   });
 
   if (!queued.ok) {

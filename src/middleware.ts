@@ -33,5 +33,6 @@ export const config = {
     "/promote-admin",
     "/reset-password",
     "/watch/:path*",
+    "/generate",
   ],
 };

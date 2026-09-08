@@ -12,6 +12,7 @@ import AlbumShareControls from "@/components/album-share-controls";
 import PatchNoteBanner from "@/components/patch-note-banner";
 import PageHeader from "@/components/ui/page-header";
 import { getNodeShareContext } from "@/lib/public-share-urls";
+import { isNodeMode } from "@/lib/self-hosted-nodes";
 
 export default async function AlbumPage({
   params,
@@ -77,6 +78,7 @@ export default async function AlbumPage({
         uploadAlbumId={albumId}
         showDownloadLinks={album.displayAsDownloadPage}
         isCompactView={album.displayAsCompactView}
+        isImageGenerationAvailable={!isNodeMode()}
         nodeShareContext={nodeShareContext}
       />
     </main>

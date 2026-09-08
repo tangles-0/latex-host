@@ -23,6 +23,7 @@ description: >-
 - Domain/data logic: `src/lib/`
 - Schema and migrations: `src/db/`
 - Keep authorization server-side and validate API payloads with Zod.
+- Image generation (`/generate`) supports text-to-image and image-to-image against the existing Lustify API (`/sdapi/v1/txt2img` and `/sdapi/v1/img2img`). Optional user-drawn masks are PNG base64, white = editable.
 - Reuse multipart upload sessions; never proxy large bodies through Vercel.
 - Keep node management APIs cloud-only and mounted-file APIs node-only.
 - Public node bytes use no-store 307 redirects; management and imports require a local authenticated session.
