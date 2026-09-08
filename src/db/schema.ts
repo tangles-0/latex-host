@@ -881,6 +881,7 @@ export const watchParties = pgTable(
       .notNull()
       .references(() => videos.id),
     status: text("status").notNull().default("encoding"),
+    title: text("title").notNull().default("Watch party"),
     publicBlobUrl: text("public_blob_url"),
     encodeError: text("encode_error"),
     encodeStep: text("encode_step"),

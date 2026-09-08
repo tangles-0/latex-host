@@ -1,22 +1,23 @@
 import { randomUUID } from "node:crypto"
 
-import { and, eq, inArray, ne } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 
 import { db } from "@/db"
 import { videos, watchParties, watchPartyDerivatives } from "@/db/schema"
 import { generateUniqueShareCode } from "@/lib/share-code"
-import { deleteWatchPartyObject, WATCH_PARTY_ENCODE_PROFILE } from "@/lib/watch-party-storage"
+import { WATCH_PARTY_ENCODE_PROFILE } from "@/lib/watch-party-storage"
 import { mintWatchPartyHostToken } from "@/lib/watch-party-tokens"
 import {
   WATCH_PARTY_ENCODE_STEPS,
   WATCH_PARTY_STATUSES,
+  WATCH_PARTY_TITLE_MAX,
   type WatchPartyEncodeStep,
   type WatchPartyPublicView,
   type WatchPartyStatus
 } from "@/lib/watch-party-types"
 
 export type { WatchPartyEncodeStep, WatchPartyPublicView, WatchPartyStatus }
-export { WATCH_PARTY_ENCODE_STEPS, WATCH_PARTY_STATUSES }
+export { WATCH_PARTY_ENCODE_STEPS, WATCH_PARTY_STATUSES, WATCH_PARTY_TITLE_MAX }
 
 export type WatchPartyRecord = {
   id: string
@@ -24,6 +25,7 @@ export type WatchPartyRecord = {
   hostUserId: string
   videoId: string
   status: WatchPartyStatus
+  title: string
   publicBlobUrl: string | null
   encodeError: string | null
   encodeStep: WatchPartyEncodeStep | null
@@ -42,12 +44,29 @@ const normalizeEncodeStep = (value: string | null): WatchPartyEncodeStep | null 
     ? (value as WatchPartyEncodeStep)
     : null
 
+export const defaultWatchPartyTitle = (input: {
+  originalFileName?: string | null
+  baseName?: string | null
+}): string => {
+  const title = (input.originalFileName || input.baseName || "Watch party").replace(/\s+/g, " ").trim()
+  return title.slice(0, WATCH_PARTY_TITLE_MAX) || "Watch party"
+}
+
+export const normalizeWatchPartyTitle = (value: string): string | null => {
+  const title = value.replace(/\s+/g, " ").trim()
+  if (!title || title.length > WATCH_PARTY_TITLE_MAX) {
+    return null
+  }
+  return title
+}
+
 const mapParty = (row: typeof watchParties.$inferSelect): WatchPartyRecord => ({
   id: row.id,
   hash: row.hash,
   hostUserId: row.hostUserId,
   videoId: row.videoId,
   status: normalizeStatus(row.status),
+  title: row.title?.trim() || "Watch party",
   publicBlobUrl: row.publicBlobUrl,
   encodeError: row.encodeError,
   encodeStep: normalizeEncodeStep(row.encodeStep),
@@ -114,6 +133,7 @@ export const createWatchPartyForUser = async (input: {
       hostUserId: input.userId,
       videoId: input.videoId,
       status: derivative ? "ready" : "encoding",
+      title: defaultWatchPartyTitle(video),
       publicBlobUrl: derivative?.publicBlobUrl ?? null,
       encodeError: null,
       encodeStep: derivative ? null : "download",
@@ -137,20 +157,12 @@ export const buildWatchPartyPublicView = async (input: {
   party: WatchPartyRecord
   viewerUserId: string | null
 }): Promise<WatchPartyPublicView> => {
-  const [video] = await db
-    .select({
-      originalFileName: videos.originalFileName,
-      baseName: videos.baseName
-    })
-    .from(videos)
-    .where(eq(videos.id, input.party.videoId))
-    .limit(1)
   const isHost = input.viewerUserId === input.party.hostUserId
   return {
     hash: input.party.hash,
     roomId: input.party.hash,
     status: input.party.status,
-    title: video?.originalFileName || video?.baseName || "Watch party",
+    title: input.party.title,
     publicBlobUrl: input.party.status === "ready" ? input.party.publicBlobUrl : null,
     presenceUrl: getPresenceUrl(),
     encodeError: input.party.encodeError,
@@ -237,6 +249,27 @@ export const markWatchPartyEncodeFailed = async (input: {
     .where(and(eq(watchParties.videoId, input.videoId), eq(watchParties.status, "encoding")))
 }
 
+export const updateWatchPartyTitleForUser = async (input: {
+  hash: string
+  userId: string
+  title: string
+}): Promise<WatchPartyRecord | null> => {
+  const party = await getWatchPartyByHash(input.hash)
+  if (!party || party.hostUserId !== input.userId || party.status === "ended") {
+    return null
+  }
+  const title = normalizeWatchPartyTitle(input.title)
+  if (!title) {
+    throw new Error("Title is required.")
+  }
+  const [updated] = await db
+    .update(watchParties)
+    .set({ title })
+    .where(eq(watchParties.id, party.id))
+    .returning()
+  return updated ? mapParty(updated) : party
+}
+
 export const endWatchPartyForUser = async (input: {
   hash: string
   userId: string
@@ -257,32 +290,6 @@ export const endWatchPartyForUser = async (input: {
     })
     .where(eq(watchParties.id, party.id))
     .returning()
-
-  const activeParties = await db
-    .select({ id: watchParties.id })
-    .from(watchParties)
-    .where(
-      and(
-        eq(watchParties.videoId, party.videoId),
-        inArray(watchParties.status, ["encoding", "ready"]),
-        ne(watchParties.id, party.id),
-      ),
-    )
-    .limit(1)
-
-  if (!activeParties[0]) {
-    const derivative = await getWatchPartyDerivative(party.videoId)
-    if (derivative) {
-      try {
-        await deleteWatchPartyObject(derivative.publicBlobUrl || derivative.publicBlobKey)
-      } catch {
-        // Party is already ended; a leftover public object can be cleaned up later.
-      }
-      await db
-        .delete(watchPartyDerivatives)
-        .where(eq(watchPartyDerivatives.id, derivative.id))
-    }
-  }
 
   return updated ? mapParty(updated) : party
 }

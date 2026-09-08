@@ -2,17 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { WatchPartyConnecting } from "@/components/watch-party-connecting"
 import { WatchPartyEncodeProgress } from "@/components/watch-party-encode-progress"
+import { WatchPartyJoin } from "@/components/watch-party-join"
+import { WatchPartyTitle } from "@/components/watch-party-title"
+import { WatchPartyVolumeControls } from "@/components/watch-party-volume-controls"
 import {
   expectedPositionMs,
+  PERIODIC_SYNC_INTERVAL_MS,
   presenceSocketUrl,
+  shouldCorrectPosition,
   type PartyCommand
 } from "@/lib/watch-party-protocol"
 import type { WatchPartyPublicView } from "@/lib/watch-party-types"
 
-const DRIFT_THRESHOLD_MS = 400
-const STATE_INTERVAL_MS = 2000
-const STATUS_POLL_MS = 1000
+const ENCODE_POLL_MS = 1000
+const TITLE_POLL_MS = 5000
 const HOST_JOIN_RETRIES = 3
 
 const formatTime = (seconds: number): string => {
@@ -23,6 +28,11 @@ const formatTime = (seconds: number): string => {
   const minutes = Math.floor(total / 60)
   const remainder = total % 60
   return `${minutes}:${String(remainder).padStart(2, "0")}`
+}
+
+const readVideoDuration = (video: HTMLVideoElement): number => {
+  const duration = video.duration
+  return Number.isFinite(duration) && duration > 0 ? duration : 0
 }
 
 export const WatchPartyPlayer = ({
@@ -36,14 +46,23 @@ export const WatchPartyPlayer = ({
     "idle" | "connecting" | "connected" | "failed"
   >("idle")
   const [presenceAttempt, setPresenceAttempt] = useState(0)
+  const [hasJoined, setHasJoined] = useState(false)
+  const [needsPlaybackUnlock, setNeedsPlaybackUnlock] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [positionSeconds, setPositionSeconds] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [isMuted, setIsMuted] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const seqRef = useRef(0)
-  const isApplyingRemoteRef = useRef(false)
   const isPlayingRef = useRef(false)
+  const lastCommandRef = useRef<PartyCommand | null>(null)
+  const hasAppliedCommandRef = useRef(false)
+  const volumeRef = useRef(volume)
+  const isMutedRef = useRef(isMuted)
+  volumeRef.current = volume
+  isMutedRef.current = isMuted
 
   const refreshParty = useCallback(async () => {
     const response = await fetch(`/api/watch-parties/${encodeURIComponent(initialParty.hash)}`, {
@@ -61,17 +80,19 @@ export const WatchPartyPlayer = ({
   }, [initialParty.hash])
 
   useEffect(() => {
-    if (party.status !== "encoding") {
+    if (party.status === "ended") {
       return
     }
-    void refreshParty().catch(refreshError => {
-      setError(refreshError instanceof Error ? refreshError.message : "Unable to refresh party.")
-    })
-    const interval = window.setInterval(() => {
+    const pollMs = party.status === "encoding" ? ENCODE_POLL_MS : TITLE_POLL_MS
+    const refresh = () => {
       void refreshParty().catch(refreshError => {
         setError(refreshError instanceof Error ? refreshError.message : "Unable to refresh party.")
       })
-    }, STATUS_POLL_MS)
+    }
+    if (party.status === "encoding") {
+      refresh()
+    }
+    const interval = window.setInterval(refresh, pollMs)
     return () => window.clearInterval(interval)
   }, [party.status, refreshParty])
 
@@ -96,32 +117,47 @@ export const WatchPartyPlayer = ({
   )
 
   const applyRemoteCommand = useCallback((command: PartyCommand) => {
+    if (party.isHost) {
+      return
+    }
+    lastCommandRef.current = command
     const video = videoRef.current
     if (!video) {
       return
     }
     const expectedSeconds = expectedPositionMs(command) / 1000
     const driftMs = Math.abs(video.currentTime - expectedSeconds) * 1000
-    isApplyingRemoteRef.current = true
-    if (command.type === "seek" || driftMs > DRIFT_THRESHOLD_MS) {
+    const isInitial = !hasAppliedCommandRef.current
+    hasAppliedCommandRef.current = true
+    if (
+      shouldCorrectPosition({
+        commandType: command.type,
+        driftMs,
+        isInitial
+      })
+    ) {
       video.currentTime = Math.max(0, expectedSeconds)
     }
     if (command.type === "pause") {
       video.pause()
       isPlayingRef.current = false
       setIsPlaying(false)
-    } else if (command.type === "play" || command.type === "state") {
-      void video.play().catch(() => undefined)
+      return
+    }
+    if (command.type === "play") {
+      video.volume = volumeRef.current
+      video.muted = isMutedRef.current
+      void video
+        .play()
+        .then(() => setNeedsPlaybackUnlock(false))
+        .catch(() => setNeedsPlaybackUnlock(true))
       isPlayingRef.current = true
       setIsPlaying(true)
     }
-    window.setTimeout(() => {
-      isApplyingRemoteRef.current = false
-    }, 50)
-  }, [])
+  }, [party.isHost])
 
   useEffect(() => {
-    if (party.status !== "ready" || !party.publicBlobUrl) {
+    if (!hasJoined || party.status !== "ready") {
       return
     }
     if (party.isHost && !party.hostToken) {
@@ -134,23 +170,23 @@ export const WatchPartyPlayer = ({
     })
     const socket = new WebSocket(url)
     socketRef.current = socket
-    let didOpen = false
+    let hasOpened = false
     let isCancelled = false
     let retryTimer: number | undefined
     setPresenceStatus("connecting")
     socket.addEventListener("open", () => {
-      didOpen = true
+      hasOpened = true
       setPresenceStatus("connected")
     })
     socket.addEventListener("close", () => {
       if (isCancelled) {
         return
       }
-      setPresenceStatus(didOpen ? "connecting" : "failed")
-      if (didOpen || presenceAttempt < HOST_JOIN_RETRIES) {
+      setPresenceStatus(hasOpened ? "connecting" : "failed")
+      if (hasOpened || presenceAttempt < HOST_JOIN_RETRIES) {
         retryTimer = window.setTimeout(() => {
           setPresenceAttempt(current => current + 1)
-        }, didOpen ? 1500 : 1000)
+        }, hasOpened ? 1500 : 1000)
       }
     })
     socket.addEventListener("message", event => {
@@ -173,10 +209,10 @@ export const WatchPartyPlayer = ({
     party.hostToken,
     party.isHost,
     party.presenceUrl,
-    party.publicBlobUrl,
     party.roomId,
     party.status,
-    presenceAttempt
+    presenceAttempt,
+    hasJoined
   ])
 
   useEffect(() => {
@@ -189,9 +225,18 @@ export const WatchPartyPlayer = ({
         return
       }
       sendCommand("state", Math.floor(video.currentTime * 1000))
-    }, STATE_INTERVAL_MS)
+    }, PERIODIC_SYNC_INTERVAL_MS)
     return () => window.clearInterval(interval)
   }, [isPlaying, party.isHost, sendCommand])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) {
+      return
+    }
+    video.volume = volume
+    video.muted = isMuted
+  }, [isMuted, volume, presenceStatus])
 
   const handleHostPlay = () => {
     const video = videoRef.current
@@ -242,11 +287,53 @@ export const WatchPartyPlayer = ({
     window.location.assign("/")
   }
 
+  const handleSaveTitle = async (title: string) => {
+    const response = await fetch(`/api/watch-parties/${encodeURIComponent(party.hash)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title })
+    })
+    const payload = (await response.json().catch(() => ({}))) as {
+      party?: WatchPartyPublicView
+      error?: string
+    }
+    if (!response.ok || !payload.party) {
+      setError(payload.error ?? "Unable to update title.")
+      throw new Error(payload.error ?? "Unable to update title.")
+    }
+    setParty(payload.party)
+  }
+
+  const handleUnlockPlayback = () => {
+    const video = videoRef.current
+    if (!video) {
+      return
+    }
+    void video
+      .play()
+      .then(() => setNeedsPlaybackUnlock(false))
+      .catch(() => setNeedsPlaybackUnlock(true))
+  }
+
+  const isPresenceConnected = presenceStatus === "connected"
+  const isReady = party.status === "ready" && Boolean(party.publicBlobUrl)
+  const canShowVideo = hasJoined && isReady && isPresenceConnected
+
+  useEffect(() => {
+    if (!canShowVideo) {
+      hasAppliedCommandRef.current = false
+    }
+  }, [canShowVideo])
+
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-medium">{party.title}</h1>
+          <WatchPartyTitle
+            title={party.title}
+            isHost={party.isHost}
+            onSave={handleSaveTitle}
+          />
           <p className="text-xs text-neutral-500">
             Room {party.roomId}
             {presenceStatus === "connected"
@@ -255,7 +342,9 @@ export const WatchPartyPlayer = ({
                 ? party.isHost
                   ? " · host join failed"
                   : " · disconnected"
-                : " · connecting"}
+                : hasJoined && party.status === "ready"
+                  ? " · connecting"
+                  : ""}
             {party.isHost ? " · host" : " · watcher"}
           </p>
         </div>
@@ -277,71 +366,94 @@ export const WatchPartyPlayer = ({
         />
       ) : null}
 
-      {presenceStatus === "failed" && party.status === "ready" ? (
-        <div className="flex flex-wrap items-center gap-3 rounded border border-neutral-200 px-3 py-3 text-sm text-neutral-600">
-          <p>{party.isHost ? "Could not join the room as host." : "Could not connect to the room."}</p>
-          <button
-            type="button"
-            onClick={() => setPresenceAttempt(current => current + 1)}
-            className="rounded border border-neutral-200 px-3 py-1 text-xs"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-
       {party.status === "error" ? (
         <p className="text-sm text-red-600">{party.encodeError || "Unable to prepare this video."}</p>
       ) : null}
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      {party.status === "ready" && party.publicBlobUrl ? (
+      {!hasJoined ? (
+        <WatchPartyJoin
+          isReady={isReady}
+          onJoin={() => setHasJoined(true)}
+        />
+      ) : null}
+
+      {hasJoined && isReady && !canShowVideo ? (
+        <WatchPartyConnecting
+          isFailed={presenceStatus === "failed"}
+          isHost={party.isHost}
+          onRetry={() => setPresenceAttempt(current => current + 1)}
+        />
+      ) : null}
+
+      {canShowVideo ? (
         <div className="space-y-3">
-          <video
-            ref={videoRef}
-            src={party.publicBlobUrl}
-            playsInline
-            className="w-full rounded border border-neutral-200 bg-black"
-            onTimeUpdate={event => setPositionSeconds(event.currentTarget.currentTime)}
-            onDurationChange={event => setDurationSeconds(event.currentTarget.duration || 0)}
-            onPlay={() => {
-              if (party.isHost && !isApplyingRemoteRef.current) {
-                handleHostPlay()
-              }
-            }}
-            onPause={() => {
-              if (party.isHost && !isApplyingRemoteRef.current) {
-                handleHostPause()
-              }
-            }}
-          />
-          {party.isHost ? (
-            <div className="flex flex-wrap items-center gap-3 text-xs">
+          <div className="relative">
+            <video
+              ref={videoRef}
+              src={party.publicBlobUrl ?? undefined}
+              playsInline
+              preload="metadata"
+              muted={isMuted}
+              className="w-full rounded border border-neutral-200 bg-black"
+              onLoadedMetadata={event => {
+                const video = event.currentTarget
+                video.volume = volume
+                video.muted = isMuted
+                setDurationSeconds(readVideoDuration(video))
+                const pending = lastCommandRef.current
+                if (pending) {
+                  applyRemoteCommand(pending)
+                }
+              }}
+              onDurationChange={event => setDurationSeconds(readVideoDuration(event.currentTarget))}
+              onTimeUpdate={event => setPositionSeconds(event.currentTarget.currentTime)}
+            />
+            {needsPlaybackUnlock ? (
               <button
                 type="button"
-                onClick={isPlaying ? handleHostPause : handleHostPlay}
-                className="rounded bg-black px-3 py-1 text-white"
+                onClick={handleUnlockPlayback}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-black px-4 py-2 text-sm text-white"
               >
-                {isPlaying ? "Pause" : "Play"}
+                Click to start playback
               </button>
-              <span className="tabular-nums text-neutral-600">
-                {formatTime(positionSeconds)} / {formatTime(durationSeconds)}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={durationSeconds || 0}
-                step={0.1}
-                value={Number.isFinite(positionSeconds) ? positionSeconds : 0}
-                onChange={event => handleHostSeek(Number(event.target.value))}
-                className="min-w-48 flex-1"
-                aria-label="Seek"
-              />
-            </div>
-          ) : (
-            <p className="text-xs text-neutral-500">Playback follows the host.</p>
-          )}
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            {party.isHost ? (
+              <>
+                <button
+                  type="button"
+                  onClick={isPlaying ? handleHostPause : handleHostPlay}
+                  className="rounded bg-black px-3 py-1 text-white"
+                >
+                  {isPlaying ? "Pause" : "Play"}
+                </button>
+                <span className="tabular-nums text-neutral-600">
+                  {formatTime(positionSeconds)} / {formatTime(durationSeconds)}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={durationSeconds || 0}
+                  step={0.1}
+                  value={Number.isFinite(positionSeconds) ? positionSeconds : 0}
+                  onChange={event => handleHostSeek(Number(event.target.value))}
+                  className="min-w-48 flex-1"
+                  aria-label="Seek"
+                />
+              </>
+            ) : (
+              <p className="text-xs text-neutral-500">Playback follows the host.</p>
+            )}
+            <WatchPartyVolumeControls
+              volume={volume}
+              isMuted={isMuted}
+              onVolumeChange={setVolume}
+              onMutedChange={setIsMuted}
+            />
+          </div>
         </div>
       ) : null}
     </main>

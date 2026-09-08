@@ -1,3 +1,5 @@
+export const WATCH_PARTY_TITLE_MAX = 200
+
 export const WATCH_PARTY_STATUSES = ["encoding", "ready", "ended", "error"] as const
 export type WatchPartyStatus = (typeof WATCH_PARTY_STATUSES)[number]
 

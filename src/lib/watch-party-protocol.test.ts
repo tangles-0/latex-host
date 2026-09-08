@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { expectedPositionMs, presenceSocketUrl } from "@/lib/watch-party-protocol"
+import {
+  expectedPositionMs,
+  presenceSocketUrl,
+  shouldCorrectPosition
+} from "@/lib/watch-party-protocol"
 
 describe("presenceSocketUrl", () => {
   it("builds a watcher websocket url", () => {
@@ -36,5 +40,28 @@ describe("expectedPositionMs", () => {
         400,
       ),
     ).toBe(1400)
+  })
+})
+
+describe("shouldCorrectPosition", () => {
+  it("always applies an explicit seek", () => {
+    expect(
+      shouldCorrectPosition({ commandType: "seek", driftMs: 10, isInitial: false }),
+    ).toBe(true)
+  })
+
+  it("ignores periodic state unless drift is over a minute", () => {
+    expect(
+      shouldCorrectPosition({ commandType: "state", driftMs: 5_000, isInitial: false }),
+    ).toBe(false)
+    expect(
+      shouldCorrectPosition({ commandType: "state", driftMs: 61_000, isInitial: false }),
+    ).toBe(true)
+  })
+
+  it("catches a late joiner up on the first command", () => {
+    expect(
+      shouldCorrectPosition({ commandType: "play", driftMs: 5_000, isInitial: true }),
+    ).toBe(true)
   })
 })

@@ -27,9 +27,27 @@ export const presenceSocketUrl = (
   return url.toString()
 }
 
+export const PERIODIC_SYNC_INTERVAL_MS = 60_000
+export const PERIODIC_SYNC_DRIFT_MS = 60_000
+export const CATCH_UP_DRIFT_MS = 400
+
 export const expectedPositionMs = (command: PartyCommand, now = Date.now()): number => {
   if (command.type === "pause") {
     return command.positionMs
   }
   return command.positionMs + (now - command.hostTime) * command.rate
+}
+
+export const shouldCorrectPosition = (input: {
+  commandType: PartyCommand["type"]
+  driftMs: number
+  isInitial: boolean
+}): boolean => {
+  if (input.commandType === "seek") {
+    return true
+  }
+  if (input.commandType === "state" && !input.isInitial) {
+    return input.driftMs > PERIODIC_SYNC_DRIFT_MS
+  }
+  return input.driftMs > CATCH_UP_DRIFT_MS
 }
