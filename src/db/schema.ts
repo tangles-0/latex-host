@@ -883,6 +883,8 @@ export const watchParties = pgTable(
     status: text("status").notNull().default("encoding"),
     publicBlobUrl: text("public_blob_url"),
     encodeError: text("encode_error"),
+    encodeStep: text("encode_step"),
+    encodePercent: integer("encode_percent").notNull().default(0),
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),
     endedAt: timestamp("ended_at", { mode: "date" }),
   },

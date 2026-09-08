@@ -60,3 +60,32 @@ export const denoisingStrengthToPercent = (value: number) =>
   Math.round(value * 100);
 
 export const denoisingPercentToStrength = (value: number) => value / 100;
+
+export const imageGenerationRetryInput = ({
+  prompt,
+  negativePrompt,
+  expandPrompt,
+  sourceMediaId,
+  denoisingStrength,
+  hasMask,
+  maskPngBase64,
+}: {
+  prompt: string;
+  negativePrompt?: string;
+  expandPrompt: boolean;
+  sourceMediaId?: string;
+  denoisingStrength?: number;
+  hasMask: boolean;
+  maskPngBase64?: string | null;
+}) => ({
+  prompt,
+  expandPrompt,
+  ...(negativePrompt ? { negativePrompt } : {}),
+  ...(sourceMediaId
+    ? {
+        sourceMediaId,
+        ...(denoisingStrength != null ? { denoisingStrength } : {}),
+        ...(hasMask && maskPngBase64 ? { maskPngBase64 } : {}),
+      }
+    : {}),
+});

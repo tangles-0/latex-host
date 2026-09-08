@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { WatchPartyEncodeProgress } from "@/components/watch-party-encode-progress"
 import {
   expectedPositionMs,
   presenceSocketUrl,
@@ -11,7 +12,8 @@ import type { WatchPartyPublicView } from "@/lib/watch-party-types"
 
 const DRIFT_THRESHOLD_MS = 400
 const STATE_INTERVAL_MS = 2000
-const STATUS_POLL_MS = 2000
+const STATUS_POLL_MS = 1000
+const HOST_JOIN_RETRIES = 3
 
 const formatTime = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -30,7 +32,10 @@ export const WatchPartyPlayer = ({
 }) => {
   const [party, setParty] = useState(initialParty)
   const [error, setError] = useState<string | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
+  const [presenceStatus, setPresenceStatus] = useState<
+    "idle" | "connecting" | "connected" | "failed"
+  >("idle")
+  const [presenceAttempt, setPresenceAttempt] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [positionSeconds, setPositionSeconds] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
@@ -59,6 +64,9 @@ export const WatchPartyPlayer = ({
     if (party.status !== "encoding") {
       return
     }
+    void refreshParty().catch(refreshError => {
+      setError(refreshError instanceof Error ? refreshError.message : "Unable to refresh party.")
+    })
     const interval = window.setInterval(() => {
       void refreshParty().catch(refreshError => {
         setError(refreshError instanceof Error ? refreshError.message : "Unable to refresh party.")
@@ -116,14 +124,35 @@ export const WatchPartyPlayer = ({
     if (party.status !== "ready" || !party.publicBlobUrl) {
       return
     }
+    if (party.isHost && !party.hostToken) {
+      setPresenceStatus("failed")
+      return
+    }
     const url = presenceSocketUrl(party.presenceUrl, party.roomId, {
       isHost: party.isHost,
       hostToken: party.hostToken
     })
     const socket = new WebSocket(url)
     socketRef.current = socket
-    socket.addEventListener("open", () => setIsConnected(true))
-    socket.addEventListener("close", () => setIsConnected(false))
+    let didOpen = false
+    let isCancelled = false
+    let retryTimer: number | undefined
+    setPresenceStatus("connecting")
+    socket.addEventListener("open", () => {
+      didOpen = true
+      setPresenceStatus("connected")
+    })
+    socket.addEventListener("close", () => {
+      if (isCancelled) {
+        return
+      }
+      setPresenceStatus(didOpen ? "connecting" : "failed")
+      if (didOpen || presenceAttempt < HOST_JOIN_RETRIES) {
+        retryTimer = window.setTimeout(() => {
+          setPresenceAttempt(current => current + 1)
+        }, didOpen ? 1500 : 1000)
+      }
+    })
     socket.addEventListener("message", event => {
       try {
         applyRemoteCommand(JSON.parse(String(event.data)) as PartyCommand)
@@ -132,10 +161,23 @@ export const WatchPartyPlayer = ({
       }
     })
     return () => {
+      isCancelled = true
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer)
+      }
       socket.close()
       socketRef.current = null
     }
-  }, [applyRemoteCommand, party.hostToken, party.isHost, party.presenceUrl, party.publicBlobUrl, party.roomId, party.status])
+  }, [
+    applyRemoteCommand,
+    party.hostToken,
+    party.isHost,
+    party.presenceUrl,
+    party.publicBlobUrl,
+    party.roomId,
+    party.status,
+    presenceAttempt
+  ])
 
   useEffect(() => {
     if (!party.isHost || !isPlaying) {
@@ -207,7 +249,13 @@ export const WatchPartyPlayer = ({
           <h1 className="text-lg font-medium">{party.title}</h1>
           <p className="text-xs text-neutral-500">
             Room {party.roomId}
-            {isConnected ? " · connected" : " · connecting"}
+            {presenceStatus === "connected"
+              ? " · connected"
+              : presenceStatus === "failed"
+                ? party.isHost
+                  ? " · host join failed"
+                  : " · disconnected"
+                : " · connecting"}
             {party.isHost ? " · host" : " · watcher"}
           </p>
         </div>
@@ -223,9 +271,23 @@ export const WatchPartyPlayer = ({
       </div>
 
       {party.status === "encoding" ? (
-        <p className="rounded border border-neutral-200 px-3 py-4 text-sm text-neutral-600">
-          Preparing a browser-safe copy of this video…
-        </p>
+        <WatchPartyEncodeProgress
+          step={party.encodeStep}
+          percent={party.encodePercent}
+        />
+      ) : null}
+
+      {presenceStatus === "failed" && party.status === "ready" ? (
+        <div className="flex flex-wrap items-center gap-3 rounded border border-neutral-200 px-3 py-3 text-sm text-neutral-600">
+          <p>{party.isHost ? "Could not join the room as host." : "Could not connect to the room."}</p>
+          <button
+            type="button"
+            onClick={() => setPresenceAttempt(current => current + 1)}
+            className="rounded border border-neutral-200 px-3 py-1 text-xs"
+          >
+            Retry
+          </button>
+        </div>
       ) : null}
 
       {party.status === "error" ? (

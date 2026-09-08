@@ -11,6 +11,7 @@ import { ImageGenerationMaskEditor } from "@/components/image-generation-mask-ed
 import {
   defaultDenoisingStrength,
   denoisingStrengthLabel,
+  imageGenerationRetryInput,
   maxDenoisingStrength,
   minDenoisingStrength,
 } from "@/lib/image-generations/img2img";
@@ -64,6 +65,9 @@ export const ImageGenerationStudio = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [busyGenerationId, setBusyGenerationId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<"keep" | "discard" | "retry" | null>(
+    null,
+  );
   const [lightbox, setLightbox] = useState<{
     url: string;
     alt: string;
@@ -203,6 +207,29 @@ export const ImageGenerationStudio = ({
     router.replace("/generate");
   };
 
+  const queueGeneration = async (body: Record<string, unknown>) => {
+    const response = await fetch("/api/image-generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = (await response.json()) as {
+      generation?: ImageGenerationEntry;
+      error?: string;
+    };
+
+    if (payload.generation) {
+      setGenerations((current) => [
+        payload.generation as ImageGenerationEntry,
+        ...current.filter((item) => item.id !== payload.generation?.id),
+      ]);
+    }
+
+    if (!response.ok || !payload.generation) {
+      throw new Error(payload.error ?? "Unable to generate image.");
+    }
+  };
+
   const submitGeneration = async () => {
     if (!hasAccess) {
       setError(
@@ -220,40 +247,20 @@ export const ImageGenerationStudio = ({
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/image-generations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: normalizedPrompt,
-          expandPrompt,
-          ...(negativePrompt.trim()
-            ? { negativePrompt: negativePrompt.trim() }
-            : {}),
-          ...(sourceMedia
-            ? {
-                sourceMediaId: sourceMedia.id,
-                denoisingStrength,
-                ...(maskPngBase64 ? { maskPngBase64 } : {}),
-              }
-            : {}),
-        }),
+      await queueGeneration({
+        prompt: normalizedPrompt,
+        expandPrompt,
+        ...(negativePrompt.trim()
+          ? { negativePrompt: negativePrompt.trim() }
+          : {}),
+        ...(sourceMedia
+          ? {
+              sourceMediaId: sourceMedia.id,
+              denoisingStrength,
+              ...(maskPngBase64 ? { maskPngBase64 } : {}),
+            }
+          : {}),
       });
-      const payload = (await response.json()) as {
-        generation?: ImageGenerationEntry;
-        error?: string;
-      };
-
-      if (payload.generation) {
-        setGenerations((current) => [
-          payload.generation as ImageGenerationEntry,
-          ...current.filter((item) => item.id !== payload.generation?.id),
-        ]);
-      }
-
-      if (!response.ok || !payload.generation) {
-        throw new Error(payload.error ?? "Unable to generate image.");
-      }
-
       setPrompt("");
       setNegativePrompt("");
     } catch (submitError) {
@@ -267,12 +274,57 @@ export const ImageGenerationStudio = ({
     }
   };
 
+  const retryGeneration = async (generation: ImageGenerationEntry) => {
+    if (!hasAccess) {
+      setError(
+        "you do not have access to image generation - please request it",
+      );
+      return;
+    }
+
+    const sameSourceMask =
+      generation.hasMask &&
+      Boolean(generation.sourceMediaId) &&
+      Boolean(maskPngBase64) &&
+      (sourceMedia?.id === generation.sourceMediaId ||
+        sourceMediaId === generation.sourceMediaId)
+        ? maskPngBase64
+        : undefined;
+
+    setError(null);
+    setBusyGenerationId(generation.id);
+    setBusyAction("retry");
+    try {
+      await queueGeneration(
+        imageGenerationRetryInput({
+          prompt: generation.prompt,
+          negativePrompt: generation.negativePrompt,
+          expandPrompt: generation.expandPrompt,
+          sourceMediaId: generation.sourceMediaId,
+          denoisingStrength: generation.denoisingStrength,
+          hasMask: generation.hasMask,
+          maskPngBase64: sameSourceMask,
+        }),
+      );
+    } catch (retryError) {
+      setError(
+        retryError instanceof Error
+          ? retryError.message
+          : "Unable to retry image generation.",
+      );
+    } finally {
+      setBusyGenerationId(null);
+      setBusyAction(null);
+    }
+  };
+
   const removeGeneration = async (
     generation: ImageGenerationEntry,
     action: "keep" | "discard",
   ) => {
     setError(null);
     setBusyGenerationId(generation.id);
+    setBusyAction(action);
     try {
       const response = await fetch(
         `/api/image-generations/${encodeURIComponent(generation.id)}?action=${action}`,
@@ -297,6 +349,7 @@ export const ImageGenerationStudio = ({
       );
     } finally {
       setBusyGenerationId(null);
+      setBusyAction(null);
     }
   };
 
@@ -539,7 +592,12 @@ export const ImageGenerationStudio = ({
           <div className="flex justify-end">
             <button
               type="button"
-              disabled={!hasAccess || isSubmitting || !prompt.trim()}
+              disabled={
+                !hasAccess ||
+                isSubmitting ||
+                busyAction === "retry" ||
+                !prompt.trim()
+              }
               onClick={() => void submitGeneration()}
               className="rounded bg-black px-4 py-2 text-xs text-white disabled:opacity-50"
             >
@@ -659,7 +717,22 @@ export const ImageGenerationStudio = ({
                       </p>
                     ) : null}
                     {!isActiveStatus(generation.status) ? (
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {generation.status === "failed" ? (
+                          <button
+                            type="button"
+                            disabled={
+                              busyGenerationId === generation.id || isSubmitting
+                            }
+                            onClick={() => void retryGeneration(generation)}
+                            className="rounded bg-black px-3 py-1 text-[11px] text-white disabled:opacity-50"
+                          >
+                            {busyGenerationId === generation.id &&
+                            busyAction === "retry"
+                              ? "retrying..."
+                              : "retry"}
+                          </button>
+                        ) : null}
                         {generation.status === "complete" &&
                         generation.mediaId ? (
                           <button
@@ -670,7 +743,10 @@ export const ImageGenerationStudio = ({
                             }
                             className="rounded bg-black px-3 py-1 text-[11px] text-white disabled:opacity-50"
                           >
-                            keep
+                            {busyGenerationId === generation.id &&
+                            busyAction === "keep"
+                              ? "working..."
+                              : "keep"}
                           </button>
                         ) : null}
                         <button
@@ -681,7 +757,8 @@ export const ImageGenerationStudio = ({
                           }
                           className="rounded border border-red-200 px-3 py-1 text-[11px] text-red-600 disabled:opacity-50"
                         >
-                          {busyGenerationId === generation.id
+                          {busyGenerationId === generation.id &&
+                          busyAction === "discard"
                             ? "working..."
                             : "discard"}
                         </button>

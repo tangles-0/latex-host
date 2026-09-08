@@ -4,6 +4,7 @@ import {
   decodeImageGenerationMask,
   defaultDenoisingStrength,
   denoisingStrengthLabel,
+  imageGenerationRetryInput,
   isImg2ImgSourceExtension,
   stripBase64Payload,
 } from "@/lib/image-generations/img2img";
@@ -75,5 +76,50 @@ describe("image-to-image requests", () => {
         bytes: Buffer.from("mask"),
       },
     );
+  });
+
+  it("rebuilds a retry payload from a failed job", () => {
+    expect(
+      imageGenerationRetryInput({
+        prompt: "make my hand black",
+        negativePrompt: "blurry",
+        expandPrompt: false,
+        sourceMediaId: "img-1",
+        denoisingStrength: 0.5,
+        hasMask: true,
+        maskPngBase64: "mask-bytes",
+      }),
+    ).toEqual({
+      prompt: "make my hand black",
+      expandPrompt: false,
+      negativePrompt: "blurry",
+      sourceMediaId: "img-1",
+      denoisingStrength: 0.5,
+      maskPngBase64: "mask-bytes",
+    });
+    expect(
+      imageGenerationRetryInput({
+        prompt: "a city",
+        expandPrompt: true,
+        hasMask: false,
+      }),
+    ).toEqual({
+      prompt: "a city",
+      expandPrompt: true,
+    });
+    expect(
+      imageGenerationRetryInput({
+        prompt: "restyle",
+        expandPrompt: false,
+        sourceMediaId: "img-1",
+        denoisingStrength: 0.45,
+        hasMask: true,
+      }),
+    ).toEqual({
+      prompt: "restyle",
+      expandPrompt: false,
+      sourceMediaId: "img-1",
+      denoisingStrength: 0.45,
+    });
   });
 });

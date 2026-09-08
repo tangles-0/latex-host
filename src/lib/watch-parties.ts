@@ -8,13 +8,15 @@ import { generateUniqueShareCode } from "@/lib/share-code"
 import { deleteWatchPartyObject, WATCH_PARTY_ENCODE_PROFILE } from "@/lib/watch-party-storage"
 import { mintWatchPartyHostToken } from "@/lib/watch-party-tokens"
 import {
+  WATCH_PARTY_ENCODE_STEPS,
   WATCH_PARTY_STATUSES,
+  type WatchPartyEncodeStep,
   type WatchPartyPublicView,
   type WatchPartyStatus
 } from "@/lib/watch-party-types"
 
-export type { WatchPartyPublicView, WatchPartyStatus }
-export { WATCH_PARTY_STATUSES }
+export type { WatchPartyEncodeStep, WatchPartyPublicView, WatchPartyStatus }
+export { WATCH_PARTY_ENCODE_STEPS, WATCH_PARTY_STATUSES }
 
 export type WatchPartyRecord = {
   id: string
@@ -24,6 +26,8 @@ export type WatchPartyRecord = {
   status: WatchPartyStatus
   publicBlobUrl: string | null
   encodeError: string | null
+  encodeStep: WatchPartyEncodeStep | null
+  encodePercent: number
   createdAt: Date
   endedAt: Date | null
 }
@@ -33,6 +37,11 @@ const normalizeStatus = (value: string): WatchPartyStatus =>
     ? (value as WatchPartyStatus)
     : "encoding"
 
+const normalizeEncodeStep = (value: string | null): WatchPartyEncodeStep | null =>
+  WATCH_PARTY_ENCODE_STEPS.includes(value as WatchPartyEncodeStep)
+    ? (value as WatchPartyEncodeStep)
+    : null
+
 const mapParty = (row: typeof watchParties.$inferSelect): WatchPartyRecord => ({
   id: row.id,
   hash: row.hash,
@@ -41,6 +50,8 @@ const mapParty = (row: typeof watchParties.$inferSelect): WatchPartyRecord => ({
   status: normalizeStatus(row.status),
   publicBlobUrl: row.publicBlobUrl,
   encodeError: row.encodeError,
+  encodeStep: normalizeEncodeStep(row.encodeStep),
+  encodePercent: Math.max(0, Math.min(100, row.encodePercent ?? 0)),
   createdAt: row.createdAt,
   endedAt: row.endedAt
 })
@@ -105,6 +116,8 @@ export const createWatchPartyForUser = async (input: {
       status: derivative ? "ready" : "encoding",
       publicBlobUrl: derivative?.publicBlobUrl ?? null,
       encodeError: null,
+      encodeStep: derivative ? null : "download",
+      encodePercent: derivative ? 100 : 0,
       createdAt: now,
       endedAt: null
     })
@@ -141,6 +154,8 @@ export const buildWatchPartyPublicView = async (input: {
     publicBlobUrl: input.party.status === "ready" ? input.party.publicBlobUrl : null,
     presenceUrl: getPresenceUrl(),
     encodeError: input.party.encodeError,
+    encodeStep: input.party.encodeStep,
+    encodePercent: input.party.encodePercent,
     isHost,
     hostToken:
       isHost && input.party.status !== "ended"
@@ -187,7 +202,24 @@ export const markWatchPartyEncodeComplete = async (input: {
     .set({
       status: "ready",
       publicBlobUrl: input.publicBlobUrl,
-      encodeError: null
+      encodeError: null,
+      encodeStep: "upload",
+      encodePercent: 100
+    })
+    .where(and(eq(watchParties.videoId, input.videoId), eq(watchParties.status, "encoding")))
+}
+
+export const reportWatchPartyEncodeProgress = async (input: {
+  videoId: string
+  step: WatchPartyEncodeStep
+  percent: number
+}): Promise<void> => {
+  const percent = Math.max(0, Math.min(100, Math.round(input.percent)))
+  await db
+    .update(watchParties)
+    .set({
+      encodeStep: input.step,
+      encodePercent: percent
     })
     .where(and(eq(watchParties.videoId, input.videoId), eq(watchParties.status, "encoding")))
 }
