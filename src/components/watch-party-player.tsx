@@ -75,7 +75,10 @@ export const WatchPartyPlayer = ({
     if (!response.ok || !payload.party) {
       throw new Error(payload.error ?? "Watch party is unavailable.")
     }
-    setParty(payload.party)
+    setParty(current => ({
+      ...payload.party,
+      hostToken: current.hostToken ?? payload.party.hostToken
+    }))
     return payload.party
   }, [initialParty.hash])
 
@@ -301,7 +304,10 @@ export const WatchPartyPlayer = ({
       setError(payload.error ?? "Unable to update title.")
       throw new Error(payload.error ?? "Unable to update title.")
     }
-    setParty(payload.party)
+    setParty(current => ({
+      ...payload.party,
+      hostToken: current.hostToken ?? payload.party.hostToken
+    }))
   }
 
   const handleUnlockPlayback = () => {
