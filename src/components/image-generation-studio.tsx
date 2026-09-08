@@ -574,8 +574,9 @@ export const ImageGenerationStudio = ({
             <span>
               expand prompt with AI
               <span className="mt-0.5 block font-normal text-neutral-500">
-                Adds typical image-prompt keywords (lighting, composition,
-                quality) before generation.
+                {isImg2Img
+                  ? "Looks at the source photo and rewrites your edit into a keep-the-scene prompt before generation."
+                  : "Adds typical image-prompt keywords (lighting, composition, quality) before generation."}
               </span>
             </span>
           </label>

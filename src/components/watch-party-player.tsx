@@ -6,6 +6,7 @@ import { WatchPartyConnecting } from "@/components/watch-party-connecting"
 import { WatchPartyEncodeProgress } from "@/components/watch-party-encode-progress"
 import { WatchPartyJoin } from "@/components/watch-party-join"
 import { WatchPartyTitle } from "@/components/watch-party-title"
+import { WatchPartyVideoDownload } from "@/components/watch-party-video-download"
 import { WatchPartyVolumeControls } from "@/components/watch-party-volume-controls"
 import {
   expectedPositionMs,
@@ -418,6 +419,12 @@ export const WatchPartyPlayer = ({
               onDurationChange={event => setDurationSeconds(readVideoDuration(event.currentTarget))}
               onTimeUpdate={event => setPositionSeconds(event.currentTarget.currentTime)}
             />
+            {party.publicBlobUrl ? (
+              <WatchPartyVideoDownload
+                url={party.publicBlobUrl}
+                title={party.title}
+              />
+            ) : null}
             {needsPlaybackUnlock ? (
               <button
                 type="button"
@@ -428,33 +435,40 @@ export const WatchPartyPlayer = ({
               </button>
             ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            {party.isHost ? (
-              <>
-                <button
-                  type="button"
-                  onClick={isPlaying ? handleHostPause : handleHostPlay}
-                  className="rounded bg-black px-3 py-1 text-white"
-                >
-                  {isPlaying ? "Pause" : "Play"}
-                </button>
-                <span className="tabular-nums text-neutral-600">
-                  {formatTime(positionSeconds)} / {formatTime(durationSeconds)}
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={durationSeconds || 0}
-                  step={0.1}
-                  value={Number.isFinite(positionSeconds) ? positionSeconds : 0}
-                  onChange={event => handleHostSeek(Number(event.target.value))}
-                  className="min-w-48 flex-1"
-                  aria-label="Seek"
-                />
-              </>
-            ) : (
-              <p className="text-xs text-neutral-500">Playback follows the host.</p>
-            )}
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              {party.isHost ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={isPlaying ? handleHostPause : handleHostPlay}
+                    className="rounded bg-black px-3 py-1 text-white"
+                  >
+                    {isPlaying ? "Pause" : "Play"}
+                  </button>
+                  <span className="tabular-nums text-neutral-600">
+                    {formatTime(positionSeconds)} / {formatTime(durationSeconds)}
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={durationSeconds || 0}
+                    step={0.1}
+                    value={Number.isFinite(positionSeconds) ? positionSeconds : 0}
+                    onChange={event => handleHostSeek(Number(event.target.value))}
+                    className="min-w-24 flex-1"
+                    aria-label="Seek"
+                  />
+                </>
+              ) : (
+                <>
+                  <span className="tabular-nums text-neutral-600">
+                    {formatTime(positionSeconds)} / {formatTime(durationSeconds)}
+                  </span>
+                  <p className="text-neutral-500">Playback follows the host.</p>
+                </>
+              )}
+            </div>
             <WatchPartyVolumeControls
               volume={volume}
               isMuted={isMuted}

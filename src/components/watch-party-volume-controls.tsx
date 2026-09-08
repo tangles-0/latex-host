@@ -10,7 +10,7 @@ export const WatchPartyVolumeControls = ({
   onMutedChange: (isMuted: boolean) => void
 }) => {
   return (
-    <div className="flex min-w-40 flex-1 items-center gap-2 text-xs text-neutral-600">
+    <div className="flex w-40 shrink-0 items-center justify-end gap-2 text-xs text-neutral-600">
       <button
         type="button"
         onClick={() => onMutedChange(!isMuted)}
@@ -30,7 +30,7 @@ export const WatchPartyVolumeControls = ({
           onVolumeChange(nextVolume)
           onMutedChange(nextVolume === 0)
         }}
-        className="flex-1"
+        className="w-24"
         aria-label="Volume"
       />
     </div>
