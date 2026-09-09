@@ -110,8 +110,7 @@ export async function storeImageAndThumbnails(
 
   const baseName = buildBaseName(uploadedAt);
   const outputFormat = await resolveOutputFormat(buffer);
-  const sourceOptions =
-    outputFormat.format === "gif" ? { animated: true } : undefined;
+  const sourceOptions = animatedSourceOptions(outputFormat.format);
   const originalPath = getImagePath(
     baseName,
     outputFormat.ext,
@@ -124,7 +123,7 @@ export async function storeImageAndThumbnails(
   const image = sharp(buffer, sourceOptions).rotate();
   const metadata = await image.metadata();
   const width = metadata.width ?? 0;
-  const height = metadata.height ?? 0;
+  const height = metadata.pageHeight ?? metadata.height ?? 0;
 
   const originalBuffer = await encodeOutput(image.clone(), outputFormat, 85);
   const smBuffer = await encodeOutput(
@@ -222,10 +221,11 @@ export async function rotateImageFiles(
     readStoredBuffer(baseName, ext, "lg", uploadedAt),
   ]);
 
+  const sourceOptions = animatedSourceOptions(outputFormat.format);
   const [rotatedOriginal, rotatedSm, rotatedLg] = await Promise.all([
-    encodeOutput(sharp(original).rotate(angle), outputFormat, 85),
-    encodeOutput(sharp(sm).rotate(angle), outputFormat, 80),
-    encodeOutput(sharp(lg).rotate(angle), outputFormat, 82),
+    encodeOutput(sharp(original, sourceOptions).rotate(angle), outputFormat, 85),
+    encodeOutput(sharp(sm, sourceOptions).rotate(angle), outputFormat, 80),
+    encodeOutput(sharp(lg, sourceOptions).rotate(angle), outputFormat, 82),
   ]);
 
   await Promise.all([
@@ -245,10 +245,13 @@ export async function rotateImageFiles(
     await writeStoredBuffer(baseName, ext, "x512", uploadedAt, rotated512);
   }
 
-  const metadata = await sharp(rotatedOriginal).metadata();
+  const metadata = await sharp(
+    rotatedOriginal,
+    animatedSourceOptions(outputFormat.format),
+  ).metadata();
   return {
     width: metadata.width ?? 0,
-    height: metadata.height ?? 0,
+    height: metadata.pageHeight ?? metadata.height ?? 0,
     sizeOriginal: rotatedOriginal.length,
     sizeSm: rotatedSm.length,
     sizeLg: rotatedLg.length,
@@ -268,10 +271,10 @@ export async function overwriteImageAndThumbnails(
   sizeLg: number;
 }> {
   const outputFormat = outputFormatFromExt(ext.toLowerCase());
-  const image = sharp(buffer).rotate();
+  const image = sharp(buffer, animatedSourceOptions(outputFormat.format)).rotate();
   const metadata = await image.metadata();
   const width = metadata.width ?? 0;
-  const height = metadata.height ?? 0;
+  const height = metadata.pageHeight ?? metadata.height ?? 0;
 
   const originalBuffer = await encodeOutput(image.clone(), outputFormat, 85);
   const smBuffer = await encodeOutput(
@@ -468,6 +471,15 @@ export async function hasImageVariant(
   }
 }
 
+function animatedSourceOptions(
+  formatOrExt: string,
+): { animated: true; pages: -1 } | undefined {
+  if (formatOrExt === "gif" || formatOrExt === "webp") {
+    return { animated: true, pages: -1 };
+  }
+  return undefined;
+}
+
 function outputFormatFromExt(ext: string): OutputFormat {
   if (ext === "png") {
     return { ext: "png", format: "png" };
@@ -485,7 +497,7 @@ async function generate640Buffer(
   original: Buffer,
   ext: string,
 ): Promise<Buffer> {
-  const sourceOptions = ext === "gif" ? { animated: true } : undefined;
+  const sourceOptions = animatedSourceOptions(ext);
   const resized = sharp(original, sourceOptions).resize({
     width: MAX_640_SIZE.width,
     height: MAX_640_SIZE.height,
@@ -506,7 +518,7 @@ async function generate512Buffer(
   original: Buffer,
   ext: string,
 ): Promise<Buffer> {
-  const sourceOptions = ext === "gif" ? { animated: true } : undefined;
+  const sourceOptions = animatedSourceOptions(ext);
   const resized = sharp(original, sourceOptions).resize({
     width: MAX_512_SIZE.width,
     height: MAX_512_SIZE.height,

@@ -597,48 +597,49 @@ export async function storeImageMediaFromBuffer(input: {
       previewStatus: "complete",
     };
   }
-  if (ext === "gif") {
+  if (ext === "gif" || ext === "webp") {
     const image = sharp(input.buffer, { animated: true, pages: -1 });
     const metadata = await image.metadata();
-    const width = metadata.width ?? undefined;
-    const height = metadata.pageHeight ?? metadata.height ?? undefined;
-    const originalBuffer = input.buffer;
-    const smBuffer = await image
-      .clone()
-      .resize({ width: 320, withoutEnlargement: true })
-      .gif()
-      .toBuffer();
-    const lgBuffer = await image
-      .clone()
-      .resize({ width: 1024, withoutEnlargement: true })
-      .gif()
-      .toBuffer();
-    await writeKey(
-      buildStorageKey("image", baseName, ext, "original", input.uploadedAt),
-      ext,
-      originalBuffer,
-    );
-    await writeKey(
-      buildStorageKey("image", baseName, ext, "sm", input.uploadedAt),
-      ext,
-      smBuffer,
-    );
-    await writeKey(
-      buildStorageKey("image", baseName, ext, "lg", input.uploadedAt),
-      ext,
-      lgBuffer,
-    );
-    return {
-      baseName,
-      ext,
-      mimeType: input.mimeType,
-      width,
-      height,
-      sizeOriginal: originalBuffer.length,
-      sizeSm: smBuffer.length,
-      sizeLg: lgBuffer.length,
-      previewStatus: "complete",
-    };
+    const isAnimated = ext === "gif" || (metadata.pages ?? 1) > 1;
+    if (isAnimated) {
+      const width = metadata.width ?? undefined;
+      const height = metadata.pageHeight ?? metadata.height ?? undefined;
+      const originalBuffer = input.buffer;
+      const encodeAnimated = (pipeline: sharp.Sharp) =>
+        ext === "gif" ? pipeline.gif() : pipeline.webp();
+      const smBuffer = await encodeAnimated(
+        image.clone().resize({ width: 320, withoutEnlargement: true }),
+      ).toBuffer();
+      const lgBuffer = await encodeAnimated(
+        image.clone().resize({ width: 1024, withoutEnlargement: true }),
+      ).toBuffer();
+      await writeKey(
+        buildStorageKey("image", baseName, ext, "original", input.uploadedAt),
+        ext,
+        originalBuffer,
+      );
+      await writeKey(
+        buildStorageKey("image", baseName, ext, "sm", input.uploadedAt),
+        ext,
+        smBuffer,
+      );
+      await writeKey(
+        buildStorageKey("image", baseName, ext, "lg", input.uploadedAt),
+        ext,
+        lgBuffer,
+      );
+      return {
+        baseName,
+        ext,
+        mimeType: input.mimeType,
+        width,
+        height,
+        sizeOriginal: originalBuffer.length,
+        sizeSm: smBuffer.length,
+        sizeLg: lgBuffer.length,
+        previewStatus: "complete",
+      };
+    }
   }
   const image = sharp(input.buffer).rotate();
   const metadata = await image.metadata();
@@ -1034,15 +1035,19 @@ export async function storeGeneratedPreviewForMedia(input: {
   const outputExt = input.kind === "image" ? input.ext.toLowerCase() : "png";
   const outputFormat: keyof sharp.FormatEnum =
     outputExt === "jpg" ? "jpeg" : (outputExt as keyof sharp.FormatEnum);
-  const lgBuffer = await sharp(input.previewImageBuffer)
+  const sourceOptions =
+    outputExt === "gif" || outputExt === "webp"
+      ? { animated: true, pages: -1 }
+      : undefined;
+  const lgBuffer = await sharp(input.previewImageBuffer, sourceOptions)
     .resize({ width: 1024, withoutEnlargement: true })
     .toFormat(outputFormat)
     .toBuffer();
-  const smBuffer = await sharp(lgBuffer)
+  const smBuffer = await sharp(lgBuffer, sourceOptions)
     .resize({ width: 320, withoutEnlargement: true })
     .toFormat(outputFormat)
     .toBuffer();
-  const metadata = await sharp(lgBuffer).metadata();
+  const metadata = await sharp(lgBuffer, sourceOptions).metadata();
 
   const smKey = buildStorageKey(
     input.kind,
@@ -1065,7 +1070,7 @@ export async function storeGeneratedPreviewForMedia(input: {
     sizeSm: smBuffer.length,
     sizeLg: lgBuffer.length,
     width: metadata.width ?? undefined,
-    height: metadata.height ?? undefined,
+    height: metadata.pageHeight ?? metadata.height ?? undefined,
   };
 }
 

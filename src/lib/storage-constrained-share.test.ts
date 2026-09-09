@@ -39,4 +39,23 @@ describe("generateConstrainedShareImageBuffer", () => {
     expect(metadata.width).toBe(200);
     expect(metadata.height).toBe(100);
   });
+
+  it("keeps animated webp frames instead of flattening to the first frame", async () => {
+    const source = Buffer.from(
+      "UklGRsQAAABXRUJQVlA4WAoAAAACAAAADwAACwAAQU5JTQYAAAAAAAAAAABBTk1GSgAAAAAAAAAAAA8AAAsAAFAAAAJWUDggMgAAADABAJ0BKhAADAABQCYloAADcAD+8ut///mwP/bz/wR6Af//0uD//pcH//S4P/SkAAAAQU5NRkYAAAAAAAAAAAAPAAALAABQAAAAVlA4IC4AAAA0AQCdASoQAAwAAAAmJaAAA3AA/vtV4///S4P/+lwf/9Lg/9Lg//rV5Vesq6AA",
+      "base64",
+    );
+    const sourceMeta = await sharp(source).metadata();
+    expect(sourceMeta.pages).toBe(2);
+
+    const flattened = await sharp(source).webp().toBuffer();
+    expect((await sharp(flattened).metadata()).pages).toBeUndefined();
+
+    const result = await generateConstrainedShareImageBuffer(source, "webp");
+    const metadata = await sharp(result).metadata();
+    expect(metadata.format).toBe("webp");
+    expect(metadata.pages).toBe(2);
+    expect(metadata.width).toBe(16);
+    expect(metadata.height).toBe(12);
+  });
 });
