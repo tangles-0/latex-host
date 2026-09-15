@@ -679,6 +679,7 @@ export const imageGenerations = pgTable(
     denoisingStrength: integer("denoising_strength"),
     hasMask: boolean("has_mask").notNull().default(false),
     status: text("status").notNull().default("pending"),
+    queuePosition: integer("queue_position"),
     error: text("error"),
     mediaId: text("media_id"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),

@@ -131,7 +131,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       if (
         generation.status === "failed" ||
-        isImageGenerationExpired(generation.createdAt)
+        generation.status === "cancelled" ||
+        isImageGenerationExpired(generation.updatedAt)
       ) {
         await deleteCompletedUploadObject(completed.storageKey);
         await updateImageGenerationForUser({

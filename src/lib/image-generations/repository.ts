@@ -34,6 +34,7 @@ const mapImageGeneration = (
       : denoisingPercentToStrength(row.denoisingStrength),
   hasMask: row.hasMask,
   status: row.status as ImageGenerationStatus,
+  queuePosition: row.queuePosition ?? undefined,
   error: row.error ?? undefined,
   mediaId: row.mediaId ?? undefined,
   createdAt: row.createdAt.toISOString(),
@@ -136,7 +137,7 @@ export const clearTerminalImageGenerationsForUser = async (userId: string) => {
     .where(
       and(
         eq(imageGenerations.userId, userId),
-        inArray(imageGenerations.status, ["complete", "failed"]),
+        inArray(imageGenerations.status, ["complete", "failed", "cancelled"]),
       ),
     )
     .returning();
@@ -150,12 +151,14 @@ export const updateImageGenerationForUser = async ({
   status,
   error,
   mediaId,
+  queuePosition,
 }: {
   userId: string;
   generationId: string;
   status: ImageGenerationStatus;
   error?: string | null;
   mediaId?: string | null;
+  queuePosition?: number | null;
 }) => {
   const now = new Date();
   const [updated] = await db
@@ -164,9 +167,15 @@ export const updateImageGenerationForUser = async ({
       status,
       ...(error !== undefined ? { error } : {}),
       ...(mediaId !== undefined ? { mediaId } : {}),
-      ...(status === "complete" || status === "failed"
+      ...(status === "pending" && queuePosition !== undefined
+        ? { queuePosition }
+        : {}),
+      ...(status === "complete" ||
+      status === "failed" ||
+      status === "cancelled"
         ? { completedAt: now }
         : {}),
+      ...(status !== "pending" ? { queuePosition: null } : {}),
       updatedAt: now,
     })
     .where(
@@ -178,6 +187,42 @@ export const updateImageGenerationForUser = async ({
     .returning();
 
   return updated ? mapImageGeneration(updated) : undefined;
+};
+
+export const applyQueuedImageGenerationUpdates = async (
+  updates: Array<{ id: string; position: number }>,
+) => {
+  if (updates.length === 0) {
+    return [];
+  }
+
+  return db.transaction(async (tx) => {
+    const now = new Date();
+    const updated: ImageGenerationEntry[] = [];
+
+    for (const update of updates) {
+      const [row] = await tx
+        .update(imageGenerations)
+        .set({
+          queuePosition: update.position,
+          error: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(imageGenerations.id, update.id),
+            eq(imageGenerations.status, "pending"),
+          ),
+        )
+        .returning();
+
+      if (row) {
+        updated.push(mapImageGeneration(row));
+      }
+    }
+
+    return updated;
+  });
 };
 
 export const expireStaleImageGenerationsForUser = async (
@@ -192,12 +237,13 @@ export const expireStaleImageGenerationsForUser = async (
       error: "Image generation did not complete in time.",
       completedAt: now,
       updatedAt: now,
+      queuePosition: null,
     })
     .where(
       and(
         eq(imageGenerations.userId, userId),
         inArray(imageGenerations.status, activeStatuses),
-        lt(imageGenerations.createdAt, cutoff),
+        lt(imageGenerations.updatedAt, cutoff),
       ),
     )
     .returning();

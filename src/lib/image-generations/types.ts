@@ -57,7 +57,8 @@ export type ImageGenerationStatus =
   | "generating"
   | "uploading"
   | "complete"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type ImageGenerationInput = z.infer<typeof imageGenerationInputSchema>;
 
@@ -67,6 +68,7 @@ export type ImageGenerationEntry = Omit<
 > & {
   id: string;
   status: ImageGenerationStatus;
+  queuePosition?: number;
   error?: string;
   mediaId?: string;
   thumbnailUrl?: string;
@@ -77,3 +79,13 @@ export type ImageGenerationEntry = Omit<
   updatedAt: string;
   completedAt?: string;
 };
+
+export const queuedImageGenerationUpdateSchema = z.object({
+  id: z.string().uuid(),
+  status: z.literal("queued"),
+  position: z.number().int().positive().max(10_000),
+});
+
+export const queuedImageGenerationBatchSchema = z
+  .array(queuedImageGenerationUpdateSchema)
+  .max(1_000);

@@ -52,9 +52,10 @@ export type YoutubeMetadataPayload = {
 
 export type WorkerImageGenerationStatus = {
   generationId: string;
-  status: "pending" | "generating" | "uploading" | "complete" | "failed";
+  status: "pending" | "generating" | "uploading" | "complete" | "failed" | "cancelled";
   error?: string;
   mediaId?: string;
+  queuePosition?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -388,6 +389,142 @@ export async function requestImageGenerationStatus(
     }
 
     return { ok: true, generation: payload };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach image generation worker.",
+    };
+  }
+}
+
+export async function requestImageGenerationCancel(
+  generationId: string,
+): Promise<
+  | { ok: true; generation: { generationId: string; status: string } }
+  | { ok: false; error: string; statusCode?: number }
+> {
+  const url = workerUrl(
+    `image-generations/${encodeURIComponent(generationId)}`,
+  );
+  if (!url) {
+    return {
+      ok: false,
+      error: "Image generation worker URL is not configured.",
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...(outgoingSecret() ? { Authorization: outgoingSecret() } : {}),
+      },
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      generationId?: string;
+      status?: string;
+      error?: string;
+    };
+
+    if (response.status === 409) {
+      return {
+        ok: false,
+        error:
+          payload.error ??
+          "Queued image generations can be cancelled before they start.",
+        statusCode: 409,
+      };
+    }
+
+    if (!response.ok || !payload.generationId) {
+      return {
+        ok: false,
+        error:
+          payload.error ??
+          `Image generation cancel failed with status ${response.status}.`,
+        statusCode: response.status >= 400 ? response.status : 502,
+      };
+    }
+
+    return {
+      ok: true,
+      generation: {
+        generationId: payload.generationId,
+        status: payload.status ?? "cancelled",
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach image generation worker.",
+    };
+  }
+}
+
+export async function requestImageGenerationCancel(
+  generationId: string,
+): Promise<
+  | { ok: true; generation: { generationId: string; status: string } }
+  | { ok: false; error: string; statusCode?: number }
+> {
+  const url = workerUrl(
+    `image-generations/${encodeURIComponent(generationId)}`,
+  );
+  if (!url) {
+    return {
+      ok: false,
+      error: "Image generation worker URL is not configured.",
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...(outgoingSecret() ? { Authorization: outgoingSecret() } : {}),
+      },
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      generationId?: string;
+      status?: string;
+      error?: string;
+    };
+
+    if (response.status === 409) {
+      return {
+        ok: false,
+        error:
+          payload.error ??
+          "Queued image generations can be cancelled before they start.",
+        statusCode: 409,
+      };
+    }
+
+    if (!response.ok || !payload.generationId) {
+      return {
+        ok: false,
+        error:
+          payload.error ??
+          `Image generation cancel failed with status ${response.status}.`,
+        statusCode: response.status >= 400 ? response.status : 502,
+      };
+    }
+
+    return {
+      ok: true,
+      generation: {
+        generationId: payload.generationId,
+        status: payload.status ?? "cancelled",
+      },
+    };
   } catch (error) {
     return {
       ok: false,

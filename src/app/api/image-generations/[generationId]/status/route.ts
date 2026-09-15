@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const statusPayloadSchema = z.object({
-  status: z.enum(["generating", "uploading", "complete", "failed"]),
+  status: z.enum(["generating", "uploading", "complete", "failed", "cancelled"]),
   error: z.string().max(4000).optional(),
 });
 
@@ -40,7 +40,15 @@ export const POST = async (
     );
   }
 
-  if (generation.status === "complete" || generation.status === "failed") {
+  if (
+    generation.status === "complete" ||
+    generation.status === "failed" ||
+    generation.status === "cancelled"
+  ) {
+    return NextResponse.json({ generation });
+  }
+
+  if (parsed.data.status === "cancelled" && generation.status !== "pending") {
     return NextResponse.json({ generation });
   }
 

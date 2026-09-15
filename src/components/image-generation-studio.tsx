@@ -28,12 +28,14 @@ const denoisingPresets = [
 const isActiveStatus = (status: ImageGenerationEntry["status"]) =>
   status === "pending" || status === "generating" || status === "uploading";
 
-const formatStatus = (status: ImageGenerationEntry["status"]) => {
-  if (status === "pending") {
-    return "queued";
+const formatStatus = (generation: ImageGenerationEntry) => {
+  if (generation.status === "pending") {
+    return generation.queuePosition
+      ? `queued - position #${generation.queuePosition}`
+      : "queued";
   }
 
-  return status;
+  return generation.status;
 };
 
 const sourceThumbnailUrl = (media: MediaEntry) =>
@@ -65,9 +67,9 @@ export const ImageGenerationStudio = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [busyGenerationId, setBusyGenerationId] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"keep" | "discard" | "retry" | null>(
-    null,
-  );
+  const [busyAction, setBusyAction] = useState<
+    "keep" | "discard" | "retry" | "cancel" | null
+  >(null);
   const [lightbox, setLightbox] = useState<{
     url: string;
     alt: string;
@@ -311,6 +313,50 @@ export const ImageGenerationStudio = ({
         retryError instanceof Error
           ? retryError.message
           : "Unable to retry image generation.",
+      );
+    } finally {
+      setBusyGenerationId(null);
+      setBusyAction(null);
+    }
+  };
+
+  const cancelGeneration = async (generation: ImageGenerationEntry) => {
+    setError(null);
+    setBusyGenerationId(generation.id);
+    setBusyAction("cancel");
+    try {
+      const response = await fetch(
+        `/api/image-generations/${encodeURIComponent(generation.id)}`,
+        { method: "POST" },
+      );
+      const payload = (await response.json()) as {
+        generation?: ImageGenerationEntry;
+        error?: string;
+      };
+
+      if (payload.generation) {
+        setGenerations((current) =>
+          current.map((item) =>
+            item.id === payload.generation?.id
+              ? { ...item, ...payload.generation }
+              : item,
+          ),
+        );
+      }
+
+      if (!response.ok) {
+        await loadGenerations();
+        throw new Error(
+          payload.error ?? "Unable to cancel image generation.",
+        );
+      }
+
+      await loadGenerations();
+    } catch (cancelError) {
+      setError(
+        cancelError instanceof Error
+          ? cancelError.message
+          : "Unable to cancel image generation.",
       );
     } finally {
       setBusyGenerationId(null);
@@ -673,7 +719,9 @@ export const ImageGenerationStudio = ({
                             "h-6 w-6",
                             generation.status === "failed"
                               ? "text-red-400"
-                              : "text-neutral-400",
+                              : generation.status === "cancelled"
+                                ? "text-neutral-300"
+                                : "text-neutral-400",
                           )}
                           fill="currentColor"
                         />
@@ -695,10 +743,12 @@ export const ImageGenerationStudio = ({
                           "text-xs font-medium",
                           generation.status === "failed"
                             ? "text-red-600"
-                            : "text-neutral-700",
+                            : generation.status === "cancelled"
+                              ? "text-neutral-500"
+                              : "text-neutral-700",
                         )}
                       >
-                        {formatStatus(generation.status)}
+                        {formatStatus(generation)}
                         {generation.sourceMediaId ? " · img2img" : ""}
                         {generation.hasMask ? " · mask" : ""}
                       </span>
@@ -716,6 +766,21 @@ export const ImageGenerationStudio = ({
                       <p className="mt-2 line-clamp-2 text-[11px] text-red-600">
                         {generation.error}
                       </p>
+                    ) : null}
+                    {generation.status === "pending" ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busyGenerationId === generation.id}
+                          onClick={() => void cancelGeneration(generation)}
+                          className="rounded border border-neutral-200 px-3 py-1 text-[11px] disabled:opacity-50"
+                        >
+                          {busyGenerationId === generation.id &&
+                          busyAction === "cancel"
+                            ? "cancelling..."
+                            : "cancel"}
+                        </button>
+                      </div>
                     ) : null}
                     {!isActiveStatus(generation.status) ? (
                       <div className="mt-3 flex flex-wrap gap-2">

@@ -94,6 +94,9 @@ export const GET = async () => {
         ...(workerStatus.generation.mediaId
           ? { mediaId: workerStatus.generation.mediaId }
           : {}),
+        ...(typeof workerStatus.generation.queuePosition === "number"
+          ? { queuePosition: workerStatus.generation.queuePosition }
+          : {}),
       });
     }),
   );
