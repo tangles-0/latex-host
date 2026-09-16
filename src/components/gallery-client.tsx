@@ -2989,7 +2989,7 @@ export default function GalleryClient({
       ) : null}
 
       {dropUploadProgress.length > 0 ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center modal-overlay px-4">
           <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">uploading to gallery</h3>
             <div className="mt-4 space-y-3">
@@ -3544,7 +3544,7 @@ export default function GalleryClient({
 
       {active ? (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center modal-overlay ${
+          className={`fixed inset-0 z-[130] flex items-center justify-center modal-overlay ${
             isEditorFullscreen ? "" : "sm:px-4 sm:py-6"
           }`}
           onClick={(event) => {
@@ -4474,7 +4474,7 @@ export default function GalleryClient({
       ) : null}
 
       {isAddModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center modal-overlay px-4">
           <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">Add to album</h3>
             <p className="mt-1 text-xs text-neutral-500">
@@ -4517,7 +4517,7 @@ export default function GalleryClient({
       ) : null}
 
       {imageToDelete ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center modal-overlay px-4">
           <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">Delete image?</h3>
             <p className="mt-1 text-xs text-neutral-500">

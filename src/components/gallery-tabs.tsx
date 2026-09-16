@@ -447,7 +447,7 @@ export default function GalleryTabs({
           )}
 
           {isCreateOpen ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+            <div className="fixed inset-0 z-[130] flex items-center justify-center modal-overlay px-4">
               <div className="modal-panel w-full max-w-md p-6 text-sm">
                 <h3 className="text-lg font-semibold">new album</h3>
                 <p className="mt-1 text-xs text-neutral-500">
@@ -478,7 +478,7 @@ export default function GalleryTabs({
           ) : null}
 
           {albumToDelete ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+            <div className="fixed inset-0 z-[130] flex items-center justify-center modal-overlay px-4">
               <div className="modal-panel w-full max-w-md p-6 text-sm">
                 <h3 className="text-lg font-semibold">delete album?</h3>
                 <p className="mt-1 text-xs text-neutral-500">
@@ -506,7 +506,7 @@ export default function GalleryTabs({
           ) : null}
 
           {albumToRename ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+            <div className="fixed inset-0 z-[130] flex items-center justify-center modal-overlay px-4">
               <div className="modal-panel w-full max-w-md p-6 text-sm">
                 <h3 className="text-lg font-semibold">rename album</h3>
                 <p className="mt-1 text-xs text-neutral-500">

@@ -31,7 +31,7 @@ export const ConfirmModal = ({
   }
 
   return (
-    <div className="modal-overlay fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
+    <div className="modal-overlay fixed inset-0 z-[140] flex items-center justify-center px-4 py-6">
       <div
         role="dialog"
         aria-modal="true"

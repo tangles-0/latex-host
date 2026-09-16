@@ -26,7 +26,7 @@ export default function GalleryLoadingModal() {
 
   return (
     <div
-      className="gallery-loading-overlay fixed inset-0 z-[100] flex items-center justify-center px-4"
+      className="gallery-loading-overlay fixed inset-0 z-[150] flex items-center justify-center px-4"
       role="dialog"
       aria-modal="true"
       aria-busy="true"
