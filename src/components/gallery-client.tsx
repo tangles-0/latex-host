@@ -60,6 +60,11 @@ const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
 const HIDE_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-hide-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
+
+function isMarkdownDocumentExtension(ext: string | null | undefined): boolean {
+  return Boolean(ext && MARKDOWN_EXTENSIONS.has(ext.toLowerCase()));
+}
+
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
 const GALLERY_UPLOAD_PAGE_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
