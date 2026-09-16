@@ -2,6 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+import AlertBanner from "@/components/ui/alert-banner";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import Panel from "@/components/ui/panel";
+import { SectionHeader } from "@/components/ui/section-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput } from "@/components/ui/term-input";
+
 type NodeSetupState = {
   isLinked: boolean;
   nodeHash: string | null;
@@ -84,46 +93,29 @@ const NodeHome = ({ isSignedIn, updateInfo }: NodeHomeProps) => {
       : null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-5 px-6 py-12 text-sm">
-      <header>
-        <h1 className="text-2xl font-semibold">latex.gg self-hosted node</h1>
-        <p className="mt-2 text-neutral-600">
-          Files, thumbnails, galleries, shares, and metadata remain on this
-          server.
-        </p>
-      </header>
-      {isLoading ? (
-        <section className="rounded border border-neutral-200 p-4">
-          Checking node status…
-        </section>
-      ) : null}
+    <PageScaffold width="narrow">
+      <SectionHeader
+        title="latex.gg node"
+        subtitle="Files, thumbnails, galleries, shares, and metadata remain on this server."
+      />
+      {isLoading ? <Skeleton className="h-24 w-full" /> : null}
       {state ? (
-        <section className="space-y-3 rounded border border-neutral-200 p-4">
+        <Panel className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <span>latex.gg connectivity</span>
-            <strong
-              className={
-                state.isLatexReachable ? "text-emerald-600" : "text-red-600"
-              }
-            >
+            <StatusBadge tone={state.isLatexReachable ? "ok" : "err"}>
               {state.isLatexReachable
                 ? "latex.gg reachable"
                 : "latex.gg not reachable"}
-            </strong>
+            </StatusBadge>
           </div>
           {!state.isLatexReachable ? (
-            <button
-              type="button"
-              onClick={loadStatus}
-              className="text-xs text-emerald-700 underline"
-            >
-              Retry
-            </button>
+            <TermButton onClick={loadStatus}>Retry</TermButton>
           ) : null}
-        </section>
+        </Panel>
       ) : null}
       {state && !state.isLinked ? (
-        <section className="space-y-4 rounded border border-neutral-200 p-4">
+        <Panel className="space-y-4">
           <div>
             <h2 className="font-medium">Link this node</h2>
             <p className="mt-1 text-xs text-neutral-500">
@@ -133,88 +125,74 @@ const NodeHome = ({ isSignedIn, updateInfo }: NodeHomeProps) => {
           </div>
           <label className="block space-y-1">
             <span className="text-xs font-medium">Public HTTPS URL</span>
-            <input
+            <TermInput
               type="url"
               required
               placeholder="https://files.example.com"
               value={publicHttpsUrl}
               onChange={(event) => setPublicHttpsUrl(event.target.value)}
-              className="w-full rounded border border-neutral-300 px-3 py-2"
             />
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-medium">Node link code</span>
-            <input
+            <TermInput
               type="text"
               required
               autoComplete="off"
               placeholder="ABCD-EFGH-IJKL"
               value={linkCode}
               onChange={(event) => setLinkCode(event.target.value)}
-              className="w-full rounded border border-neutral-300 px-3 py-2 font-mono uppercase"
+              className="font-mono uppercase"
             />
           </label>
-          <button
-            type="button"
+          <TermButton
+            variant="primary"
             disabled={isSubmitting || !state.isLatexReachable}
             onClick={linkNode}
-            className="rounded border border-emerald-500 px-4 py-2 text-emerald-700 disabled:opacity-50"
           >
             {isSubmitting ? "Linking…" : "Link node"}
-          </button>
-        </section>
+          </TermButton>
+        </Panel>
       ) : null}
       {state?.isLinked ? (
-        <section className="space-y-3 rounded border border-emerald-300 bg-emerald-50 p-4">
-          <div>
-            <h2 className="font-medium text-emerald-950">
-              Node {state.nodeHash} is linked
-            </h2>
-            <p className="mt-1 break-all text-xs text-emerald-800">
-              {state.publicHttpsUrl}
-            </p>
-          </div>
+        <Panel className="space-y-3">
+          <h2 className="font-medium">Node {state.nodeHash} is linked</h2>
+          <p className="break-all text-xs text-neutral-500">
+            {state.publicHttpsUrl}
+          </p>
           {isSignedIn ? (
-            <a
-              href="/gallery"
-              className="inline-flex rounded border border-emerald-600 px-4 py-2 text-emerald-800"
-            >
+            <TermButton variant="primary" href="/gallery">
               Open gallery
-            </a>
+            </TermButton>
           ) : authorizeUrl ? (
-            <a
-              href={authorizeUrl}
-              className="inline-flex rounded border border-emerald-600 px-4 py-2 text-emerald-800"
-            >
+            <a href={authorizeUrl} className="term-btn primary">
               Log in with latex.gg
             </a>
           ) : null}
-        </section>
+        </Panel>
       ) : null}
       {updateInfo.updateAvailable ? (
-        <section className="space-y-2 rounded border border-amber-300 bg-amber-50 p-4 text-amber-950">
-          <h2 className="font-medium">
-            Node update {updateInfo.latestVersion} is available
-          </h2>
-          <p className="text-xs">
-            This node is running {updateInfo.currentVersion}. From the Compose
-            directory, run:
-          </p>
-          <code className="block overflow-x-auto rounded bg-amber-100 p-2 text-xs">
-            docker compose pull &amp;&amp; docker compose up -d
-          </code>
-        </section>
+        <AlertBanner tone="warning">
+          <div className="space-y-2">
+            <div className="font-medium">
+              Node update {updateInfo.latestVersion} is available
+            </div>
+            <p>
+              This node is running {updateInfo.currentVersion}. From the Compose
+              directory, run:
+            </p>
+            <code className="block overflow-x-auto bg-[var(--theme-card)] p-2 text-xs">
+              docker compose pull &amp;&amp; docker compose up -d
+            </code>
+          </div>
+        </AlertBanner>
       ) : null}
-      {error ? (
-        <p className="rounded border border-red-300 bg-red-50 p-3 text-red-700">
-          {error}
-        </p>
-      ) : null}
+      {error ? <AlertBanner tone="danger">{error}</AlertBanner> : null}
       <p className="text-xs text-neutral-500">
         Public share downloads expose this server’s hostname and IP address to
         viewers.
       </p>
-    </main>
+    </PageScaffold>
   );
 };
 

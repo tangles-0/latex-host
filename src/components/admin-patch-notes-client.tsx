@@ -6,6 +6,7 @@ import PatchNotesList, {
   type PatchNoteEntry,
   type PatchNoteSummary,
 } from "@/components/patch-notes-list";
+import { TermButton } from "@/components/ui/term-button";
 
 export default function AdminPatchNotesClient({
   initialNotes,
@@ -96,13 +97,12 @@ export default function AdminPatchNotesClient({
   return (
     <section className="space-y-4">
       <div className="flex justify-end">
-        <button
-          type="button"
+        <TermButton
+          variant="primary"
           onClick={openCreate}
-          className="rounded bg-black px-3 py-2 text-xs text-white"
         >
           Publish new patch notes
-        </button>
+        </TermButton>
       </div>
 
       {error ? <p className="text-xs text-red-600">{error}</p> : null}

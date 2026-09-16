@@ -1,36 +1,37 @@
-import Link from "next/link";
-import { ReportAbuseForm } from "@/components/report-abuse-form";
-import { getTurnstileSiteKey } from "@/lib/turnstile";
+import Link from "next/link"
+import { ReportAbuseForm } from "@/components/report-abuse-form"
+import { getTurnstileSiteKey } from "@/lib/turnstile"
+import { PageScaffold } from "@/components/ui/page-scaffold"
+import { SectionHeader } from "@/components/ui/section-header"
+import Panel from "@/components/ui/panel"
 
 export const metadata = {
   title: "Report abuse — latex",
-  description: "Report abusive or malicious shared files on latex.gg.",
-};
+  description: "Report abusive or malicious shared files on latex.gg."
+}
 
-export default function ReportAbusePage() {
-  const turnstileSiteKey = getTurnstileSiteKey();
+const ReportAbusePage = () => {
+  const turnstileSiteKey = getTurnstileSiteKey()
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-6 py-10 text-sm">
-      <header className="space-y-2">
-        <p className="text-xs text-neutral-500">
+    <PageScaffold width="narrow">
+      <SectionHeader
+        title="report abuse"
+        subtitle="Flag public share links that host malware, illegal content, or other abuse. No account required."
+        actions={
           <Link
             href="/"
-            className="underline"
+            className="term-btn"
           >
-            ← home
+            home
           </Link>
-        </p>
-        <h1 className="text-2xl font-semibold text-neutral-900">Report abuse</h1>
-        <p className="text-neutral-600">
-          Flag public share links that host malware, illegal content, or other
-          abuse. No account required. Limited to two submissions per hour.
-        </p>
-      </header>
-
-      <section className="rounded-md border border-neutral-200 bg-white p-4 sm:p-6">
+        }
+      />
+      <Panel>
         <ReportAbuseForm turnstileSiteKey={turnstileSiteKey} />
-      </section>
-    </main>
-  );
+      </Panel>
+    </PageScaffold>
+  )
 }
+
+export default ReportAbusePage

@@ -67,8 +67,8 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col gap-4 px-6 py-6 text-sm sm:py-10">
-      <section className="space-y-3 rounded-md border border-neutral-200 p-4">
+    <main className="page-scaffold page-scaffold-narrow">
+      <section className="space-y-3 border border-neutral-200 bg-[var(--theme-card)] p-4">
         <h1 className="text-lg font-medium">reset ur password</h1>
         <p className="text-xs text-neutral-600">
           enter a new password with letters and numbers. minimum length is 7.
@@ -79,7 +79,7 @@ export default function ResetPasswordPage() {
             type="password"
             placeholder="new password"
             autoComplete="new-password"
-            className="w-full rounded border px-2 py-1"
+            className="w-full term-input"
             disabled={isSubmitting}
           />
           <input
@@ -87,11 +87,11 @@ export default function ResetPasswordPage() {
             type="password"
             placeholder="confirm new password"
             autoComplete="new-password"
-            className="w-full rounded border px-2 py-1"
+            className="w-full term-input"
             disabled={isSubmitting}
           />
           <button
-            className="rounded bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-70"
+            className="term-btn primary disabled:cursor-not-allowed disabled:opacity-70"
             type="submit"
             disabled={isSubmitting}
           >

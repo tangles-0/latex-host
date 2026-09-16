@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 
+import Panel from "@/components/ui/panel";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput, TermTextarea } from "@/components/ui/term-input";
+
 type AppSettings = {
   motd: string;
   costThisMonth: number;
@@ -64,12 +68,11 @@ export default function AdminSettings({ initial }: { initial: AppSettings }) {
   
 
   return (
-    <section className="space-y-3 rounded border border-neutral-200 p-4">
+    <Panel className="space-y-3">
       <h2 className="text-sm font-medium">Site settings</h2>
       <div className="space-y-2">
         <label className="text-xs text-neutral-500">MOTD</label>
-        <textarea
-          className="w-full rounded border px-3 py-2 text-xs"
+        <TermTextarea
           rows={3}
           value={motd}
           onChange={(event) => setMotd(event.target.value)}
@@ -78,8 +81,7 @@ export default function AdminSettings({ initial }: { initial: AppSettings }) {
       <div className="grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
           Cost this month
-          <input
-            className="rounded border px-3 py-2 text-xs"
+          <TermInput
             type="number"
             min={0}
             value={cost}
@@ -88,8 +90,7 @@ export default function AdminSettings({ initial }: { initial: AppSettings }) {
         </label>
         <label className="flex flex-col gap-1 text-xs">
           Funded this month
-          <input
-            className="rounded border px-3 py-2 text-xs"
+          <TermInput
             type="number"
             min={0}
             value={funded}
@@ -100,8 +101,7 @@ export default function AdminSettings({ initial }: { initial: AppSettings }) {
       <div className="grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
           Donate URL
-          <input
-            className="rounded border px-3 py-2 text-xs"
+          <TermInput
             placeholder="https://..."
             value={donateUrl}
             onChange={(event) => setDonateUrl(event.target.value)}
@@ -109,8 +109,7 @@ export default function AdminSettings({ initial }: { initial: AppSettings }) {
         </label>
         <label className="flex flex-col gap-1 text-xs">
           Chunked upload threshold (MB)
-          <input
-            className="rounded border px-3 py-2 text-xs"
+          <TermInput
             type="number"
             min={1}
             value={resumableThresholdMb}
@@ -153,18 +152,17 @@ export default function AdminSettings({ initial }: { initial: AppSettings }) {
         </label>
       </div>
       <div className="flex items-center gap-3 text-xs">
-        <button
-          type="button"
+        <TermButton
+          variant="primary"
           onClick={() => void save()}
-          className="rounded bg-black px-3 py-2 text-white"
         >
           Save settings
-        </button>
+        </TermButton>
         {saved ? <span className="text-emerald-600">Saved</span> : null}
         {error ? <span className="text-red-600">{error}</span> : null}
       </div>
 
-    </section>
+    </Panel>
   );
 }
 

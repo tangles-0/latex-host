@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import AlertBanner from "@/components/ui/alert-banner";
 import Panel from "@/components/ui/panel";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput, TermTextarea } from "@/components/ui/term-input";
 import { validatePublicKeyArmored } from "@/lib/pgp-client";
 import { isValidVerifyCodeFormat } from "@/lib/pgp-verify-code";
 
@@ -55,6 +61,7 @@ export default function AccountClient({
   initialApiKeys = [],
   initialDeviceCode = "",
   nodeMode = false,
+  nodesPanel = null,
 }: {
   username: string;
   email: string;
@@ -63,7 +70,10 @@ export default function AccountClient({
   initialApiKeys?: ApiKeyRow[];
   initialDeviceCode?: string;
   nodeMode?: boolean;
+  nodesPanel?: ReactNode;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [key, setKey] = useState<PgpKeyState>(initialKey);
   const [devices, setDevices] = useState(initialDevices);
   const [apiKeys, setApiKeys] = useState<ApiKeyRow[]>(initialApiKeys);
@@ -355,12 +365,44 @@ export default function AccountClient({
 
   const activeDevices = devices.filter((device) => !device.isRevoked);
   const activeApiKeys = apiKeys.filter((apiKey) => !apiKey.isRevoked);
+  const defaultTab = initialDeviceCode ? "devices" : "profile";
+  const tab = searchParams.get("tab") ?? defaultTab;
+  const setTab = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", next);
+    router.replace(`/account?${params.toString()}`, { scroll: false });
+  };
+  const tabs = nodeMode
+    ? [
+        { id: "profile", label: "profile" },
+        { id: "keys", label: "api keys" }
+      ]
+    : [
+        { id: "profile", label: "profile" },
+        { id: "keys", label: "api keys" },
+        { id: "devices", label: "devices" },
+        { id: "pgp", label: "pgp" },
+        { id: "nodes", label: "nodes" }
+      ];
 
   return (
     <div className="space-y-6">
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="text-sm text-[var(--theme-accent-danger)]">{error}</p> : null}
       {info ? <p className="text-sm text-neutral-600">{info}</p> : null}
 
+      <div className="account-tabs">
+        {tabs.map(item => (
+          <TermButton
+            key={item.id}
+            active={tab === item.id}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </TermButton>
+        ))}
+      </div>
+
+      {tab === "profile" ? (
       <Panel>
         <h2 className="text-base font-semibold">Profile</h2>
         <dl className="mt-3 space-y-2 text-sm">
@@ -380,7 +422,9 @@ export default function AccountClient({
           </p>
         ) : null}
       </Panel>
+      ) : null}
 
+      {tab === "keys" ? (
       <Panel>
         <h2 className="text-base font-semibold">API keys</h2>
         <p className="mt-1 text-xs text-neutral-500">
@@ -391,20 +435,20 @@ export default function AccountClient({
         </p>
         <label className="mt-4 block text-xs text-neutral-500">
           Description
-          <input
+          <TermInput
             value={apiKeyDescription}
             onChange={(event) => setApiKeyDescription(event.target.value)}
-            className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 text-sm outline-none"
+            className="mt-1 w-full"
             placeholder="CI upload script"
             maxLength={200}
           />
         </label>
         <label className="mt-3 block text-xs text-neutral-500">
           Domain whitelist (optional)
-          <textarea
+          <TermTextarea
             value={apiKeyDomains}
             onChange={(event) => setApiKeyDomains(event.target.value)}
-            className="mt-1 min-h-[72px] w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs outline-none"
+            className="mt-1 min-h-[72px] w-full font-mono text-xs"
             placeholder={"example.com\n*.example.com"}
             spellCheck={false}
           />
@@ -413,42 +457,42 @@ export default function AccountClient({
           Hosts only, comma or newline separated. Leave empty to allow any
           origin (and curl). Domains cannot be edited later.
         </p>
-        <button
-          type="button"
+        <TermButton
+          variant="primary"
+          className="mt-3"
           disabled={isCreatingApiKey || !apiKeyDescription.trim()}
           onClick={() => {
             void createApiKey();
           }}
-          className="mt-3 rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
         >
           {isCreatingApiKey ? "Creating…" : "Create API key"}
-        </button>
+        </TermButton>
 
         {createdApiKeyToken ? (
-          <div className="mt-4 space-y-2 rounded border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm text-amber-900">
-              Copy this key now. It will not be shown again after you leave or
-              refresh this page.
-            </p>
-            <code className="block break-all font-mono text-xs text-amber-950">
-              {createdApiKeyToken}
-            </code>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(createdApiKeyToken)
-                  .then(() => {
-                    setDidCopyApiKey(true);
-                    setInfo("API key copied to clipboard.");
-                    window.setTimeout(() => setDidCopyApiKey(false), 2000);
-                  });
-              }}
-              className="rounded border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900"
-            >
-              {didCopyApiKey ? "Copied" : "Copy key"}
-            </button>
-          </div>
+          <AlertBanner tone="warning">
+            <div className="mt-1 space-y-2">
+              <p>
+                Copy this key now. It will not be shown again after you leave or
+                refresh this page.
+              </p>
+              <code className="block break-all font-mono text-xs">
+                {createdApiKeyToken}
+              </code>
+              <TermButton
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(createdApiKeyToken)
+                    .then(() => {
+                      setDidCopyApiKey(true);
+                      setInfo("API key copied to clipboard.");
+                      window.setTimeout(() => setDidCopyApiKey(false), 2000);
+                    });
+                }}
+              >
+                {didCopyApiKey ? "Copied" : "Copy key"}
+              </TermButton>
+            </div>
+          </AlertBanner>
         ) : null}
 
         <div className="mt-6 border-t border-neutral-200 pt-4">
@@ -495,25 +539,24 @@ export default function AccountClient({
                         : "any"}
                     </div>
                   </div>
-                  <button
-                    type="button"
+                  <TermButton
+                    variant="danger"
                     disabled={revokingApiKeyId === apiKey.id}
                     onClick={() => {
                       void revokeApiKey(apiKey.id);
                     }}
-                    className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-700 disabled:opacity-50"
                   >
                     {revokingApiKeyId === apiKey.id ? "Revoking…" : "Revoke"}
-                  </button>
+                  </TermButton>
                 </li>
               ))}
             </ul>
           )}
         </div>
       </Panel>
+      ) : null}
 
-      {!nodeMode ? (
-        <>
+      {!nodeMode && tab === "devices" ? (
           <Panel>
             <h2 className="text-base font-semibold">TUI / device login</h2>
             <p className="mt-1 text-xs text-neutral-500">
@@ -522,28 +565,28 @@ export default function AccountClient({
             </p>
             <label className="mt-4 block text-xs text-neutral-500">
               Device code
-              <input
+              <TermInput
                 value={deviceCode}
                 onChange={(event) =>
                   setDeviceCode(event.target.value.toUpperCase())
                 }
-                className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-sm outline-none"
+                className="mt-1 w-full font-mono"
                 placeholder="ABCD-EFGH"
                 autoComplete="off"
                 spellCheck={false}
                 maxLength={12}
               />
             </label>
-            <button
-              type="button"
+            <TermButton
+              variant="primary"
+              className="mt-3"
               disabled={isApprovingDevice || !deviceCode.trim()}
               onClick={() => {
                 void approveDevice();
               }}
-              className="mt-3 rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
             >
               {isApprovingDevice ? "Approving…" : "Approve device"}
-            </button>
+            </TermButton>
 
             <div className="mt-6 border-t border-neutral-200 pt-4">
               <div className="flex items-center justify-between gap-3">
@@ -585,43 +628,42 @@ export default function AccountClient({
                           Scopes: {device.scopes}
                         </div>
                       </div>
-                      <button
-                        type="button"
+                      <TermButton
+                        variant="danger"
                         disabled={revokingDeviceId === device.id}
                         onClick={() => {
                           void revokeDevice(device.id);
                         }}
-                        className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-700 disabled:opacity-50"
                       >
                         {revokingDeviceId === device.id
                           ? "Revoking…"
                           : "Revoke"}
-                      </button>
+                      </TermButton>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
           </Panel>
+      ) : null}
 
+      {!nodeMode && tab === "pgp" ? (
+        <>
           <Panel>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold">PGP key</h2>
                 <p className="mt-1 text-xs text-neutral-500">
-                  Public keys only. Private keys never leave your machine.
+                  Public keys only. Private keys never leave your machine.{" "}
+                  <Link href="/messages" className="underline text-[var(--theme-accent-2)]">
+                    open messages
+                  </Link>
                 </p>
               </div>
               {key ? (
-                <span
-                  className={`rounded px-2 py-1 text-xs ${
-                    key.status === "claimed"
-                      ? "bg-emerald-50 text-emerald-700"
-                      : "bg-amber-50 text-amber-700"
-                  }`}
-                >
+                <StatusBadge tone={key.status === "claimed" ? "ok" : "pend"}>
                   {key.status === "claimed" ? "Claimed" : "Unclaimed"}
-                </span>
+                </StatusBadge>
               ) : null}
             </div>
 
@@ -634,8 +676,8 @@ export default function AccountClient({
                   </code>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
+                  <TermButton
+                    variant="primary"
                     onClick={() => {
                       void navigator.clipboard
                         .writeText(key.publicKeyArmored)
@@ -648,10 +690,9 @@ export default function AccountClient({
                           );
                         });
                     }}
-                    className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-xs text-white"
                   >
                     {didCopyPublicKey ? "Copied" : "Copy public key"}
-                  </button>
+                  </TermButton>
                   <span className="text-xs text-neutral-500">
                     Share this with people who want to message you.
                   </span>
@@ -673,30 +714,29 @@ export default function AccountClient({
               <div className="mt-4 space-y-3">
                 <label className="block text-xs text-neutral-500">
                   Paste armored public key
-                  <textarea
+                  <TermTextarea
                     value={publicKeyArmored}
                     onChange={(event) =>
                       setPublicKeyArmored(event.target.value)
                     }
                     spellCheck={false}
-                    className="mt-1 min-h-[160px] w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs outline-none"
+                    className="mt-1 min-h-[160px] w-full font-mono text-xs"
                     placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
                   />
                 </label>
-                <button
-                  type="button"
+                <TermButton
+                  variant="primary"
                   disabled={isSaving || !publicKeyArmored.trim()}
                   onClick={() => {
                     void saveKey();
                   }}
-                  className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
                 >
                   {isSaving
                     ? "Validating & saving…"
                     : key
                       ? "Update key & new challenge"
                       : "Save key"}
-                </button>
+                </TermButton>
               </div>
             ) : null}
 
@@ -715,10 +755,10 @@ export default function AccountClient({
                 </p>
                 <label className="block text-xs text-neutral-500">
                   Decrypted verification code
-                  <input
+                  <TermInput
                     value={verifyCode}
                     onChange={(event) => setVerifyCode(event.target.value)}
-                    className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-sm outline-none"
+                    className="mt-1 w-full font-mono"
                     autoComplete="off"
                     spellCheck={false}
                     maxLength={64}
@@ -726,51 +766,50 @@ export default function AccountClient({
                     pattern="[0-9a-fA-F]+"
                   />
                 </label>
-                <button
-                  type="button"
+                <TermButton
+                  variant="primary"
                   disabled={isVerifying || !verifyCode.trim()}
                   onClick={() => {
                     void verifyKey();
                   }}
-                  className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
                 >
                   {isVerifying ? "Verifying…" : "Verify ownership"}
-                </button>
+                </TermButton>
               </div>
             ) : null}
           </Panel>
 
-          <Panel className="border-red-200 bg-red-50">
-            <h2 className="text-base font-semibold text-red-700">
+          <Panel>
+            <h2 className="text-base font-semibold">
               Danger zone
             </h2>
-            <p className="mt-1 text-xs text-red-700">
+            <p className="mt-1 text-xs text-neutral-500">
               Destructive actions. Deleting a claimed PGP key removes all
               messages and sender hashes for that fingerprint.
             </p>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
+              <TermButton
+                variant="danger"
                 disabled={!key || isDeletingKey}
                 onClick={() => {
                   void deleteKey();
                 }}
-                className="rounded border border-red-200 bg-white px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
               >
                 {isDeletingKey ? "Deleting…" : "Delete PGP key"}
-              </button>
-              <button
-                type="button"
+              </TermButton>
+              <TermButton
+                variant="danger"
                 disabled
                 title="Coming soon"
-                className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-700 opacity-60"
               >
                 Delete account (coming soon)
-              </button>
+              </TermButton>
             </div>
           </Panel>
         </>
       ) : null}
+
+      {!nodeMode && tab === "nodes" ? nodesPanel : null}
     </div>
   );
 }

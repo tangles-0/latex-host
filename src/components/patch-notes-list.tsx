@@ -5,6 +5,8 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import PatchNoteMarkdown, {
   normalizePatchNoteMarkdown,
 } from "@/components/patch-note-markdown";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TermButton } from "@/components/ui/term-button";
 
 export type PatchNoteSummary = {
   id: string;
@@ -216,35 +218,32 @@ export default function PatchNotesList({
               </div>
               {editable ? (
                 <div className="flex items-center gap-2 text-xs">
-                  <button
-                    type="button"
+                  <TermButton
                     onClick={(event) => {
                       event.stopPropagation();
                       void handleEdit(note);
                     }}
-                    className="rounded border border-neutral-300 px-2 py-1"
                     disabled={loadingById[note.id]}
                   >
                     Edit
-                  </button>
-                  <button
-                    type="button"
+                  </TermButton>
+                  <TermButton
+                    variant="danger"
                     onClick={(event) => {
                       event.stopPropagation();
                       onRequestDelete?.(note);
                     }}
-                    className="rounded border border-red-200 px-2 py-1 text-red-600"
                     disabled={loadingById[note.id]}
                   >
                     Delete
-                  </button>
+                  </TermButton>
                 </div>
               ) : null}
             </div>
             {isExpanded ? (
               <div className="mt-3 border-t border-neutral-200 pt-3 text-sm">
                 {loadingById[note.id] ? (
-                  <p className="text-xs text-neutral-500">Loading...</p>
+                  <Skeleton className="h-16 w-full" />
                 ) : null}
                 {errorById[note.id] ? (
                   <p className="text-xs text-red-600">{errorById[note.id]}</p>

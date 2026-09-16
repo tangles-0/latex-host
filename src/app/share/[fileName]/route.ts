@@ -64,12 +64,12 @@ function withPublicImageCors(response: Response): Response {
   });
 }
 
-function getInternalAppOrigin(): string {
+function getInternalAppOrigin(request: NextRequest): string {
   const configured = process.env.INTERNAL_APP_ORIGIN?.trim();
   if (configured) {
-    return configured;
+    return configured.replace(/\/$/, "");
   }
-  return `${process.env.NEXTAUTH_URL ?? ""}`;
+  return request.nextUrl.origin;
 }
 
 function publicCacheHeaders(ext: string): Headers {
@@ -214,7 +214,7 @@ export async function GET(
         const upstream = await fetch(
           new URL(
             `/share/internal-album/${albumShare.id}`,
-            getInternalAppOrigin(),
+            getInternalAppOrigin(request),
           ),
           {
             headers: {
@@ -272,7 +272,10 @@ export async function GET(
           return withPublicImageCors(new Response(note.content, { headers }));
         }
         const upstream = await fetch(
-          new URL(`/share/internal-note/${shareCode}`, getInternalAppOrigin()),
+          new URL(
+            `/share/internal-note/${shareCode}`,
+            getInternalAppOrigin(request),
+          ),
           {
             headers: {
               accept: request.headers.get("accept") ?? "text/html,*/*",

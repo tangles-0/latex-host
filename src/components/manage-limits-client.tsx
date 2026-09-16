@@ -26,6 +26,10 @@ import {
   type GroupLimitRow,
   type GroupLimits
 } from "@/components/manage-limits/limit-options"
+import { StatusBadge } from "@/components/ui/status-badge"
+import { TermButton } from "@/components/ui/term-button"
+import { TermInput } from "@/components/ui/term-input"
+import { TermSelect } from "@/components/ui/term-select"
 
 type ScopeId = string
 type SizeField = "maxImageSize" | "maxVideoSize" | "maxDocumentSize" | "maxOtherSize"
@@ -345,10 +349,10 @@ export default function ManageLimitsClient({
           role={toast.tone === "error" ? "alert" : "status"}
           aria-live={toast.tone === "error" ? "assertive" : "polite"}
           className={clsx(
-            "fixed bottom-4 left-4 right-4 z-50 flex max-w-md items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-xl sm:left-auto",
+            "fixed bottom-4 left-4 right-4 z-50 flex max-w-md items-start gap-3 border bg-[var(--theme-card)] px-4 py-3 text-sm sm:left-auto",
             toast.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              ? "border-emerald-200 text-emerald-700"
+              : "border-red-200 text-red-700"
           )}
         >
           {toast.tone === "success" ? (
@@ -369,16 +373,14 @@ export default function ManageLimitsClient({
       ) : null}
 
       <aside className="min-w-0 lg:sticky lg:top-6">
-        <div className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
+        <div className="border border-neutral-200 bg-[var(--theme-card)] p-4">
           <div className="flex items-center justify-between px-2 pb-3">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Policy scopes</h2>
               <p className="mt-1 text-[11px] text-neutral-400">{scopes.length} configurable scopes</p>
             </div>
             {dirtyScopeCount > 0 ? (
-              <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">
-                {dirtyScopeCount} unsaved
-              </span>
+              <StatusBadge tone="pend">{`${dirtyScopeCount} unsaved`}</StatusBadge>
             ) : null}
           </div>
 
@@ -396,16 +398,16 @@ export default function ManageLimitsClient({
                     setIsSyncOpen(false)
                   }}
                   className={clsx(
-                    "flex min-w-52 shrink-0 items-center gap-3 rounded-xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 lg:w-full lg:min-w-0",
+                    "flex min-w-52 shrink-0 items-center gap-3 border px-3 py-3 text-left disabled:cursor-not-allowed disabled:opacity-60 lg:w-full lg:min-w-0",
                     isActive
-                      ? "border-neutral-300 bg-neutral-100 text-neutral-900"
-                      : "border-transparent text-neutral-700 hover:border-neutral-200 hover:bg-neutral-50"
+                      ? "border-neutral-200 bg-[var(--theme-card)]"
+                      : "border-transparent hover:border-neutral-200"
                   )}
                 >
                   <span
                     className={clsx(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-                      isActive ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                      "flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-200",
+                      isActive ? "bg-[var(--theme-card)]" : "text-neutral-500"
                     )}
                   >
                     {scope.id === "default" ? <Users className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
@@ -423,7 +425,7 @@ export default function ManageLimitsClient({
                     </span>
                     <span className="mt-0.5 block text-[10px] text-neutral-500">{scope.description}</span>
                   </span>
-                  <span className="rounded-full bg-neutral-50 px-2 py-0.5 text-[10px] font-medium text-neutral-500">
+                  <span className="border border-neutral-200 px-2 py-0.5 text-[10px] text-neutral-500">
                     {scope.limits.allowedTypes.length === 0 ? "All" : scope.limits.allowedTypes.length}
                   </span>
                 </button>
@@ -434,59 +436,54 @@ export default function ManageLimitsClient({
       </aside>
 
       <main className="min-w-0 space-y-5">
-        <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-          <div className="border-b border-neutral-200 bg-neutral-50 px-4 py-5 sm:px-6">
+        <section className="overflow-hidden border border-neutral-200 bg-[var(--theme-card)]">
+          <div className="border-b border-neutral-200 px-4 py-5 sm:px-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-widest text-neutral-500">
                   {activeScope.id === "default" ? "Default policy" : "Group policy"}
                   {isActiveDirty ? (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 normal-case tracking-normal text-amber-800">
-                      Unsaved changes
-                    </span>
+                    <StatusBadge tone="pend">Unsaved changes</StatusBadge>
                   ) : (
-                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 normal-case tracking-normal text-emerald-700">
-                      Saved
-                    </span>
+                    <StatusBadge tone="ok">Saved</StatusBadge>
                   )}
                 </div>
-                <h2 className="mt-2 text-xl font-semibold text-neutral-900">{activeScope.name}</h2>
+                <h2 className="mt-2 text-xl font-semibold">{activeScope.name}</h2>
                 <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-500">
                   {activeScope.id === "default"
                     ? "Applies to users who are not assigned to a group."
                     : "Overrides the ungrouped policy for every user assigned to this group."}
                 </p>
               </div>
-              <button
-                type="button"
+              <TermButton
+                variant="primary"
                 onClick={() => void saveActiveScope()}
                 disabled={busyAction !== null || !isActiveDirty}
                 aria-busy={busyAction === "save"}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-black px-4 text-xs font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busyAction === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {busyAction === "save" ? "Saving..." : "Save changes"}
-              </button>
+              </TermButton>
             </div>
           </div>
 
           <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-2">
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+            <div className="border border-neutral-200 bg-[var(--theme-card)] p-4">
               <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-600 shadow-sm">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-neutral-200 text-neutral-500">
                   <Copy className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-xs font-semibold text-neutral-900">Copy settings into this editor</h3>
+                  <h3 className="text-xs font-semibold">Copy settings into this editor</h3>
                   <p className="mt-0.5 text-[11px] text-neutral-500">
                     Start from another scope, then review before saving.
                   </p>
                   {availableSources.length > 0 ? (
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <select
+                      <TermSelect
                         value={effectiveCopySourceId}
                         onChange={event => setCopySourceId(event.target.value)}
-                        className="h-9 min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-2 text-xs outline-none"
+                        className="min-w-0 flex-1"
                       >
                         {availableSources.map(scope => (
                           <option
@@ -497,18 +494,16 @@ export default function ManageLimitsClient({
                             {isScopeDirty(scope.id) ? " (unsaved draft)" : ""}
                           </option>
                         ))}
-                      </select>
-                      <button
-                        type="button"
+                      </TermSelect>
+                      <TermButton
                         onClick={copyFromScope}
                         disabled={busyAction !== null}
-                        className="h-9 rounded-lg border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
                       >
                         Copy into editor
-                      </button>
+                      </TermButton>
                     </div>
                   ) : (
-                    <p className="mt-3 text-[11px] text-neutral-400">
+                    <p className="mt-3 text-[11px] text-neutral-500">
                       Create another group to copy settings between scopes.
                     </p>
                   )}
@@ -516,34 +511,34 @@ export default function ManageLimitsClient({
               </div>
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+            <div className="border border-neutral-200 bg-[var(--theme-card)] p-4">
               <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-600 shadow-sm">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-neutral-200 text-neutral-500">
                   <ArrowRightLeft className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-xs font-semibold text-neutral-900">Synchronize scopes</h3>
+                  <h3 className="text-xs font-semibold">Synchronize scopes</h3>
                   <p className="mt-0.5 text-[11px] text-neutral-500">
                     Save these settings here and apply the same policy to selected groups.
                   </p>
-                  <button
-                    type="button"
+                  <TermButton
+                    variant="primary"
+                    className="mt-3"
                     onClick={() => setIsSyncOpen(current => !current)}
                     disabled={availableTargets.length === 0 || busyAction !== null}
-                    className="mt-3 h-9 rounded-lg bg-black px-3 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {isSyncOpen ? "Close sync options" : "Choose sync targets"}
-                  </button>
+                  </TermButton>
                 </div>
               </div>
             </div>
           </div>
 
           {isSyncOpen ? (
-            <div className="border-t border-neutral-200 bg-neutral-50 p-4 sm:p-5">
+            <div className="border-t border-neutral-200 p-4 sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-neutral-900">Apply {activeScope.name} settings to</h3>
+                  <h3 className="text-sm font-semibold">Apply {activeScope.name} settings to</h3>
                   <p className="mt-1 text-xs text-neutral-500">
                     This saves the current scope and replaces every selected target’s complete limits policy.
                   </p>
@@ -577,16 +572,16 @@ export default function ManageLimitsClient({
                       aria-checked={isSelected}
                       onClick={() => toggleSyncTarget(scope.id)}
                       className={clsx(
-                        "flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
+                        "flex items-center gap-3 border px-3 py-3 text-left",
                         isSelected
-                          ? "border-neutral-800 bg-white text-neutral-900 shadow-sm"
-                          : "border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-white"
+                          ? "border-neutral-200 bg-[var(--theme-card)]"
+                          : "border-neutral-200 hover:border-neutral-200"
                       )}
                     >
                       <span
                         className={clsx(
-                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                          isSelected ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300 bg-white"
+                          "flex h-5 w-5 shrink-0 items-center justify-center border",
+                          isSelected ? "border-neutral-200 bg-[var(--theme-card)]" : "border-neutral-200"
                         )}
                       >
                         {isSelected ? (
@@ -604,18 +599,17 @@ export default function ManageLimitsClient({
                   )
                 })}
               </div>
-              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-neutral-600">
+              <div className="mt-4 flex flex-col gap-3 border border-neutral-200 bg-[var(--theme-card)] p-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-neutral-500">
                   {selectedTargets.length === 0
                     ? "Select at least one target scope."
                     : `${selectedTargets.length} target ${selectedTargets.length === 1 ? "scope" : "scopes"} selected.`}
                 </p>
-                <button
-                  type="button"
+                <TermButton
+                  variant="primary"
                   onClick={() => void saveAndSync()}
                   disabled={selectedTargets.length === 0 || busyAction !== null}
                   aria-busy={busyAction === "sync"}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-black px-4 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {busyAction === "sync" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -623,23 +617,23 @@ export default function ManageLimitsClient({
                     <ArrowRightLeft className="h-4 w-4" />
                   )}
                   {busyAction === "sync" ? "Synchronizing..." : `Save & apply to ${selectedTargets.length || 0}`}
-                </button>
+                </TermButton>
               </div>
             </div>
           ) : null}
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+        <section className="border border-neutral-200 bg-[var(--theme-card)] p-4">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-200 text-neutral-500">
               <Sparkles className="h-4 w-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-semibold text-neutral-900">Image generation access</h3>
+              <h3 className="text-sm font-semibold">Image generation access</h3>
               <p className="mt-1 text-xs text-neutral-500">
                 Allow users in this scope to submit image generation requests.
               </p>
-              <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+              <label className="mt-4 flex cursor-pointer items-center gap-3 border border-neutral-200 p-3">
                 <input
                   type="checkbox"
                   checked={activeLimits.imageGenerationEnabled}
@@ -650,21 +644,21 @@ export default function ManageLimitsClient({
                       imageGenerationEnabled: event.target.checked
                     }))
                   }
-                  className="h-4 w-4 rounded border-neutral-300"
+                  className="h-4 w-4 border-neutral-200"
                 />
-                <span className="text-xs font-medium text-neutral-700">Enable image generation</span>
+                <span className="text-xs font-medium">Enable image generation</span>
               </label>
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+        <section className="border border-neutral-200 bg-[var(--theme-card)] p-4">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-200 text-neutral-500">
               <HardDrive className="h-4 w-4" />
             </span>
             <div>
-              <h3 className="text-sm font-semibold text-neutral-900">Upload size limits</h3>
+              <h3 className="text-sm font-semibold">Upload size limits</h3>
               <p className="mt-1 text-xs text-neutral-500">Set the maximum upload size for each type of content.</p>
             </div>
           </div>
@@ -676,27 +670,26 @@ export default function ManageLimitsClient({
               return (
                 <label
                   key={field.key}
-                  className="rounded-xl border border-neutral-200 bg-neutral-50 p-3"
+                  className="border border-neutral-200 bg-[var(--theme-card)] p-4"
                 >
-                  <span className="block text-xs font-semibold text-neutral-900">{field.label}</span>
+                  <span className="block text-xs font-semibold">{field.label}</span>
                   <span className="mt-0.5 block text-[10px] text-neutral-500">{field.description}</span>
-                  <span className="mt-3 flex overflow-hidden rounded-lg border border-neutral-300 bg-white">
-                    <input
+                  <span className="mt-3 flex gap-2">
+                    <TermInput
                       type="number"
                       min={0.01}
                       step="any"
                       value={Number.isFinite(displayValue) ? Number(displayValue.toFixed(2)) : 0}
                       onChange={event => updateSize(field.key, event.target.value)}
-                      className="h-9 min-w-0 flex-1 bg-transparent px-2.5 text-sm outline-none"
+                      className="min-w-0 flex-1"
                     />
-                    <select
+                    <TermSelect
                       value={unit}
                       onChange={event => updateUnit(field.key, event.target.value as Unit)}
-                      className="h-9 border-l border-neutral-200 bg-neutral-50 px-2 text-xs font-medium outline-none"
                     >
                       <option value="MB">MB</option>
                       <option value="GB">GB</option>
-                    </select>
+                    </TermSelect>
                   </span>
                 </label>
               )
@@ -704,22 +697,22 @@ export default function ManageLimitsClient({
           </div>
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+        <section className="border border-neutral-200 bg-[var(--theme-card)] p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-200 text-neutral-500">
                 <Gauge className="h-4 w-4" />
               </span>
               <div>
-                <h3 className="text-sm font-semibold text-neutral-900">Upload rate limit</h3>
+                <h3 className="text-sm font-semibold">Upload rate limit</h3>
                 <p className="mt-1 text-xs text-neutral-500">
                   Maximum uploads per minute. Use 0 for no rate limit; admins are not blocked.
                 </p>
               </div>
             </div>
-            <label className="flex shrink-0 items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2">
-              <span className="pl-1 text-[11px] font-medium text-neutral-600">Uploads / minute</span>
-              <input
+            <label className="flex shrink-0 items-center gap-2 border border-neutral-200 p-2">
+              <span className="pl-1 text-[11px] font-medium text-neutral-500">Uploads / minute</span>
+              <TermInput
                 type="number"
                 min={0}
                 value={activeLimits.rateLimitPerMinute}
@@ -729,7 +722,7 @@ export default function ManageLimitsClient({
                     rateLimitPerMinute: Number(event.target.value)
                   }))
                 }
-                className="h-9 w-24 rounded-lg border border-neutral-300 bg-white px-2 text-right text-sm outline-none"
+                className="w-24 text-right"
               />
             </label>
           </div>
@@ -740,9 +733,9 @@ export default function ManageLimitsClient({
           onChange={allowedTypes => updateActiveDraft(current => ({ ...current, allowedTypes }))}
         />
 
-        <div className="sticky bottom-3 z-20 flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xl sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-3 z-20 flex flex-col gap-3 border border-neutral-200 bg-[var(--theme-card)] p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-neutral-900">
+            <p className="text-xs font-semibold">
               {isActiveDirty ? "You have unsaved changes" : `${activeScope.name} is up to date`}
             </p>
             <p className="mt-0.5 text-[10px] text-neutral-500">
@@ -752,25 +745,22 @@ export default function ManageLimitsClient({
             </p>
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
+            <TermButton
               onClick={resetActiveDraft}
               disabled={!isActiveDirty || busyAction !== null}
-              className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-neutral-300 px-3 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               Discard
-            </button>
-            <button
-              type="button"
+            </TermButton>
+            <TermButton
+              variant="primary"
               onClick={() => void saveActiveScope()}
               disabled={!isActiveDirty || busyAction !== null}
               aria-busy={busyAction === "save"}
-              className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-black px-4 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
             >
               {busyAction === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {busyAction === "save" ? "Saving..." : "Save changes"}
-            </button>
+            </TermButton>
           </div>
         </div>
       </main>

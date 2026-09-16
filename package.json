@@ -18,6 +18,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:list": "playwright test --list",
+    "format": "prettier --cache --write .",
     "test:api-v1": "tsx scripts/api-v1-harness/run.ts",
     "worker:fake": "node ./scripts/dev/fake-preview-worker.mjs"
   },

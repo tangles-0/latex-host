@@ -4,7 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { getUserById, isAdminUser, listAlbums } from "@/lib/metadata-store";
 import { listMediaForUser } from "@/lib/media-store";
 import GalleryTabs from "@/components/gallery-tabs";
-import PageHeader from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import { SectionHeader } from "@/components/ui/section-header";
+import TextLink from "@/components/ui/text-link";
 
 export default async function AdminUserGalleryPage({
   params,
@@ -40,11 +42,13 @@ export default async function AdminUserGalleryPage({
     resolvedSearchParams?.tab === "albums" ? "albums" : "files";
 
   return (
-    <main className="flex min-h-screen w-full flex-col gap-2 sm:gap-6 px-2 sm:px-6 py-2 sm:py-10 text-sm">
-      <PageHeader
+    <PageScaffold width="wide">
+      <SectionHeader
         title={`${targetUser.username}'s gallery`}
         subtitle={`${media.length} file${media.length === 1 ? "" : "s"} uploaded. Viewing as admin (read-only).`}
-        backLink={{ href: "/admin/users", label: "cd .. (back 2 users)" }}
+        actions={
+          <TextLink href="/admin/users">cd .. (back 2 users)</TextLink>
+        }
       />
 
       <GalleryTabs
@@ -55,6 +59,6 @@ export default async function AdminUserGalleryPage({
         readOnly
         albumHrefBase={`/admin/users/${userId}/album`}
       />
-    </main>
+    </PageScaffold>
   );
 }

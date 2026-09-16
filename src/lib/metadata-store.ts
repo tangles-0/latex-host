@@ -1512,6 +1512,38 @@ export function getMaxAllowedBytesForKind(
   return limits.maxOtherSize;
 }
 
+export type PublicSiteStats = {
+  userCount: number;
+  fileCount: number;
+};
+
+export async function getPublicSiteStats(): Promise<PublicSiteStats | null> {
+  try {
+    const [userRows, imageRows, videoRows, documentRows, fileRows] =
+      await Promise.all([
+        db.select({ count: sql<number>`count(${users.id})` }).from(users),
+        db.select({ count: sql<number>`count(${images.id})` }).from(images),
+        db.select({ count: sql<number>`count(${videos.id})` }).from(videos),
+        db
+          .select({ count: sql<number>`count(${documents.id})` })
+          .from(documents),
+        db.select({ count: sql<number>`count(${files.id})` }).from(files),
+      ]);
+
+    return {
+      userCount: Number(userRows[0]?.count ?? 0),
+      fileCount:
+        Number(imageRows[0]?.count ?? 0) +
+        Number(videoRows[0]?.count ?? 0) +
+        Number(documentRows[0]?.count ?? 0) +
+        Number(fileRows[0]?.count ?? 0),
+    };
+  } catch (error) {
+    console.error("Failed to load public site stats", error);
+    return null;
+  }
+}
+
 export async function getAdminStats(): Promise<{
   totalBytes: number;
   imageCount: number;
@@ -1639,7 +1671,7 @@ function normalizeResumableThreshold(input: number): number {
   );
 }
 
-const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   motd: "Welcome to latex!.",
   costThisMonth: 0,
   fundedThisMonth: 0,

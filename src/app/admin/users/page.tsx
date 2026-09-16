@@ -1,36 +1,37 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { isAdminUser, listUsersWithStats } from "@/lib/metadata-store";
-import ManageUsersTable from "@/components/manage-users-table";
+import { redirect } from "next/navigation"
+import { getServerSession } from "next-auth/next"
+import { authOptions } from "@/lib/auth"
+import { isAdminUser, listUsersWithStats } from "@/lib/metadata-store"
+import ManageUsersTable from "@/components/manage-users-table"
+import { PageScaffold } from "@/components/ui/page-scaffold"
+import { SectionHeader } from "@/components/ui/section-header"
 
-export default async function ManageUsersPage() {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+const ManageUsersPage = async () => {
+  const session = await getServerSession(authOptions)
+  const userId = (session?.user as { id?: string } | undefined)?.id
   if (!userId) {
-    redirect("/");
+    redirect("/")
   }
 
-  const isAdmin = await isAdminUser(userId);
+  const isAdmin = await isAdminUser(userId)
   if (!isAdmin) {
-    redirect("/gallery");
+    redirect("/gallery")
   }
 
-  const users = await listUsersWithStats();
+  const users = await listUsersWithStats()
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-10 text-sm">
-      <header className="space-y-2">
-        <Link href="/admin" className="text-sm text-neutral-500 underline">
-          Back to admin
-        </Link>
-        <h1 className="text-2xl font-semibold">Manage users</h1>
-        <p className="text-neutral-600">Admin-only access.</p>
-      </header>
-
-      <ManageUsersTable currentUserId={userId} users={users} />
-    </main>
-  );
+    <PageScaffold width="wide">
+      <SectionHeader
+        title="users"
+        subtitle="admin-only access"
+      />
+      <ManageUsersTable
+        currentUserId={userId}
+        users={users}
+      />
+    </PageScaffold>
+  )
 }
 
+export default ManageUsersPage

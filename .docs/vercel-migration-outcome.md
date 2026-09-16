@@ -100,8 +100,8 @@ Fix:
 
 - AWS billing page/backend removed.
 - DB push/migration helper endpoint removed.
-- SQL import/export retained and refactored for pure app-side operation.
-- Storage audit/cleanup tooling added to admin database page.
+- SQL import/export and the admin Database page were removed. Do not reintroduce them.
+- Storage audit/cleanup tooling that lived on the admin Database page was removed with it.
 
 ## Guardrails For Future Agents
 

@@ -18,7 +18,7 @@ const NodeAuthCallbackPage = async ({
     redirect("/");
   }
   return (
-    <main className="mx-auto min-h-screen max-w-xl px-6 py-12">
+    <main className="page-scaffold page-scaffold-narrow">
       <NodeLoginCallback code={code} nodeHash={node} />
     </main>
   );

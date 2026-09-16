@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AbuseReportRow } from "@/lib/abuse-reports";
+import { EmptyState } from "@/components/ui/empty-state";
+import Panel from "@/components/ui/panel";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { TermButton } from "@/components/ui/term-button";
 
 export const AdminAbuseReportsClient = () => {
   const [reports, setReports] = useState<AbuseReportRow[]>([]);
@@ -68,12 +72,9 @@ export const AdminAbuseReportsClient = () => {
       ) : null}
 
       {reports.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white px-6 py-16 text-center">
-          <p className="text-lg font-medium text-neutral-900">Inbox zero</p>
-          <p className="mt-2 text-sm text-neutral-500">
-            No pending abuse reports right now.
-          </p>
-        </div>
+        <EmptyState title="Inbox zero">
+          No pending abuse reports right now.
+        </EmptyState>
       ) : (
         <div className="grid gap-5">
           {reports.map((report) => {
@@ -104,32 +105,28 @@ export const AdminAbuseReportsClient = () => {
             );
 
             return (
-              <article
+              <Panel
                 key={report.id}
-                className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"
+                className="overflow-hidden p-0"
               >
-                <div className="flex flex-col gap-3 border-b border-neutral-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-3 border-b border-neutral-200 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 space-y-1">
-                    <p className="text-xs uppercase tracking-[0.14em] text-neutral-400">
+                    <p className="text-xs uppercase tracking-[0.14em] text-neutral-500">
                       Report · {new Date(report.createdAt).toLocaleString()}
                     </p>
-                    <p className="text-base font-medium leading-snug text-neutral-900">
+                    <p className="text-base font-medium leading-snug">
                       {report.description}
                     </p>
                     <p className="text-xs text-neutral-500">
                       Reporter:{" "}
                       {report.reporterEmail ? (
-                        <span className="text-neutral-700">
-                          {report.reporterEmail}
-                        </span>
+                        <span>{report.reporterEmail}</span>
                       ) : (
                         <span>anonymous</span>
                       )}
                     </p>
                   </div>
-                  <div className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-800">
-                    pending
-                  </div>
+                  <StatusBadge tone="pend">pending</StatusBadge>
                 </div>
 
                 <div className="space-y-4 px-5 py-4">
@@ -141,7 +138,7 @@ export const AdminAbuseReportsClient = () => {
                       {report.resolvedUrls.map((item) => (
                         <li
                           key={`${report.id}-${item.url}`}
-                          className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs"
+                          className="border border-neutral-200 bg-[var(--theme-card)] px-3 py-2 text-xs"
                         >
                           <a
                             href={item.url}
@@ -176,9 +173,9 @@ export const AdminAbuseReportsClient = () => {
                       </h3>
                       <div className="flex flex-wrap gap-2">
                         {owners.map((owner) => (
-                          <button
+                          <TermButton
                             key={owner.userId}
-                            type="button"
+                            variant="danger"
                             disabled={busyId === report.id}
                             onClick={() =>
                               void patchReport(report.id, {
@@ -186,17 +183,16 @@ export const AdminAbuseReportsClient = () => {
                                 userId: owner.userId,
                               })
                             }
-                            className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 disabled:opacity-50"
                           >
                             Ban {owner.username}
-                          </button>
+                          </TermButton>
                         ))}
                       </div>
                     </div>
                   ) : null}
 
-                  <div className="flex flex-col gap-3 border-t border-neutral-100 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                    <label className="inline-flex items-center gap-2 text-xs text-neutral-600">
+                  <div className="flex flex-col gap-3 border-t border-neutral-200 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <label className="inline-flex items-center gap-2 text-xs text-neutral-500">
                       <input
                         type="checkbox"
                         checked={notify}
@@ -214,8 +210,7 @@ export const AdminAbuseReportsClient = () => {
 
                     <div className="flex flex-wrap gap-2">
                       {deletable.length > 0 ? (
-                        <button
-                          type="button"
+                        <TermButton
                           disabled={busyId === report.id}
                           onClick={() =>
                             void patchReport(report.id, {
@@ -227,13 +222,11 @@ export const AdminAbuseReportsClient = () => {
                               })),
                             })
                           }
-                          className="rounded border border-neutral-200 px-3 py-1.5 text-xs disabled:opacity-50"
                         >
                           Delete file(s)
-                        </button>
+                        </TermButton>
                       ) : null}
-                      <button
-                        type="button"
+                      <TermButton
                         disabled={busyId === report.id}
                         onClick={() =>
                           void patchReport(report.id, {
@@ -241,12 +234,11 @@ export const AdminAbuseReportsClient = () => {
                             notifyReporter: notify,
                           })
                         }
-                        className="rounded border border-neutral-200 px-3 py-1.5 text-xs disabled:opacity-50"
                       >
                         Reject
-                      </button>
-                      <button
-                        type="button"
+                      </TermButton>
+                      <TermButton
+                        variant="primary"
                         disabled={busyId === report.id}
                         onClick={() =>
                           void patchReport(report.id, {
@@ -254,14 +246,13 @@ export const AdminAbuseReportsClient = () => {
                             notifyReporter: notify,
                           })
                         }
-                        className="rounded bg-black px-3 py-1.5 text-xs text-white disabled:opacity-50"
                       >
                         Mark action taken
-                      </button>
+                      </TermButton>
                     </div>
                   </div>
                 </div>
-              </article>
+              </Panel>
             );
           })}
         </div>

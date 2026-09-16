@@ -8,7 +8,9 @@ import {
 } from "@/lib/metadata-store";
 import { listMediaForAlbum } from "@/lib/media-store";
 import GalleryClient from "@/components/gallery-client";
-import PageHeader from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import { SectionHeader } from "@/components/ui/section-header";
+import TextLink from "@/components/ui/text-link";
 
 export default async function AdminUserAlbumPage({
   params,
@@ -40,14 +42,15 @@ export default async function AdminUserAlbumPage({
   const media = await listMediaForAlbum(userId, albumId);
 
   return (
-    <main className="flex min-h-screen w-full flex-col gap-6 px-2 sm:px-6 py-2 sm:py-10 text-sm">
-      <PageHeader
+    <PageScaffold width="wide">
+      <SectionHeader
         title={`${targetUser.username} / ${album.name}`}
         subtitle={`${media.length} file${media.length === 1 ? "" : "s"} in this album. Viewing as admin (read-only).`}
-        backLink={{
-          href: `/admin/users/${userId}/gallery?tab=albums`,
-          label: "cd .. (albums)",
-        }}
+        actions={
+          <TextLink href={`/admin/users/${userId}/gallery?tab=albums`}>
+            cd .. (albums)
+          </TextLink>
+        }
       />
 
       <GalleryClient
@@ -60,6 +63,6 @@ export default async function AdminUserAlbumPage({
         showDownloadLinks={album.displayAsDownloadPage}
         isCompactView={album.displayAsCompactView}
       />
-    </main>
+    </PageScaffold>
   );
 }

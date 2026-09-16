@@ -1,35 +1,29 @@
-import clsx from "clsx";
+import clsx from "clsx"
 
 export const SharePill = ({
   isShared,
   shouldShowOff = false,
   absolutePosition = false,
-  className,
+  className
 }: {
-  isShared?: boolean;
-  shouldShowOff?: boolean;
-  absolutePosition?: boolean;
-  className?: string;
+  isShared?: boolean
+  shouldShowOff?: boolean
+  absolutePosition?: boolean
+  className?: string
 }) => {
   if (!isShared && !shouldShowOff) {
-    return null;
+    return null
   }
   return (
     <span
       className={clsx(
-        "rounded px-2 font-medium",
-        absolutePosition
-          ? "absolute left-[calc(50%-40px)] top-1 z-10 py-0.5 sm:left-18"
-          : className
-            ? null
-            : "py-1.5",
-        isShared
-          ? "bg-emerald-600 text-white"
-          : "bg-neutral-200 text-neutral-600",
-        className,
+        isShared && absolutePosition && "share-badge",
+        isShared && !absolutePosition && "status-badge status-badge-shr",
+        !isShared && "status-badge",
+        className
       )}
     >
-      {isShared ? "shared" : "not shared"}
+      {isShared ? (absolutePosition ? "SHR" : "shared") : "not shared"}
     </span>
-  );
-};
+  )
+}

@@ -5,6 +5,9 @@ import clsx from "clsx";
 import Link from "next/link";
 import NoteRichEditor from "@/components/note-rich-editor";
 import Panel from "@/components/ui/panel";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput, TermTextarea } from "@/components/ui/term-input";
 import {
   encryptPlaintextToPublicKey,
   validatePublicKeyArmored,
@@ -356,15 +359,13 @@ export default function MessagesClient({
         <h2 className="text-base font-semibold">
           {isReplying ? "Reply in conversation" : "New encrypted message"}
         </h2>
-        <button
-          type="button"
+        <TermButton
           onClick={() => {
             resetComposeState();
           }}
-          className="text-xs text-neutral-500 underline"
         >
           Cancel
-        </button>
+        </TermButton>
       </div>
       {fingerprintVerificationStatus === "mismatch" ? (
         <div
@@ -399,19 +400,19 @@ export default function MessagesClient({
               {fingerprintVerificationStatus === "verified" ? (
                 <span
                   id="recipient-key-verification-status"
-                  className="absolute -top-2 right-2 z-10 bg-white px-1 text-[10px] font-medium text-green-700"
+                  className="absolute -top-2 right-2 z-10 bg-[var(--theme-card)] px-1 text-[10px] font-medium text-green-700"
                 >
                   verified
                 </span>
               ) : fingerprintVerificationStatus === "mismatch" ? (
                 <span
                   id="recipient-key-verification-status"
-                  className="absolute -top-2 right-2 z-10 bg-white px-1 text-[10px] font-medium text-red-700"
+                  className="absolute -top-2 right-2 z-10 bg-[var(--theme-card)] px-1 text-[10px] font-medium text-red-700"
                 >
                   fingerprint mismatch
                 </span>
               ) : null}
-              <textarea
+              <TermTextarea
                 value={recipientPublicKey}
                 onChange={event => {
                   const nextPublicKey = event.target.value;
@@ -431,12 +432,12 @@ export default function MessagesClient({
                     : undefined
                 }
                 className={clsx(
-                  "min-h-[140px] w-full rounded border px-3 py-2 font-mono text-xs outline-none",
+                  "min-h-[140px] w-full font-mono text-xs",
                   fingerprintVerificationStatus === "verified"
                     ? "border-green-600"
                     : fingerprintVerificationStatus === "mismatch"
                       ? "border-red-600"
-                      : "border-neutral-200",
+                      : undefined,
                 )}
                 placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
               />
@@ -444,7 +445,7 @@ export default function MessagesClient({
           </label>
           <label className="block text-xs text-neutral-500">
             Verify Public Key with Fingerprint
-            <input
+            <TermInput
               type="text"
               value={recipientFingerprintToVerify}
               onChange={event => {
@@ -457,7 +458,7 @@ export default function MessagesClient({
               spellCheck={false}
               autoCapitalize="none"
               autoComplete="off"
-              className="mt-1 w-full rounded border border-neutral-200 px-3 py-2 font-mono text-xs uppercase outline-none"
+              className="mt-1 w-full font-mono text-xs uppercase"
               placeholder="40-character PGP fingerprint"
             />
           </label>
@@ -482,8 +483,8 @@ export default function MessagesClient({
         The body is encrypted in your browser to that public key before upload. Plaintext never
         reaches the server.
       </p>
-      <button
-        type="button"
+      <TermButton
+        variant="primary"
         disabled={
           isSending ||
           !recipientPublicKey.trim() ||
@@ -494,10 +495,9 @@ export default function MessagesClient({
         onClick={() => {
           void sendMessage();
         }}
-        className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
       >
         {isSending ? "Encrypting & sending…" : isReplying ? "Encrypt & reply" : "Encrypt & send"}
-      </button>
+      </TermButton>
     </div>
   );
 
@@ -509,12 +509,13 @@ export default function MessagesClient({
           Claim a PGP key on your Account page before you can view messages. Until then, this page
           will not show whether any mail exists.
         </p>
-        <Link
-          href="/account"
-          className="mt-4 inline-flex rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white"
+        <TermButton
+          variant="primary"
+          href="/account?tab=pgp"
+          className="mt-4"
         >
           Go to Account
-        </Link>
+        </TermButton>
       </Panel>
     );
   }
@@ -526,43 +527,33 @@ export default function MessagesClient({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
+          <TermButton
+            variant="primary"
             onClick={() => {
               resetComposeState();
               setSelectedHash(null);
               setActiveMessage(null);
               setIsComposeOpen(true);
             }}
-            className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-sm text-white"
           >
             Compose
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowMuted((value) => !value)}
-            className="rounded border border-neutral-200 px-3 py-1.5 text-sm"
-          >
+          </TermButton>
+          <TermButton onClick={() => setShowMuted((value) => !value)}>
             {showMuted ? "Show inbox" : "Show muted"}
-          </button>
-          <Link
-            href="/messages/best-practices"
-            className="rounded border border-neutral-200 px-3 py-1.5 text-sm"
-          >
+          </TermButton>
+          <TermButton href="/messages/best-practices">
             Best Practice
-          </Link>
+          </TermButton>
         </div>
-        <button
-          type="button"
+        <TermButton
           onClick={() => {
             void refreshThreads().catch((err: unknown) => {
               setError(err instanceof Error ? err.message : "Failed to refresh.");
             });
           }}
-          className="rounded border border-neutral-200 px-3 py-1.5 text-sm"
         >
           Refresh
-        </button>
+        </TermButton>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
@@ -633,25 +624,22 @@ export default function MessagesClient({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
+                  <TermButton
+                    variant="primary"
                     disabled={isLoadingReplyKey}
                     onClick={() => {
                       void startReply();
                     }}
-                    className="rounded border border-neutral-200 bg-black px-3 py-1.5 text-xs text-white disabled:opacity-50"
                   >
                     {isLoadingReplyKey ? "Loading key…" : "Reply"}
-                  </button>
-                  <button
-                    type="button"
+                  </TermButton>
+                  <TermButton
                     onClick={() => {
                       void toggleMute();
                     }}
-                    className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
                   >
                     {isThreadMuted ? "Unmute" : "Mute"}
-                  </button>
+                  </TermButton>
                 </div>
               </div>
 
@@ -660,7 +648,7 @@ export default function MessagesClient({
               ) : null}
 
               {isLoadingThread ? (
-                <p className="text-sm text-neutral-500">Loading thread…</p>
+                <Skeleton className="h-24 w-full" />
               ) : (
                 <ul className="space-y-2">
                   {threadMessages.map((message) => {
@@ -695,7 +683,7 @@ export default function MessagesClient({
               )}
 
               {isLoadingMessage ? (
-                <p className="text-sm text-neutral-500">Opening message…</p>
+                <Skeleton className="h-16 w-full" />
               ) : null}
 
               {activeMessage ? (

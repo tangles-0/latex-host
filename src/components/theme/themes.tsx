@@ -24,7 +24,7 @@ export const THEME_SET = new Set<string>(THEMES);
 
 export const ThemeIcon = ({ theme }: { theme: string }) => {
   const iconColor = "currentColor";
-  const size = 20;
+  const size = 22;
 
   switch (theme) {
     case "default":

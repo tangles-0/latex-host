@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
@@ -11,7 +12,9 @@ import { getUserById } from "@/lib/metadata-store";
 import { getUserPgpKey } from "@/lib/messaging-store";
 import AccountClient from "@/components/account-client";
 import SelfHostedNodesClient from "@/components/self-hosted-nodes-client";
-import PageHeader from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SkeletonTable } from "@/components/ui/skeleton";
 import { isNodeMode, listSelfHostedNodes } from "@/lib/self-hosted-nodes";
 
 export default async function AccountPage({
@@ -46,16 +49,16 @@ export default async function AccountPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10 text-sm">
-      <PageHeader
-        title="Account"
+    <PageScaffold>
+      <SectionHeader
+        title="account"
         subtitle={
           nodeMode
             ? "Profile and API access for this self-hosted node."
             : "Profile, API keys, devices, PGP key, and account controls."
         }
-        backLink={{ href: "/gallery", label: "back 2 gallery" }}
       />
+      <Suspense fallback={<SkeletonTable rows={5} columns={2} />}>
       <AccountClient
         username={user.username}
         email={user.email}
@@ -90,10 +93,11 @@ export default async function AccountPage({
             : null
         }
         nodeMode={nodeMode}
+        nodesPanel={
+          nodeMode ? null : <SelfHostedNodesClient initialNodes={selfHostedNodes} />
+        }
       />
-      {!nodeMode ? (
-        <SelfHostedNodesClient initialNodes={selfHostedNodes} />
-      ) : null}
-    </main>
+      </Suspense>
+    </PageScaffold>
   );
 }

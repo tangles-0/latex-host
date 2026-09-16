@@ -149,7 +149,7 @@ const AlbumShareLightboxText = ({
   const textContent = initialContent ?? fetchedContent ?? "";
   if (isMarkdown) {
     return (
-      <div className="h-full min-h-0 w-full overflow-y-auto bg-white p-6 text-neutral-900">
+      <div className="h-full min-h-0 w-full overflow-y-auto bg-[var(--theme-panel)] p-6 text-[var(--theme-text)]">
         <NoteMarkdown content={textContent} />
       </div>
     );

@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 
+import AlertBanner from "@/components/ui/alert-banner";
+import Panel from "@/components/ui/panel";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SkeletonTable } from "@/components/ui/skeleton";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput } from "@/components/ui/term-input";
+import { TermSelect } from "@/components/ui/term-select";
 import type { NodeBrowseEntry } from "@/lib/node-imports";
 
 type AlbumOption = { id: string; name: string };
@@ -174,81 +180,71 @@ const NodeImportClient = ({ albums }: NodeImportClientProps) => {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-8 text-sm">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Import mounted files</h1>
-          <p className="mt-1 text-xs text-neutral-500">
-            Imports use hardlinks where possible and copy otherwise. Originals
-            in the browse tree are never deleted.
-          </p>
-        </div>
-        <Link href="/gallery" className="text-emerald-700 underline">
-          Back to gallery
-        </Link>
-      </header>
-      <section className="space-y-3 rounded border border-neutral-200 p-4">
-        <p className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+    <div className="space-y-5 text-sm">
+      <SectionHeader
+        title="Import mounted files"
+        subtitle="Imports use hardlinks where possible and copy otherwise. Originals in the browse tree are never deleted."
+      />
+      <Panel className="space-y-3">
+        <AlertBanner tone="warning">
           Only mount directories intended for this gallery. Sensitive names are
           hidden by default, but the node process can read the mounted tree.
-        </p>
+        </AlertBanner>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+          <TermButton
             disabled={!currentPath || isLoading}
             onClick={() => loadDirectory(parentPath)}
-            className="rounded border border-neutral-300 px-3 py-1.5 disabled:opacity-40"
           >
             Up
-          </button>
+          </TermButton>
           <code className="break-all text-xs">/{currentPath}</code>
         </div>
-        {isLoading ? (
-          <p className="text-neutral-500">Loading directory…</p>
-        ) : null}
+        {isLoading ? <SkeletonTable /> : null}
         {!isLoading && entries.length === 0 ? (
-          <p className="rounded border border-dashed border-neutral-300 p-4 text-neutral-500">
+          <p className="border border-dashed border-neutral-300 p-4 text-neutral-500">
             This directory is empty.
           </p>
         ) : null}
-        <div className="divide-y divide-neutral-200 rounded border border-neutral-200">
-          {entries.map((entry) => (
-            <div key={entry.path} className="flex items-center gap-3 p-2">
-              <input
-                type="checkbox"
-                aria-label={`Select ${entry.name}`}
-                checked={selectedPaths.has(entry.path)}
-                onChange={() => togglePath(entry.path)}
-              />
-              {entry.kind === "directory" ? (
-                <button
-                  type="button"
-                  onClick={() => loadDirectory(entry.path)}
-                  className="min-w-0 flex-1 truncate text-left font-medium text-emerald-700 underline"
-                >
-                  {entry.name}/
-                </button>
-              ) : (
-                <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-              )}
-              <span className="text-xs text-neutral-400">
-                {entry.size === null
-                  ? "folder"
-                  : `${entry.size.toLocaleString()} B`}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="grid gap-4 rounded border border-neutral-200 p-4 sm:grid-cols-2">
+        {!isLoading ? (
+          <div className="divide-y divide-neutral-200 border border-neutral-200">
+            {entries.map((entry) => (
+              <div key={entry.path} className="flex items-center gap-3 p-2">
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${entry.name}`}
+                  checked={selectedPaths.has(entry.path)}
+                  onChange={() => togglePath(entry.path)}
+                />
+                {entry.kind === "directory" ? (
+                  <button
+                    type="button"
+                    onClick={() => loadDirectory(entry.path)}
+                    className="min-w-0 flex-1 truncate text-left font-medium text-[var(--theme-accent)] underline"
+                  >
+                    {entry.name}/
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                )}
+                <span className="text-xs text-neutral-400">
+                  {entry.size === null
+                    ? "folder"
+                    : `${entry.size.toLocaleString()} B`}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Panel>
+      <Panel className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-1">
           <span className="text-xs font-medium">
             Add imported files to album
           </span>
-          <select
+          <TermSelect
             value={albumId}
             onChange={(event) => setAlbumId(event.target.value)}
-            className="w-full rounded border border-neutral-300 px-3 py-2"
+            className="w-full"
           >
             <option value="">No album</option>
             <option value="__new__">Create a new album…</option>
@@ -257,18 +253,18 @@ const NodeImportClient = ({ albums }: NodeImportClientProps) => {
                 {album.name}
               </option>
             ))}
-          </select>
+          </TermSelect>
           {albumId === "__new__" ? (
-            <input
+            <TermInput
               type="text"
               value={newAlbumName}
               onChange={(event) => setNewAlbumName(event.target.value)}
               placeholder="New album name"
-              className="mt-2 w-full rounded border border-neutral-300 px-3 py-2"
+              className="mt-2 w-full"
             />
           ) : null}
         </label>
-        <label className="flex items-center gap-2 self-end rounded border border-neutral-200 px-3 py-2">
+        <label className="flex items-center gap-2 self-end border border-neutral-200 px-3 py-2">
           <input
             type="checkbox"
             checked={isShareAll}
@@ -276,22 +272,18 @@ const NodeImportClient = ({ albums }: NodeImportClientProps) => {
           />
           Generate public share links for all files
         </label>
-        <button
-          type="button"
+        <TermButton
+          variant="primary"
           disabled={isQueueing || selectedPaths.size === 0}
           onClick={queueImport}
-          className="rounded border border-emerald-500 px-4 py-2 text-emerald-700 disabled:opacity-40 sm:col-span-2"
+          className="sm:col-span-2"
         >
           {isQueueing
             ? "Queueing…"
             : `Import ${selectedPaths.size} selected item${selectedPaths.size === 1 ? "" : "s"}`}
-        </button>
-      </section>
-      {error ? (
-        <p className="rounded border border-red-300 bg-red-50 p-3 text-red-700">
-          {error}
-        </p>
-      ) : null}
+        </TermButton>
+      </Panel>
+      {error ? <AlertBanner tone="danger">{error}</AlertBanner> : null}
       <section className="space-y-2">
         <h2 className="font-medium">Import jobs</h2>
         {jobs.length === 0 ? (
@@ -300,7 +292,7 @@ const NodeImportClient = ({ albums }: NodeImportClientProps) => {
         {jobs.map((job) => (
           <article
             key={job.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-200 p-3"
+            className="flex flex-wrap items-center justify-between gap-3 border border-neutral-200 bg-[var(--theme-card)] p-3"
           >
             <div>
               <div className="font-medium">{job.status}</div>
@@ -313,28 +305,20 @@ const NodeImportClient = ({ albums }: NodeImportClientProps) => {
               ) : null}
             </div>
             {job.status === "pending" || job.status === "processing" ? (
-              <button
-                type="button"
-                onClick={() => cancelJob(job.id)}
-                className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700"
-              >
+              <TermButton variant="danger" onClick={() => cancelJob(job.id)}>
                 Cancel
-              </button>
+              </TermButton>
             ) : job.status === "failed" ||
               job.status === "cancelled" ||
               (job.status === "complete" && job.failedFiles > 0) ? (
-              <button
-                type="button"
-                onClick={() => retryJob(job.id)}
-                className="rounded border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700"
-              >
+              <TermButton onClick={() => retryJob(job.id)}>
                 Retry failed files
-              </button>
+              </TermButton>
             ) : null}
           </article>
         ))}
       </section>
-    </main>
+    </div>
   );
 };
 

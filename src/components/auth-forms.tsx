@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import GalleryLoadingModal from "@/components/gallery-loading-modal";
+import GalleryLoadingModal from "@/components/gallery-loading-modal"
+import { TermButton } from "@/components/ui/term-button"
 
 function getFormString(formData: FormData, key: string): string | null {
   const value = formData.get(key);
@@ -102,6 +103,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
 
     setIsLoadingGallery(true);
     router.push("/gallery");
+    router.refresh();
   }
 
   async function handleForgotPassword(event: React.FormEvent<HTMLFormElement>) {
@@ -138,38 +140,34 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
   }
 
   return (
-    <section className="space-y-4 rounded-md border border-neutral-200 p-4">
+    <section className="space-y-4 border border-neutral-200 bg-[var(--theme-card)] p-4">
       {isLoadingGallery ? <GalleryLoadingModal /> : null}
       <div className="flex flex-wrap gap-2 text-xs">
-        <button
+        <TermButton
           type="button"
+          active={mode === "login"}
           onClick={() => {
-            setMode("login");
-            setSignUpError(null);
-            setForgotError(null);
-            setForgotSuccess(null);
+            setMode("login")
+            setSignUpError(null)
+            setForgotError(null)
+            setForgotSuccess(null)
           }}
-          className={`rounded px-3 py-1 ${
-            mode === "login" ? "bg-black text-white" : "border border-neutral-200"
-          }`}
         >
           login
-        </button>
-        <button
+        </TermButton>
+        <TermButton
           type="button"
+          active={mode === "signup"}
           onClick={() => {
-            setMode("signup");
-            setSignInError(null);
-            setForgotError(null);
-            setForgotSuccess(null);
+            setMode("signup")
+            setSignInError(null)
+            setForgotError(null)
+            setForgotSuccess(null)
           }}
-          className={`rounded px-3 py-1 ${
-            mode === "signup" ? "bg-black text-white" : "border border-neutral-200"
-          }`}
           disabled={!signupsEnabled}
         >
           create acct
-        </button>
+        </TermButton>
       </div>
 
       {mode === "signup" ? (
@@ -181,7 +179,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
               type="text"
               placeholder="ur handle (min 3 chars) eg. zer0_c00l"
               autoComplete="off"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
               disabled={!signupsEnabled}
             />
             <input
@@ -189,7 +187,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
               type="email"
               placeholder="ur email addy"
               autoComplete="off"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
               disabled={!signupsEnabled}
             />
             <input
@@ -197,7 +195,7 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
               type="password"
               placeholder="ur pw (letters + numbers) eg. love, sex, secret, god"
               autoComplete="new-password"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
               disabled={!signupsEnabled}
             />
             <input
@@ -205,14 +203,14 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
               type="password"
               placeholder="confirm ur pw"
               autoComplete="new-password"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
               disabled={!signupsEnabled}
             />
             <p className="text-xs text-neutral-500">
               ill never send emails or share them bcoz im not a creep. use a fake one if u want. i mite use the email for acct recovery if u forget ur pw.
             </p>
             <button
-              className="rounded bg-black px-4 py-2 text-white"
+              className="term-btn primary"
               type="submit"
               disabled={!signupsEnabled}
             >
@@ -237,9 +235,9 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
               type="email"
               placeholder="ur email addy"
               autoComplete="email"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
             />
-            <button className="rounded bg-black px-4 py-2 text-white" type="submit">
+            <button className="term-btn primary" type="submit">
               send reset link
             </button>
             <button
@@ -266,16 +264,16 @@ export default function AuthForms({ signupsEnabled }: { signupsEnabled: boolean 
               type="email"
               placeholder="ur email addy"
               autoComplete="email"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
             />
             <input
               name="password"
               type="password"
               placeholder="ur pw"
               autoComplete="current-password"
-              className="w-full rounded border px-2 py-1"
+              className="term-input"
             />
-            <button className="rounded bg-black px-4 py-2 text-white" type="submit">
+            <button className="term-btn primary" type="submit">
               let me in already
             </button>
             <button

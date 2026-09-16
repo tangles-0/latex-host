@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+import Panel from "@/components/ui/panel";
+import { TermButton } from "@/components/ui/term-button";
+
 type NodeAuthorizeClientProps = {
   nodeHash: string;
   publicHttpsUrl: string;
@@ -41,7 +44,7 @@ const NodeAuthorizeClient = ({
   };
 
   return (
-    <section className="space-y-4 rounded-md border border-neutral-200 p-5">
+    <Panel className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold">Log in to self-hosted node</h1>
         <p className="mt-2 text-sm text-neutral-600">
@@ -49,20 +52,19 @@ const NodeAuthorizeClient = ({
           password is never sent to the node.
         </p>
       </div>
-      <div className="rounded border border-neutral-200 bg-neutral-50 p-3 text-xs">
+      <div className="border border-neutral-200 bg-[var(--theme-card)] p-3 text-xs">
         <div>Node: {nodeHash}</div>
         <div className="break-all">Destination: {publicHttpsUrl}</div>
       </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      <button
-        type="button"
+      <TermButton
+        variant="primary"
         disabled={isAuthorizing}
         onClick={authorize}
-        className="rounded border border-emerald-500 px-4 py-2 text-sm text-emerald-700 disabled:opacity-50"
       >
         {isAuthorizing ? "Authorizing…" : "Continue to node"}
-      </button>
-    </section>
+      </TermButton>
+    </Panel>
   );
 };
 

@@ -2,6 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { TurnstileWidget } from "@/components/turnstile-widget";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput, TermTextarea } from "@/components/ui/term-input";
 
 type ReportAbuseFormProps = {
   turnstileSiteKey: string;
@@ -104,36 +106,32 @@ export const ReportAbuseForm = ({ turnstileSiteKey }: ReportAbuseFormProps) => {
       <div className="space-y-2">
         <label
           htmlFor="abuse-description"
-          className="block text-sm font-medium text-neutral-900"
+          className="block text-sm font-medium"
         >
           Description
           <span className="ml-2 text-xs font-normal text-neutral-500">
             {description.length}/120
           </span>
         </label>
-        <textarea
+        <TermTextarea
           id="abuse-description"
           value={description}
           maxLength={120}
           rows={3}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="What is wrong with these shares?"
-          className="w-full rounded border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none"
+          className="w-full"
         />
       </div>
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <label className="text-sm font-medium text-neutral-900">
+          <label className="text-sm font-medium">
             Reported URLs
           </label>
-          <button
-            type="button"
-            onClick={addUrlField}
-            className="rounded border border-neutral-200 px-2 py-1 text-xs"
-          >
+          <TermButton onClick={addUrlField}>
             + add URL
-          </button>
+          </TermButton>
         </div>
         <div className="space-y-2">
           {urls.map((url, index) => (
@@ -141,22 +139,20 @@ export const ReportAbuseForm = ({ turnstileSiteKey }: ReportAbuseFormProps) => {
               key={`url-${index}`}
               className="flex gap-2"
             >
-              <input
+              <TermInput
                 type="url"
                 value={url}
                 onChange={(event) => updateUrl(index, event.target.value)}
                 placeholder="https://latex.gg/share/..."
-                className="min-w-0 flex-1 rounded border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none"
+                className="min-w-0 flex-1"
                 required={index === 0}
               />
-              <button
-                type="button"
+              <TermButton
                 onClick={() => removeUrl(index)}
-                className="rounded border border-neutral-200 px-2 text-xs text-neutral-500"
                 aria-label="Remove URL"
               >
                 −
-              </button>
+              </TermButton>
             </div>
           ))}
         </div>
@@ -165,18 +161,18 @@ export const ReportAbuseForm = ({ turnstileSiteKey }: ReportAbuseFormProps) => {
       <div className="space-y-2">
         <label
           htmlFor="abuse-email"
-          className="block text-sm font-medium text-neutral-900"
+          className="block text-sm font-medium"
         >
           Email for outcome{" "}
           <span className="font-normal text-neutral-500">(optional)</span>
         </label>
-        <input
+        <TermInput
           id="abuse-email"
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           placeholder="you@example.com"
-          className="w-full rounded border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none"
+          className="w-full"
         />
         <p className="text-xs text-neutral-500">
           If provided, you will get a confirmation email and can be notified when
@@ -205,13 +201,13 @@ export const ReportAbuseForm = ({ turnstileSiteKey }: ReportAbuseFormProps) => {
         </p>
       ) : null}
 
-      <button
+      <TermButton
         type="submit"
+        variant="primary"
         disabled={isSubmitting}
-        className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
       >
         {isSubmitting ? "Submitting…" : "Submit report"}
-      </button>
+      </TermButton>
     </form>
   );
 };

@@ -17,9 +17,11 @@ const NodeImportPage = async () => {
   }
   const albums = await listAlbums(userId);
   return (
-    <NodeImportClient
-      albums={albums.map((album) => ({ id: album.id, name: album.name }))}
-    />
+    <div className="page-scaffold page-scaffold-narrow">
+      <NodeImportClient
+        albums={albums.map((album) => ({ id: album.id, name: album.name }))}
+      />
+    </div>
   );
 };
 

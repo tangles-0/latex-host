@@ -6,6 +6,9 @@ import { AlbumMediaDownloadButton } from "@/components/album-media-download-butt
 import { AlbumShareLightbox } from "@/components/album-share-lightbox";
 import { albumShareMediaUrls } from "@/lib/album-share-media";
 import NoteMarkdown from "@/components/note-markdown";
+import { FileTile } from "@/components/ui/file-tile";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import { SectionHeader } from "@/components/ui/section-header";
 import { renderFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
 
@@ -44,13 +47,11 @@ export default function AlbumShareView({
     `${new Date(value).toISOString().replace("T", " ").slice(0, 19)} UTC`;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-2 px-2 py-2 text-sm sm:gap-6 sm:px-6 sm:py-10">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">{albumName}</h1>
-        <p className="text-neutral-600">
-          {media.length} file{media.length === 1 ? "" : "s"}
-        </p>
-      </header>
+    <PageScaffold>
+      <SectionHeader
+        title={albumName}
+        subtitle={`${media.length} file${media.length === 1 ? "" : "s"}`}
+      />
 
       <div className={clsx(isDisplayAsCompactView ? "space-y-2" : "space-y-6")}>
         {media.map((item, index) => {
@@ -65,11 +66,11 @@ export default function AlbumShareView({
             item.previewStatus === "complete";
 
           return (
-            <div
+            <FileTile
               key={item.id}
               className={clsx(
-                "rounded-md border border-neutral-200 text-left",
-                isDisplayAsCompactView ? "flex items-stretch gap-3 p-2" : "p-4",
+                "text-left",
+                isDisplayAsCompactView ? "!flex-row items-stretch gap-3 p-2" : "p-4",
               )}
             >
               {item.kind === "note" && !isDisplayAsCompactView ? (
@@ -165,7 +166,7 @@ export default function AlbumShareView({
                   <AlbumMediaDownloadButton item={item} shareId={shareId} />
                 ) : null}
               </div>
-            </div>
+            </FileTile>
           );
         })}
       </div>
@@ -179,6 +180,6 @@ export default function AlbumShareView({
           onChangeIndex={setActiveIndex}
         />
       ) : null}
-    </main>
+    </PageScaffold>
   );
 }

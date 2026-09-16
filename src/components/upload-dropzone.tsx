@@ -17,11 +17,15 @@ import {
   uploadSingleMedia,
 } from "@/lib/upload-client";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput } from "@/components/ui/term-input";
+import { TermSelect } from "@/components/ui/term-select";
 import { LightClock } from "@energiz3r/icon-library/Icons/Light/LightClock";
 import { LightImages } from "@energiz3r/icon-library/Icons/Light/LightImages";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
+import { takePendingUploads } from "@/lib/pending-uploads";
 
 type UploadState = "idle" | "uploading" | "success" | "error";
 type PreviewStatus = "pending" | "started" | "complete" | "error";
@@ -607,6 +611,14 @@ export default function UploadDropzone({
       window.removeEventListener("drop", handleDrop);
       window.removeEventListener("paste", handlePaste);
     };
+  }, [uploadsEnabled]);
+
+  useEffect(() => {
+    const pending = takePendingUploads();
+    if (pending.length === 0 || !uploadsEnabled) {
+      return;
+    }
+    void uploadFilesRef.current(pending);
   }, [uploadsEnabled]);
 
   useEffect(() => {
@@ -1292,37 +1304,25 @@ export default function UploadDropzone({
           album (optional)
         </label>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
+          <TermButton
             onClick={() => {
               setAlbumError(null);
               setIsAlbumModalOpen(true);
             }}
-            className="rounded border border-neutral-200 px-3 py-1 text-xs"
           >
             + album
-          </button>
-          <button
-            type="button"
-            onClick={openYoutubeModal}
-            className="rounded border border-neutral-200 px-3 py-1 text-xs"
-          >
+          </TermButton>
+          <TermButton onClick={openYoutubeModal}>
             + youtube
-          </button>
+          </TermButton>
         </div>
       </div>
-      <select
+      <TermSelect
         id={inputId}
         name="albumId"
         value={albumId}
         onChange={(event) => setAlbumId(event.target.value)}
-        className="w-full rounded border px-3 py-2 pr-8 appearance-none"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-          backgroundPosition: "right 0.75rem center",
-          backgroundRepeat: "no-repeat",
-          backgroundSize: "1rem",
-        }}
+        className="w-full"
       >
         <option value="">no album</option>
         {albums.map((album) => (
@@ -1330,7 +1330,7 @@ export default function UploadDropzone({
             {album.name}
           </option>
         ))}
-      </select>
+      </TermSelect>
       <label className="flex items-center gap-2 text-xs text-neutral-600">
         <input
           type="checkbox"
@@ -1377,9 +1377,9 @@ export default function UploadDropzone({
             }
           }
         }}
-        className={`flex min-h-[180px] flex-col items-center justify-center rounded border border-dashed px-6 py-8 text-center text-sm transition ${
+        className={`drop-zone min-h-[180px] px-6 py-8 text-sm ${
           uploadsEnabled ? "cursor-pointer" : "cursor-not-allowed opacity-60"
-        } ${isDragging || globalDragging ? "border-black bg-neutral-50" : "border-neutral-300"}`}
+        } ${isDragging || globalDragging ? "active" : ""}`}
       >
         <p className="font-medium">{statusText}</p>
         <p className="mt-2 text-xs text-neutral-500">
@@ -1402,11 +1402,11 @@ export default function UploadDropzone({
       />
 
       {globalDragging ? (
-        <div className="pointer-events-none fixed inset-0 z-40 bg-black/30" />
+        <div className="pointer-events-none fixed inset-0 z-40 modal-overlay" />
       ) : null}
 
       {messages.length > 0 ? (
-        <div className="fixed top-4 left-1/2 z-50 w-full max-w-md -translate-x-1/2 space-y-2 px-4">
+        <div className="app-toast-stack space-y-2">
           {messages.map((item) => (
             <div
               key={item.id}
@@ -1475,33 +1475,26 @@ export default function UploadDropzone({
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
+                    <TermButton
                       onClick={() => openAlbumPicker(image)}
-                      className="rounded border border-neutral-200 px-3 py-1 text-xs"
                       aria-label="Add to album"
                       title="Add to album"
                     >
                       <LightImages className="h-4 w-4" fill="currentColor" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void copyShare(image)}
-                      className="rounded border border-neutral-200 px-3 py-1 text-xs"
-                    >
+                    </TermButton>
+                    <TermButton onClick={() => void copyShare(image)}>
                       {copied === image.id ? "Copied" : "Copy link"}
-                    </button>
-                    <button
-                      type="button"
+                    </TermButton>
+                    <TermButton
+                      variant="danger"
                       onClick={() =>
                         setDeleteConfirmation({ type: "upload", media: image })
                       }
-                      className="rounded border border-neutral-200 px-3 py-1 text-xs text-neutral-500"
                       aria-label="Delete image"
                       title="Delete image"
                     >
                       <LightTrashAlt className="h-4 w-4" fill="currentColor" />
-                    </button>
+                    </TermButton>
                   </div>
                 </div>
               );
@@ -1588,10 +1581,8 @@ export default function UploadDropzone({
                   <div className="flex items-center gap-2">
                     {media ? (
                       <>
-                        <button
-                          type="button"
+                        <TermButton
                           onClick={() => openAlbumPicker(media)}
-                          className="rounded border border-neutral-200 px-3 py-1 text-xs"
                           aria-label="Add to album"
                           title="Add to album"
                         >
@@ -1599,16 +1590,12 @@ export default function UploadDropzone({
                             className="h-4 w-4"
                             fill="currentColor"
                           />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void copyShare(media)}
-                          className="rounded border border-neutral-200 px-3 py-1 text-xs"
-                        >
+                        </TermButton>
+                        <TermButton onClick={() => void copyShare(media)}>
                           {copied === media.id ? "Copied" : "Copy link"}
-                        </button>
-                        <button
-                          type="button"
+                        </TermButton>
+                        <TermButton
+                          variant="danger"
                           onClick={() =>
                             setDeleteConfirmation({
                               type: "youtube-upload",
@@ -1616,7 +1603,6 @@ export default function UploadDropzone({
                               media,
                             })
                           }
-                          className="rounded border border-neutral-200 px-3 py-1 text-xs text-neutral-500"
                           aria-label="Delete YouTube upload"
                           title="Delete YouTube upload"
                         >
@@ -1624,19 +1610,18 @@ export default function UploadDropzone({
                             className="h-4 w-4"
                             fill="currentColor"
                           />
-                        </button>
+                        </TermButton>
                       </>
                     ) : null}
                     {!media && ingest.status !== "complete" ? (
-                      <button
-                        type="button"
+                      <TermButton
+                        variant="danger"
                         onClick={() =>
                           setDeleteConfirmation({
                             type: "youtube-ingest",
                             ingest,
                           })
                         }
-                        className="rounded border border-neutral-200 px-3 py-1 text-xs text-neutral-500"
                         aria-label={
                           ingest.status === "error"
                             ? "Delete YouTube ingest"
@@ -1652,7 +1637,7 @@ export default function UploadDropzone({
                           className="h-4 w-4"
                           fill="currentColor"
                         />
-                      </button>
+                      </TermButton>
                     ) : null}
                   </div>
                 </div>
@@ -1668,8 +1653,7 @@ export default function UploadDropzone({
             <h3 className="text-xs font-medium text-neutral-600">
               failed / interrupted uploads
             </h3>
-            <button
-              type="button"
+            <TermButton
               onClick={() => void clearFailedSessions()}
               disabled={
                 isClearingFailed ||
@@ -1679,10 +1663,9 @@ export default function UploadDropzone({
                     session.state === "finalizing",
                 )
               }
-              className="rounded border border-neutral-200 px-2 py-1 text-[11px] disabled:opacity-50"
             >
               {isClearingFailed ? "Clearing..." : "Clear"}
-            </button>
+            </TermButton>
           </div>
           <div className="space-y-1">
             {incompleteSessions.slice(0, 20).map((session) => (
@@ -1700,29 +1683,26 @@ export default function UploadDropzone({
         ? (() => {
             const copy = deleteConfirmationCopy();
             return (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-                <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+              <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+                <div className="modal-panel w-full max-w-md p-6 text-sm">
                   <h3 className="text-lg font-semibold">{copy.title}</h3>
                   <p className="mt-2 text-xs text-neutral-600">{copy.body}</p>
                   <div className="mt-4 flex justify-end gap-2">
-                    <button
-                      type="button"
+                    <TermButton
                       onClick={() => setDeleteConfirmation(null)}
                       disabled={isDeletingConfirmedItem}
-                      className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
                     >
                       cancel
-                    </button>
-                    <button
-                      type="button"
+                    </TermButton>
+                    <TermButton
+                      variant="danger"
                       onClick={() => void confirmDelete()}
                       disabled={isDeletingConfirmedItem}
-                      className="rounded bg-red-600 px-3 py-1 text-xs text-white disabled:opacity-50"
                     >
                       {isDeletingConfirmedItem
                         ? "working..."
                         : copy.confirmLabel}
-                    </button>
+                    </TermButton>
                   </div>
                 </div>
               </div>
@@ -1731,15 +1711,15 @@ export default function UploadDropzone({
         : null}
 
       {isAlbumModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+          <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">create album</h3>
             <p className="mt-1 text-xs text-neutral-500">
               give the album a nice name so u can find it later. like Sir Pooty
               Pants
             </p>
-            <input
-              className="mt-4 w-full rounded border px-3 py-2"
+            <TermInput
+              className="mt-4 w-full"
               placeholder="album name"
               value={newAlbumName}
               onChange={(event) => setNewAlbumName(event.target.value)}
@@ -1748,28 +1728,20 @@ export default function UploadDropzone({
               <p className="mt-2 text-xs text-red-600">{albumError}</p>
             ) : null}
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAlbumModalOpen(false)}
-                className="rounded border border-neutral-200 px-3 py-1 text-xs"
-              >
+              <TermButton onClick={() => setIsAlbumModalOpen(false)}>
                 cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateAlbum}
-                className="rounded bg-black px-3 py-1 text-xs text-white"
-              >
+              </TermButton>
+              <TermButton variant="primary" onClick={handleCreateAlbum}>
                 saveth the album
-              </button>
+              </TermButton>
             </div>
           </div>
         </div>
       ) : null}
 
       {isYoutubeModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-lg rounded-md bg-white p-6 text-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+          <div className="modal-panel w-full max-w-lg p-6 text-sm">
             <h3 className="text-lg font-semibold">add youtube media</h3>
             <p className="mt-1 text-xs text-neutral-500">
               paste any YouTube URL. latex can handle the usual watch, short,
@@ -1777,7 +1749,7 @@ export default function UploadDropzone({
             </p>
             <label className="mt-4 block text-xs text-neutral-600">
               download as
-              <select
+              <TermSelect
                 value={youtubeOutputType}
                 onChange={(event) => {
                   setYoutubeOutputType(
@@ -1785,15 +1757,15 @@ export default function UploadDropzone({
                   );
                   setYoutubeError(null);
                 }}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-1 w-full"
               >
                 <option value="video">video</option>
                 <option value="audio">MP3 (highest quality)</option>
-              </select>
+              </TermSelect>
             </label>
             <div className="mt-4 flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border px-3 py-2"
+              <TermInput
+                className="min-w-0 flex-1"
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={youtubeUrl}
                 onChange={(event) => {
@@ -1802,14 +1774,12 @@ export default function UploadDropzone({
                   setSelectedYoutubeQualityId("");
                 }}
               />
-              <button
-                type="button"
+              <TermButton
                 onClick={() => void fetchYoutubeMetadata()}
                 disabled={isFetchingYoutubeMetadata}
-                className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
               >
                 {isFetchingYoutubeMetadata ? "checking..." : "fetch"}
-              </button>
+              </TermButton>
             </div>
             {youtubeMetadata ? (
               <div className="mt-4 space-y-3 rounded border border-neutral-200 p-3">
@@ -1828,12 +1798,12 @@ export default function UploadDropzone({
                   <>
                     <label className="block text-xs text-neutral-600">
                       quality
-                      <select
+                      <TermSelect
                         value={selectedYoutubeQualityId}
                         onChange={(event) =>
                           setSelectedYoutubeQualityId(event.target.value)
                         }
-                        className="mt-1 w-full rounded border px-3 py-2"
+                        className="mt-1 w-full"
                       >
                         {youtubeMetadata.qualities.map((quality) => {
                           const exceedsLimit = Boolean(
@@ -1857,7 +1827,7 @@ export default function UploadDropzone({
                             </option>
                           );
                         })}
-                      </select>
+                      </TermSelect>
                     </label>
                     {selectedYoutubeQualityExceedsLimit ? (
                       <p className="text-xs text-red-600">
@@ -1880,55 +1850,48 @@ export default function UploadDropzone({
               <p className="mt-2 text-xs text-red-600">{youtubeError}</p>
             ) : null}
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsYoutubeModalOpen(false)}
-                className="rounded border border-neutral-200 px-3 py-1 text-xs"
-              >
+              <TermButton onClick={() => setIsYoutubeModalOpen(false)}>
                 cancel
-              </button>
+              </TermButton>
               {youtubeMetadata ? (
-                <button
-                  type="button"
+                <TermButton
                   onClick={() => {
                     setYoutubeMetadata(null);
                     setSelectedYoutubeQualityId("");
                     setYoutubeError(null);
                   }}
-                  className="rounded border border-neutral-200 px-3 py-1 text-xs"
                 >
                   new url
-                </button>
+                </TermButton>
               ) : null}
-              <button
-                type="button"
+              <TermButton
+                variant="primary"
                 onClick={() => void startYoutubeIngest()}
                 disabled={
                   !youtubeMetadata ||
                   isStartingYoutubeIngest ||
                   selectedYoutubeQualityExceedsLimit
                 }
-                className="rounded bg-black px-3 py-1 text-xs text-white disabled:opacity-50"
               >
                 {isStartingYoutubeIngest
                   ? "starting..."
                   : youtubeOutputType === "audio"
                     ? "start MP3 download"
                     : "start video download"}
-              </button>
+              </TermButton>
             </div>
           </div>
         </div>
       ) : null}
 
       {albumPickerUpload ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+          <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">add file 2 album</h3>
             <p className="mt-1 text-xs text-neutral-500">
               {albumPickerUpload.originalFileName || albumPickerUpload.baseName}
             </p>
-            <select
+            <TermSelect
               value={albumPickerAlbumId}
               onChange={(event) => {
                 setAlbumPickerAlbumId(event.target.value);
@@ -1936,13 +1899,7 @@ export default function UploadDropzone({
                   setIsCreatingAlbumFromPicker(false);
                 }
               }}
-              className="mt-4 w-full rounded border px-3 py-2 pr-8 appearance-none"
-              style={{
-                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                backgroundPosition: "right 0.75rem center",
-                backgroundRepeat: "no-repeat",
-                backgroundSize: "1rem",
-              }}
+              className="mt-4 w-full"
             >
               <option value="">choose an existing album</option>
               {albums.map((album) => (
@@ -1950,20 +1907,19 @@ export default function UploadDropzone({
                   {album.name}
                 </option>
               ))}
-            </select>
-            <button
-              type="button"
+            </TermSelect>
+            <TermButton
+              className="mt-3"
               onClick={() => {
                 setIsCreatingAlbumFromPicker((current) => !current);
                 setAlbumPickerAlbumId("");
               }}
-              className="mt-3 rounded border border-neutral-200 px-3 py-1 text-xs"
             >
               {isCreatingAlbumFromPicker ? "cancel new album" : "+ new album"}
-            </button>
+            </TermButton>
             {isCreatingAlbumFromPicker ? (
-              <input
-                className="mt-3 w-full rounded border px-3 py-2"
+              <TermInput
+                className="mt-3 w-full"
                 placeholder="album name"
                 value={albumPickerNewAlbumName}
                 onChange={(event) =>
@@ -1975,21 +1931,16 @@ export default function UploadDropzone({
               <p className="mt-2 text-xs text-red-600">{albumPickerError}</p>
             ) : null}
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => closeAlbumPicker()}
-                className="rounded border border-neutral-200 px-3 py-1 text-xs"
-              >
+              <TermButton onClick={() => closeAlbumPicker()}>
                 cancel
-              </button>
-              <button
-                type="button"
+              </TermButton>
+              <TermButton
+                variant="primary"
                 onClick={() => void handleSaveAlbumPicker()}
                 disabled={isSavingAlbumPicker}
-                className="rounded bg-black px-3 py-1 text-xs text-white disabled:opacity-50"
               >
                 {isSavingAlbumPicker ? "saving..." : "add 2 album"}
-              </button>
+              </TermButton>
             </div>
           </div>
         </div>

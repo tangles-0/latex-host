@@ -1,10 +1,10 @@
-import Link from "next/link"
 import { redirect } from "next/navigation"
 import { getServerSession } from "next-auth/next"
-
 import ManageLimitsClient from "@/components/manage-limits-client"
 import { authOptions } from "@/lib/auth"
 import { getGroupLimits, isAdminUser, listGroupsWithCounts } from "@/lib/metadata-store"
+import { PageScaffold } from "@/components/ui/page-scaffold"
+import { SectionHeader } from "@/components/ui/section-header"
 
 const AdminLimitsPage = async () => {
   const session = await getServerSession(authOptions)
@@ -30,25 +30,16 @@ const AdminLimitsPage = async () => {
   )
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-8 text-sm sm:px-6 sm:py-10">
-      <header className="space-y-2">
-        <Link
-          href="/admin"
-          className="text-sm text-neutral-500 underline"
-        >
-          Back to admin
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">Upload policies</h1>
-        <p className="max-w-3xl text-neutral-600">
-          Configure upload limits, find allowed file types quickly, and synchronize policies across user groups.
-        </p>
-      </header>
-
+    <PageScaffold width="wide">
+      <SectionHeader
+        title="limits"
+        subtitle="upload policies per group"
+      />
       <ManageLimitsClient
         ungroupedLimits={ungroupedLimits}
         groupLimits={groupLimits}
       />
-    </main>
+    </PageScaffold>
   )
 }
 

@@ -11,11 +11,12 @@ import type { NodeShareContext } from "@/lib/share-link-format";
 import { useShareLinkFormat } from "@/hooks/use-share-link-format";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
-import { LightFolderTimes } from "@energiz3r/icon-library/Icons/Light/LightFolderTimes";
-import { LightFolderOpen } from "@energiz3r/icon-library/Icons/Light/LightFolderOpen";
 import { LightFilePlus } from "@energiz3r/icon-library/Icons/Light/LightFilePlus";
-
-const HIDE_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-hide-album-images";
+import { AlbumTile } from "@/components/ui/album-tile";
+import { EmptyState } from "@/components/ui/empty-state";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput } from "@/components/ui/term-input";
+import { CREATE_NOTE_SEARCH_PARAM } from "@/components/chrome/app-nav";
 
 type AlbumInfo = {
   id: string;
@@ -107,9 +108,6 @@ export default function GalleryTabs({
   const [imageItems, setImageItems] = useState<GalleryImage[]>(media);
   const [mediaFromServer, setMediaFromServer] = useState(media);
   const [activeTab, setActiveTab] = useState<"albums" | "files">(initialTab);
-  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | MediaKind>(
-    "all",
-  );
   const [albumItems, setAlbumItems] = useState(albums);
   const [albumsFromServer, setAlbumsFromServer] = useState(albums);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -121,13 +119,8 @@ export default function GalleryTabs({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [createNoteRequestId, setCreateNoteRequestId] = useState(0);
-  const [isCreatingNote, setIsCreatingNote] = useState(false);
-  let storedSetting = "";
-  try {
-    storedSetting =
-      window.localStorage.getItem(HIDE_ALBUM_IMAGES_STORAGE_KEY) ?? "0";
-  } catch {} // ignore storage errors
-  const [hideAlbumImages, setHideAlbumImages] = useState(storedSetting === "1");
+  const [createNoteOnMount, setCreateNoteOnMount] = useState(false);
+  const [, setIsCreatingNote] = useState(false);
   const [delBtnLabel, setDelBtnLabel] = useState("del album");
   const [shareLinkFormat, setShareLinkFormat] = useShareLinkFormat(
     Boolean(nodeShareContext),
@@ -144,13 +137,23 @@ export default function GalleryTabs({
   }
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        HIDE_ALBUM_IMAGES_STORAGE_KEY,
-        hideAlbumImages ? "1" : "0",
-      );
-    } catch {} // ignore storage errors
-  }, [hideAlbumImages]);
+    const wantsNote = searchParams.get(CREATE_NOTE_SEARCH_PARAM) === "1";
+    const nextTab =
+      wantsNote || searchParams.get("tab") !== "albums" ? "files" : "albums";
+    setActiveTab(nextTab);
+    if (!wantsNote || readOnly) {
+      return;
+    }
+    setCreateNoteOnMount(true);
+    setCreateNoteRequestId((current) => current + 1);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete(CREATE_NOTE_SEARCH_PARAM);
+    params.delete("tab");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+  }, [pathname, readOnly, router, searchParams]);
 
   const albumPreviews = albumItems.map((album) => {
     const albumFiles = imageItems.filter((image) =>
@@ -286,147 +289,80 @@ export default function GalleryTabs({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
-        <div className="order-2 flex w-full flex-wrap items-center gap-2 sm:order-1 sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setTab("albums")}
-            className={`flex-1 rounded px-3 py-1 sm:flex-none ${
-              activeTab === "albums"
-                ? "bg-black text-white"
-                : "border border-neutral-200"
-            }`}
-          >
-            albums
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("files")}
-            className={`flex-1 rounded px-3 py-1 sm:flex-none ${
-              activeTab === "files"
-                ? "bg-black text-white"
-                : "border border-neutral-200"
-            }`}
-          >
-            files
-          </button>
-          {nodeShareContext ? (
-            <div
-              className="flex items-center rounded border border-neutral-200"
-              role="group"
-              aria-label="Share link format"
-            >
-              <span className="px-2 text-neutral-500">share links:</span>
-              {(["cloud", "direct"] as const).map((format) => (
-                <button
-                  key={format}
-                  type="button"
-                  aria-pressed={shareLinkFormat === format}
-                  onClick={() => setShareLinkFormat(format)}
-                  className={`px-2 py-1 ${
-                    shareLinkFormat === format
-                      ? "bg-black text-white"
-                      : "text-neutral-600"
-                  }`}
+      {readOnly || nodeShareContext || activeTab === "albums" || actions ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="order-2 flex w-full flex-wrap items-center gap-2 sm:order-1 sm:w-auto">
+            {readOnly ? (
+              <>
+                <TermButton
+                  className="flex-1 sm:flex-none"
+                  active={activeTab === "albums"}
+                  onClick={() => setTab("albums")}
                 >
-                  {format === "cloud" ? "latex.gg" : "direct"}
-                </button>
-              ))}
+                  albums
+                </TermButton>
+                <TermButton
+                  className="flex-1 sm:flex-none"
+                  active={activeTab === "files"}
+                  onClick={() => setTab("files")}
+                >
+                  files
+                </TermButton>
+              </>
+            ) : null}
+            {nodeShareContext ? (
+              <div
+                className="flex items-center rounded border border-neutral-200"
+                role="group"
+                aria-label="Share link format"
+              >
+                <span className="px-2 text-neutral-500">share links:</span>
+                {(["cloud", "direct"] as const).map((format) => (
+                  <TermButton
+                    key={format}
+                    aria-pressed={shareLinkFormat === format}
+                    onClick={() => setShareLinkFormat(format)}
+                    active={shareLinkFormat === format}
+                  >
+                    {format === "cloud" ? "latex.gg" : "direct"}
+                  </TermButton>
+                ))}
+              </div>
+            ) : null}
+            {activeTab === "albums" && !readOnly ? (
+              <TermButton
+                onClick={() => {
+                  setCreateError(null);
+                  setIsCreateOpen(true);
+                }}
+                className="flex-1 sm:flex-none items-center justify-center gap-1"
+              >
+                <LightFilePlus className="h-5 w-5" fill="currentColor" />
+                <span className="">new album</span>
+              </TermButton>
+            ) : null}
+          </div>
+          {actions ? (
+            <div className="order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:justify-end">
+              {actions}
             </div>
           ) : null}
-          {activeTab === "files" ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setHideAlbumImages((current) => !current)}
-                className="flex-1 flex rounded border border-neutral-200 px-3 py-1 sm:flex-none items-center justify-center gap-1"
-              >
-                {hideAlbumImages ? (
-                  <LightFolderTimes className="h-4 w-4" fill="currentColor" />
-                ) : (
-                  <LightFolderOpen className="h-4 w-4" fill="currentColor" />
-                )}
-                <span className="hidden lg:inline">
-                  {hideAlbumImages ? "show album files" : "hide album files"}
-                </span>
-              </button>
-              {readOnly ? null : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCreateNoteRequestId((current) => current + 1)
-                  }
-                  disabled={isCreatingNote}
-                  className="flex-1 flex rounded border border-neutral-200 px-3 py-1 disabled:opacity-50 sm:flex-none items-center justify-center gap-1"
-                >
-                  <LightFilePlus className="h-4 w-4" fill="currentColor" />
-                  <span className="hidden md:inline">
-                    {isCreatingNote ? "Creating..." : "new note"}
-                  </span>
-                </button>
-              )}
-            </>
-          ) : null}
-          {activeTab === "albums" && !readOnly ? (
-            <button
-              type="button"
-              onClick={() => {
-                setCreateError(null);
-                setIsCreateOpen(true);
-              }}
-              className="flex-1 flex rounded border border-neutral-200 px-3 py-1 sm:flex-none items-center justify-center gap-1"
-            >
-              <LightFilePlus className="h-4 w-4" fill="currentColor" />
-              <span className="">new album</span>
-            </button>
-          ) : null}
-        </div>
-        {actions ? (
-          <div className="order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:justify-end">
-            {actions}
-          </div>
-        ) : null}
-      </div>
-      {activeTab === "files" ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {(
-            ["all", "image", "video", "document", "other", "note"] as const
-          ).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setFileTypeFilter(item)}
-              className={`flex-1 rounded px-3 py-1 sm:flex-none ${
-                fileTypeFilter === item
-                  ? "bg-black text-white"
-                  : "border border-neutral-200"
-              }`}
-            >
-              {item === "image"
-                ? "images"
-                : item === "document"
-                  ? "documents"
-                  : item === "note"
-                    ? "notes"
-                    : item}
-            </button>
-          ))}
         </div>
       ) : null}
 
       {activeTab === "albums" ? (
         <div className="space-y-4">
           {albumPreviews.length === 0 ? (
-            <div className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-neutral-500">
+            <EmptyState>
               no albums yet. make one to get started.
-            </div>
+            </EmptyState>
           ) : (
-            <div className="grid justify-center gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,320px))]">
+            <div className="grid justify-center gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr))] sm:[grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
               {albumPreviews.map((album) => (
-                <div key={album.id} className="relative">
+                <AlbumTile key={album.id} className="relative">
                   <Link
                     href={`${albumHrefBase}/${album.id}`}
-                    className="block rounded-md border border-neutral-200 p-3"
+                    className="block p-3"
                   >
                     <div className="grid grid-cols-3 gap-2">
                       {album.previews.length > 0 ? (
@@ -505,20 +441,20 @@ export default function GalleryTabs({
                       </button>
                     </>
                   )}
-                </div>
+                </AlbumTile>
               ))}
             </div>
           )}
 
           {isCreateOpen ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-              <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+            <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+              <div className="modal-panel w-full max-w-md p-6 text-sm">
                 <h3 className="text-lg font-semibold">new album</h3>
                 <p className="mt-1 text-xs text-neutral-500">
                   give the album a nice name. like geoff
                 </p>
-                <input
-                  className="mt-4 w-full rounded border px-3 py-2"
+                <TermInput
+                  className="mt-4 w-full"
                   placeholder="album name"
                   value={newAlbumName}
                   onChange={(event) => setNewAlbumName(event.target.value)}
@@ -527,28 +463,23 @@ export default function GalleryTabs({
                   <p className="mt-2 text-xs text-red-600">{createError}</p>
                 ) : null}
                 <div className="mt-4 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreateOpen(false)}
-                    className="rounded border border-neutral-200 px-3 py-1 text-xs"
-                  >
+                  <TermButton onClick={() => setIsCreateOpen(false)}>
                     cancel
-                  </button>
-                  <button
-                    type="button"
+                  </TermButton>
+                  <TermButton
+                    variant="primary"
                     onClick={() => void createAlbum()}
-                    className="rounded bg-black px-3 py-1 text-xs text-white"
                   >
                     mk new album
-                  </button>
+                  </TermButton>
                 </div>
               </div>
             </div>
           ) : null}
 
           {albumToDelete ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-              <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+            <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+              <div className="modal-panel w-full max-w-md p-6 text-sm">
                 <h3 className="text-lg font-semibold">delete album?</h3>
                 <p className="mt-1 text-xs text-neutral-500">
                   this deletes the album only. imgs will stay in ur library.
@@ -558,36 +489,31 @@ export default function GalleryTabs({
                   <p className="mt-2 text-xs text-red-600">{deleteError}</p>
                 ) : null}
                 <div className="mt-4 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAlbumToDelete(null)}
-                    className="rounded border border-neutral-200 px-3 py-1 text-xs"
-                  >
+                  <TermButton onClick={() => setAlbumToDelete(null)}>
                     cancel
-                  </button>
-                  <button
-                    type="button"
+                  </TermButton>
+                  <TermButton
+                    variant="danger"
                     onClick={() => void deleteAlbum(albumToDelete)}
-                    className="rounded bg-red-600 px-3 py-1 text-xs text-white"
                     onMouseEnter={() => setDelBtnLabel("del entire acct (jk)")}
                     onMouseLeave={() => setDelBtnLabel("del album")}
                   >
                     {delBtnLabel}
-                  </button>
+                  </TermButton>
                 </div>
               </div>
             </div>
           ) : null}
 
           {albumToRename ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-              <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+            <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+              <div className="modal-panel w-full max-w-md p-6 text-sm">
                 <h3 className="text-lg font-semibold">rename album</h3>
                 <p className="mt-1 text-xs text-neutral-500">
                   give this album a fresh new label.
                 </p>
-                <input
-                  className="mt-4 w-full rounded border px-3 py-2"
+                <TermInput
+                  className="mt-4 w-full"
                   placeholder="album name"
                   value={renameAlbumName}
                   onChange={(event) => setRenameAlbumName(event.target.value)}
@@ -596,20 +522,15 @@ export default function GalleryTabs({
                   <p className="mt-2 text-xs text-red-600">{renameError}</p>
                 ) : null}
                 <div className="mt-4 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAlbumToRename(null)}
-                    className="rounded border border-neutral-200 px-3 py-1 text-xs"
-                  >
+                  <TermButton onClick={() => setAlbumToRename(null)}>
                     cancel
-                  </button>
-                  <button
-                    type="button"
+                  </TermButton>
+                  <TermButton
+                    variant="primary"
                     onClick={() => void renameAlbum()}
-                    className="rounded bg-black px-3 py-1 text-xs text-white"
                   >
                     save
-                  </button>
+                  </TermButton>
                 </div>
               </div>
             </div>
@@ -620,11 +541,11 @@ export default function GalleryTabs({
           media={imageItems}
           onImagesChange={setImageItems}
           createNoteRequestId={createNoteRequestId}
+          createNoteOnMount={createNoteOnMount}
+          onCreateNoteMountConsumed={() => setCreateNoteOnMount(false)}
           onCreateNoteStateChange={setIsCreatingNote}
           showAlbumImageToggle={false}
           showCreateNoteButton={false}
-          hideImagesInAlbums={hideAlbumImages}
-          kindFilter={fileTypeFilter}
           isAdmin={isAdmin}
           isImageGenerationAvailable={isImageGenerationAvailable}
           readOnly={readOnly}

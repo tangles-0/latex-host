@@ -1,33 +1,35 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { listMessageThreads } from "@/lib/messaging-store";
-import MessagesClient from "@/components/messages-client";
-import PageHeader from "@/components/ui/page-header";
+import { redirect } from "next/navigation"
+import { getServerSession } from "next-auth/next"
+import { authOptions } from "@/lib/auth"
+import { listMessageThreads } from "@/lib/messaging-store"
+import MessagesClient from "@/components/messages-client"
+import { PageScaffold } from "@/components/ui/page-scaffold"
+import { SectionHeader } from "@/components/ui/section-header"
 
-export default async function MessagesPage() {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+const MessagesPage = async () => {
+  const session = await getServerSession(authOptions)
+  const userId = (session?.user as { id?: string } | undefined)?.id
   if (!userId) {
-    redirect("/");
+    redirect("/")
   }
 
-  const { hasClaimedKey, threads } = await listMessageThreads(userId);
+  const { hasClaimedKey, threads } = await listMessageThreads(userId)
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10 text-sm">
-      <PageHeader
-        title="Messages"
+    <PageScaffold>
+      <SectionHeader
+        title="messages"
         subtitle="Encrypted inbox addressed by PGP fingerprint."
-        backLink={{ href: "/gallery", label: "back 2 gallery" }}
       />
       <MessagesClient
         initialHasClaimedKey={hasClaimedKey}
-        initialThreads={threads.map((thread) => ({
+        initialThreads={threads.map(thread => ({
           ...thread,
-          lastMessageAt: thread.lastMessageAt.toISOString(),
+          lastMessageAt: thread.lastMessageAt.toISOString()
         }))}
       />
-    </main>
-  );
+    </PageScaffold>
+  )
 }
+
+export default MessagesPage

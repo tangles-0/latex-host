@@ -11,6 +11,10 @@ import {
   type UserSortDirection,
   type UserSortKey,
 } from "@/components/manage-users-table-sort";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { TermButton } from "@/components/ui/term-button";
+import { TermTable } from "@/components/ui/term-table";
+import { formatBytes } from "@/lib/format";
 
 type UserStats = {
   id: string;
@@ -167,27 +171,14 @@ export default function ManageUsersTable({
     setBusyUserId(null);
   }
 
-  function formatBytes(value: number) {
-    if (!value) return "0 B";
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let index = 0;
-    let size = value;
-    while (size >= 1024 && index < units.length - 1) {
-      size /= 1024;
-      index += 1;
-    }
-    return `${size.toFixed(1)} ${units[index]}`;
-  }
-
   const formatTimestamp = (value?: string) =>
     value ? `${new Date(value).toISOString().replace("T", " ").slice(0, 19)} UTC` : "—";
 
   return (
     <div className="space-y-3">
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
-      <div className="overflow-auto rounded-md border border-neutral-200">
-        <table className="min-w-[920px] w-full border-collapse text-xs">
-          <thead className="bg-neutral-50 text-left text-[11px] uppercase text-neutral-500">
+      <TermTable className="min-w-[920px] text-xs">
+          <thead className="text-left text-[11px] uppercase text-neutral-500">
             <tr>
               {SORTABLE_COLUMNS.map((column) => (
                 <SortHeader
@@ -216,11 +207,7 @@ export default function ManageUsersTable({
                     >
                       {user.username}
                     </Link>
-                    {user.bannedAt ? (
-                      <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] uppercase text-red-700">
-                        Banned
-                      </span>
-                    ) : null}
+                    {user.bannedAt ? <StatusBadge tone="err">Banned</StatusBadge> : null}
                   </div>
                 </td>
                 <td className="px-3 py-2">{user.email}</td>
@@ -232,39 +219,34 @@ export default function ManageUsersTable({
                 <td className="px-3 py-2">{formatTimestamp(user.lastLoginAt)}</td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
+                    <TermButton
                       onClick={() => void requestDeleteFiles(user.id)}
-                      className="rounded border border-neutral-200 px-2 py-1"
                       disabled={busyUserId === user.id}
                     >
                       Delete files
-                    </button>
+                    </TermButton>
                     {user.bannedAt || user.id === currentUserId ? null : (
-                      <button
-                        type="button"
+                      <TermButton
+                        variant="danger"
                         onClick={() => void requestBanUser(user.id)}
-                        className="rounded border border-amber-200 px-2 py-1 text-amber-800"
                         disabled={busyUserId === user.id}
                       >
                         Ban user
-                      </button>
+                      </TermButton>
                     )}
-                    <button
-                      type="button"
+                    <TermButton
+                      variant="danger"
                       onClick={() => void requestDeleteUser(user.id)}
-                      className="rounded border border-red-200 px-2 py-1 text-red-600"
                       disabled={busyUserId === user.id}
                     >
                       Delete user
-                    </button>
+                    </TermButton>
                   </div>
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
-      </div>
+      </TermTable>
     </div>
   );
 }

@@ -38,7 +38,7 @@ export default function GalleryLoadingModal() {
         aria-hidden="true"
       />
 
-      <div className="gallery-loading-card relative w-full max-w-md overflow-hidden rounded-md border border-neutral-200 bg-white p-6 shadow-lg">
+      <div className="gallery-loading-card modal-panel relative w-full max-w-md overflow-hidden p-6">
         <div
           className="gallery-loading-scanline pointer-events-none absolute inset-0"
           aria-hidden="true"
@@ -67,7 +67,7 @@ export default function GalleryLoadingModal() {
           <div className="space-y-1">
             <p
               id="gallery-loading-title"
-              className="text-lg font-semibold tracking-tight"
+              className="font-display text-2xl text-[var(--theme-accent)]"
             >
               loading ur gallery
             </p>

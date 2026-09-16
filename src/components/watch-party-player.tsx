@@ -8,6 +8,8 @@ import { WatchPartyJoin } from "@/components/watch-party-join"
 import { WatchPartyTitle } from "@/components/watch-party-title"
 import { WatchPartyVideoDownload } from "@/components/watch-party-video-download"
 import { WatchPartyVolumeControls } from "@/components/watch-party-volume-controls"
+import { PageScaffold } from "@/components/ui/page-scaffold"
+import { TermButton } from "@/components/ui/term-button"
 import {
   expectedPositionMs,
   PERIODIC_SYNC_INTERVAL_MS,
@@ -335,7 +337,7 @@ export const WatchPartyPlayer = ({
   }, [canShowVideo])
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-8">
+    <PageScaffold>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <WatchPartyTitle
@@ -358,13 +360,12 @@ export const WatchPartyPlayer = ({
           </p>
         </div>
         {party.isHost ? (
-          <button
-            type="button"
+          <TermButton
+            variant="danger"
             onClick={() => void handleEndParty()}
-            className="rounded border border-neutral-200 px-3 py-1 text-xs"
           >
             End party
-          </button>
+          </TermButton>
         ) : null}
       </div>
 
@@ -426,26 +427,25 @@ export const WatchPartyPlayer = ({
               />
             ) : null}
             {needsPlaybackUnlock ? (
-              <button
-                type="button"
+              <TermButton
+                variant="primary"
                 onClick={handleUnlockPlayback}
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-black px-4 py-2 text-sm text-white"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
               >
                 Click to start playback
-              </button>
+              </TermButton>
             ) : null}
           </div>
           <div className="flex items-center gap-3 text-xs">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               {party.isHost ? (
                 <>
-                  <button
-                    type="button"
+                  <TermButton
+                    variant="primary"
                     onClick={isPlaying ? handleHostPause : handleHostPlay}
-                    className="rounded bg-black px-3 py-1 text-white"
                   >
                     {isPlaying ? "Pause" : "Play"}
-                  </button>
+                  </TermButton>
                   <span className="tabular-nums text-neutral-600">
                     {formatTime(positionSeconds)} / {formatTime(durationSeconds)}
                   </span>
@@ -478,6 +478,6 @@ export const WatchPartyPlayer = ({
           </div>
         </div>
       ) : null}
-    </main>
+    </PageScaffold>
   )
 }

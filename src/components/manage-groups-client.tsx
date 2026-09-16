@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from "react";
 
+import Panel from "@/components/ui/panel";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput } from "@/components/ui/term-input";
+import { TermSelect } from "@/components/ui/term-select";
+import { TermTable } from "@/components/ui/term-table";
+
 type GroupSummary = {
   id: string;
   name: string;
@@ -111,58 +117,56 @@ export default function ManageGroupsClient({
     <div className="space-y-6">
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
 
-      <section className="rounded border border-neutral-200 p-4">
+      <Panel>
         <h2 className="text-sm font-medium">Create group</h2>
         <div className="mt-2 flex flex-wrap gap-2">
-          <input
-            className="rounded border px-3 py-2 text-xs"
+          <TermInput
+            className="w-auto min-w-48"
             placeholder="Group name"
             value={newGroupName}
             onChange={(event) => setNewGroupName(event.target.value)}
           />
-          <button
-            type="button"
+          <TermButton
+            variant="primary"
             onClick={() => void createGroup()}
-            className="rounded bg-black px-3 py-2 text-xs text-white"
           >
             Add group
-          </button>
+          </TermButton>
         </div>
-      </section>
+      </Panel>
 
-      <section className="rounded border border-neutral-200 p-4">
+      <Panel>
         <h2 className="text-sm font-medium">Groups</h2>
         <div className="mt-3 space-y-2">
           {groupItems.map((group) => (
             <div
               key={group.id}
-              className="flex items-center justify-between gap-3 rounded border border-neutral-100 px-3 py-2 text-xs"
+              className="flex items-center justify-between gap-3 border border-neutral-200 px-3 py-2 text-xs"
             >
               <div>
                 <div className="font-medium">{group.name}</div>
                 <div className="text-neutral-500">{group.userCount} users</div>
               </div>
-              <button
-                type="button"
+              <TermButton
+                variant="danger"
                 onClick={() => void deleteGroup(group.id)}
-                className="rounded border border-red-200 px-2 py-1 text-red-600"
                 disabled={group.name === "admin" || busy === group.id}
                 title={group.name === "admin" ? "Admin group cannot be deleted" : "Delete group"}
               >
                 Delete
-              </button>
+              </TermButton>
             </div>
           ))}
           {groupItems.length === 0 ? (
             <p className="text-xs text-neutral-500">No groups created yet.</p>
           ) : null}
         </div>
-      </section>
+      </Panel>
 
-      <section className="rounded border border-neutral-200 p-4">
+      <Panel>
         <h2 className="text-sm font-medium">Assign users</h2>
-        <div className="mt-3 overflow-auto">
-          <table className="min-w-[640px] w-full text-xs">
+        <div className="mt-3">
+          <TermTable className="min-w-[640px] text-xs">
             <thead className="text-left text-[11px] uppercase text-neutral-500">
               <tr>
                 <th className="px-3 py-2">Email</th>
@@ -177,8 +181,7 @@ export default function ManageGroupsClient({
                   <tr key={user.id} className="border-t border-neutral-200">
                     <td className="px-3 py-2">{user.email}</td>
                     <td className="px-3 py-2">
-                      <select
-                        className="rounded border px-2 py-1"
+                      <TermSelect
                         value={currentGroup}
                         onChange={(event) =>
                           void updateUserGroup(user.id, event.target.value)
@@ -193,7 +196,7 @@ export default function ManageGroupsClient({
                             {group.name}
                           </option>
                         ))}
-                      </select>
+                      </TermSelect>
                     </td>
                     <td className="px-3 py-2">
                       {user.id === currentUserId && user.groupName === "admin" ? (
@@ -206,9 +209,9 @@ export default function ManageGroupsClient({
                 );
               })}
             </tbody>
-          </table>
+          </TermTable>
         </div>
-      </section>
+      </Panel>
     </div>
   );
 }

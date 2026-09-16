@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import clsx from "clsx";
 import { LightFileImage } from "@energiz3r/icon-library/Icons/Light/LightFileImage";
 
 import { ImageGenerationMaskEditor } from "@/components/image-generation-mask-editor";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SkeletonTable } from "@/components/ui/skeleton";
+import { TermButton } from "@/components/ui/term-button";
+import { TermTextarea } from "@/components/ui/term-input";
 import {
   defaultDenoisingStrength,
   denoisingStrengthLabel,
@@ -93,6 +97,7 @@ export const ImageGenerationStudio = ({
   } | null>(null);
   const isLoadingRef = useRef(false);
   const hasLoadedRef = useRef(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const completedIdsRef = useRef(new Set<string>());
   const hasActiveGenerations = useMemo(
     () => generations.some((generation) => isActiveStatus(generation.status)),
@@ -139,12 +144,14 @@ export const ImageGenerationStudio = ({
       hasLoadedRef.current = true;
       completedIdsRef.current = completedIds;
       setGenerations(nextGenerations);
+      setHasLoaded(true);
     } catch (loadError) {
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load image generations.",
       );
+      setHasLoaded(true);
     } finally {
       isLoadingRef.current = false;
     }
@@ -443,34 +450,20 @@ export const ImageGenerationStudio = ({
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-[var(--theme-bg)] text-[var(--theme-text)]">
-      <header className="sticky top-0 z-10 border-b border-neutral-200 bg-[color-mix(in_srgb,var(--theme-panel)_92%,transparent)] px-4 py-3 backdrop-blur sm:px-8">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
-              {isImg2Img ? "image to image" : "text to image"}
-            </p>
-            <h1 className="truncate text-lg font-semibold sm:text-xl">
-              generate image
-            </h1>
-            <p className="text-xs text-neutral-500">
-              Images usually finish in about 30 seconds.
-            </p>
-          </div>
-          <Link
-            href="/gallery"
-            className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
-          >
-            back to gallery
-          </Link>
-        </div>
-      </header>
+    <PageScaffold width="wide">
+      <SectionHeader
+        title="generate image"
+        subtitle="Images usually finish in about 30 seconds."
+      />
+      <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+        {isImg2Img ? "image to image" : "text to image"}
+      </p>
 
-      <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 px-4 py-6 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] lg:items-start sm:px-8">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] lg:items-start">
         <section
           className={clsx(
-            "space-y-4 rounded-xl border border-neutral-200 p-4 sm:p-5",
-            !hasAccess ? "bg-neutral-100" : "bg-[var(--theme-panel)]",
+            "space-y-4 border border-neutral-200 bg-[var(--theme-card)] p-4 sm:p-5",
+            !hasAccess && "opacity-80",
           )}
         >
           {!hasAccess ? (
@@ -489,8 +482,8 @@ export const ImageGenerationStudio = ({
           ) : null}
 
           {sourceMedia ? (
-            <div className="flex gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-neutral-200">
+            <div className="flex gap-3 border border-neutral-200 bg-[var(--theme-card)] p-3">
+              <div className="h-20 w-20 shrink-0 overflow-hidden bg-neutral-950">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={sourceThumbnailUrl(sourceMedia)}
@@ -512,30 +505,20 @@ export const ImageGenerationStudio = ({
                     : "source image"}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
+                  <TermButton
                     disabled={!hasAccess}
                     onClick={() => setIsMaskEditorOpen(true)}
-                    className="rounded border border-neutral-200 px-2 py-1 text-[11px] disabled:opacity-50"
                   >
                     {maskPngBase64 ? "edit mask" : "draw mask"}
-                  </button>
+                  </TermButton>
                   {maskPngBase64 ? (
-                    <button
-                      type="button"
-                      onClick={() => setMaskPngBase64(null)}
-                      className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
-                    >
+                    <TermButton onClick={() => setMaskPngBase64(null)}>
                       clear mask
-                    </button>
+                    </TermButton>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={clearSource}
-                    className="rounded border border-neutral-200 px-2 py-1 text-[11px]"
-                  >
+                  <TermButton onClick={clearSource}>
                     remove source
-                  </button>
+                  </TermButton>
                 </div>
                 {maskPngBase64 ? (
                   <p className="mt-2 text-[11px] text-neutral-500">
@@ -552,13 +535,13 @@ export const ImageGenerationStudio = ({
 
           <label className="block text-xs font-medium">
             prompt
-            <textarea
+            <TermTextarea
               value={prompt}
               maxLength={2000}
               rows={isImg2Img ? 4 : 5}
               disabled={!hasAccess || isSubmitting}
               onChange={(event) => setPrompt(event.target.value)}
-              className="mt-1 w-full resize-y rounded border border-neutral-300 bg-[var(--theme-input-bg)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
+              className="mt-1 w-full resize-y disabled:cursor-not-allowed disabled:opacity-50"
               placeholder={
                 isImg2Img
                   ? "golden hour lighting, keep the same subject"
@@ -568,19 +551,19 @@ export const ImageGenerationStudio = ({
           </label>
           <label className="block text-xs font-medium">
             negative prompt (optional)
-            <textarea
+            <TermTextarea
               value={negativePrompt}
               maxLength={2000}
               rows={3}
               disabled={!hasAccess || isSubmitting}
               onChange={(event) => setNegativePrompt(event.target.value)}
-              className="mt-1 w-full resize-y rounded border border-neutral-300 bg-[var(--theme-input-bg)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
+              className="mt-1 w-full resize-y disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="blurry, distorted, artifacts"
             />
           </label>
 
           {isImg2Img ? (
-            <div className="space-y-3 rounded-lg border border-neutral-200 p-3">
+            <div className="space-y-3 border border-neutral-200 bg-[var(--theme-card)] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-medium">how much to change</p>
@@ -603,20 +586,14 @@ export const ImageGenerationStudio = ({
               />
               <div className="grid grid-cols-3 gap-2">
                 {denoisingPresets.map((preset) => (
-                  <button
+                  <TermButton
                     key={preset.value}
-                    type="button"
                     disabled={!hasAccess || isSubmitting}
                     onClick={() => setDenoisingStrength(preset.value)}
-                    className={clsx(
-                      "rounded border px-2 py-1 text-[11px] disabled:opacity-50",
-                      Math.abs(denoisingStrength - preset.value) < 0.001
-                        ? "border-neutral-900 bg-black text-white"
-                        : "border-neutral-200",
-                    )}
+                    active={Math.abs(denoisingStrength - preset.value) < 0.001}
                   >
                     {preset.label}
-                  </button>
+                  </TermButton>
                 ))}
               </div>
               <p className="text-[11px] leading-5 text-neutral-500">
@@ -654,8 +631,8 @@ export const ImageGenerationStudio = ({
           ) : null}
 
           <div className="flex justify-end">
-            <button
-              type="button"
+            <TermButton
+              variant="primary"
               disabled={
                 !hasAccess ||
                 isSubmitting ||
@@ -663,10 +640,9 @@ export const ImageGenerationStudio = ({
                 !prompt.trim()
               }
               onClick={() => void submitGeneration()}
-              className="rounded bg-black px-4 py-2 text-xs text-white disabled:opacity-50"
             >
               {isSubmitting ? "queueing..." : isImg2Img ? "restyle" : "generate"}
-            </button>
+            </TermButton>
           </div>
         </section>
 
@@ -674,28 +650,25 @@ export const ImageGenerationStudio = ({
           aria-labelledby="generation-requests-title"
           className="min-w-0 space-y-3"
         >
-          <div className="flex items-center justify-between gap-3">
-            <h2
-              id="generation-requests-title"
-              className="text-sm font-semibold"
-            >
-              generation requests
-            </h2>
-            <button
-              type="button"
-              disabled={
-                isClearing ||
-                !generations.some(
-                  (generation) => !isActiveStatus(generation.status),
-                )
-              }
-              onClick={() => void clearHistory()}
-              className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isClearing ? "clearing..." : "clear list"}
-            </button>
-          </div>
-          {generations.length === 0 ? (
+          <SectionHeader
+            title={<span id="generation-requests-title">generation requests</span>}
+            actions={
+              <TermButton
+                disabled={
+                  isClearing ||
+                  !generations.some(
+                    (generation) => !isActiveStatus(generation.status),
+                  )
+                }
+                onClick={() => void clearHistory()}
+              >
+                {isClearing ? "clearing..." : "clear list"}
+              </TermButton>
+            }
+          />
+          {!hasLoaded ? (
+            <SkeletonTable rows={4} columns={3} />
+          ) : generations.length === 0 ? (
             <p className="text-xs text-neutral-500">
               No image generations yet.
             </p>
@@ -704,9 +677,9 @@ export const ImageGenerationStudio = ({
               {generations.map((generation) => (
                 <article
                   key={generation.id}
-                  className="flex w-full min-h-28 gap-3 rounded-xl border border-neutral-200 p-3 sm:gap-4 sm:p-4"
+                  className="flex w-full min-h-28 gap-3 border border-neutral-200 bg-[var(--theme-card)] p-3 sm:gap-4 sm:p-4"
                 >
-                  <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-neutral-100">
+                  <div className="relative h-24 w-24 shrink-0 overflow-hidden bg-neutral-950">
                     {generation.thumbnailUrl ? (
                       <button
                         type="button"
@@ -786,65 +759,60 @@ export const ImageGenerationStudio = ({
                     ) : null}
                     {generation.status === "pending" ? (
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
+                        <TermButton
                           disabled={busyGenerationId === generation.id}
                           onClick={() => void cancelGeneration(generation)}
-                          className="rounded border border-neutral-200 px-3 py-1 text-[11px] disabled:opacity-50"
                         >
                           {busyGenerationId === generation.id &&
                           busyAction === "cancel"
                             ? "cancelling..."
                             : "cancel"}
-                        </button>
+                        </TermButton>
                       </div>
                     ) : null}
                     {!isActiveStatus(generation.status) ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {generation.status === "failed" ? (
-                          <button
-                            type="button"
+                          <TermButton
+                            variant="primary"
                             disabled={
                               busyGenerationId === generation.id || isSubmitting
                             }
                             onClick={() => void retryGeneration(generation)}
-                            className="rounded bg-black px-3 py-1 text-[11px] text-white disabled:opacity-50"
                           >
                             {busyGenerationId === generation.id &&
                             busyAction === "retry"
                               ? "retrying..."
                               : "retry"}
-                          </button>
+                          </TermButton>
                         ) : null}
                         {generation.status === "complete" &&
                         generation.mediaId ? (
-                          <button
-                            type="button"
+                          <TermButton
+                            variant="primary"
                             disabled={busyGenerationId === generation.id}
                             onClick={() =>
                               void removeGeneration(generation, "keep")
                             }
-                            className="rounded bg-black px-3 py-1 text-[11px] text-white disabled:opacity-50"
                           >
                             {busyGenerationId === generation.id &&
                             busyAction === "keep"
                               ? "working..."
                               : "keep"}
-                          </button>
+                          </TermButton>
                         ) : null}
-                        <button
-                          type="button"
+                        <TermButton
+                          variant="danger"
                           disabled={busyGenerationId === generation.id}
                           onClick={() =>
                             void removeGeneration(generation, "discard")
                           }
-                          className="rounded border border-red-200 px-3 py-1 text-[11px] text-red-600 disabled:opacity-50"
                         >
                           {busyGenerationId === generation.id &&
                           busyAction === "discard"
                             ? "working..."
                             : "discard"}
-                        </button>
+                        </TermButton>
                       </div>
                     ) : null}
                   </div>
@@ -876,15 +844,15 @@ export const ImageGenerationStudio = ({
           aria-modal="true"
           aria-label="Generated image preview"
           onClick={() => setLightbox(null)}
-          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-[color-mix(in_srgb,var(--theme-bg)_20%,black_80%)] p-4 sm:p-8"
+          className="modal-overlay fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center p-4 sm:p-8"
         >
-          <button
-            type="button"
+          <TermButton
+            variant="primary"
             onClick={() => setLightbox(null)}
-            className="absolute right-4 top-4 rounded bg-black px-3 py-1.5 text-xs text-white"
+            className="absolute right-4 top-4"
           >
             close
-          </button>
+          </TermButton>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={lightbox.url}
@@ -894,6 +862,6 @@ export const ImageGenerationStudio = ({
           />
         </div>
       ) : null}
-    </main>
+    </PageScaffold>
   );
 };

@@ -10,7 +10,8 @@ import { listMediaForAlbum } from "@/lib/media-store";
 import GalleryClient from "@/components/gallery-client";
 import AlbumShareControls from "@/components/album-share-controls";
 import PatchNoteBanner from "@/components/patch-note-banner";
-import PageHeader from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
+import { SectionHeader } from "@/components/ui/section-header";
 import { getNodeShareContext } from "@/lib/public-share-urls";
 import { isNodeMode } from "@/lib/self-hosted-nodes";
 
@@ -45,18 +46,16 @@ export default async function AlbumPage({
         new Date(dismissedAt).getTime());
 
   return (
-    <main className="flex min-h-screen w-full flex-col gap-6 px-2 py-2 text-sm sm:px-6 sm:py-10">
-      <PageHeader
+    <PageScaffold>
+      <SectionHeader
         title={album.name}
         subtitle={`${media.length} file${media.length === 1 ? "" : "s"} in this album.`}
-        backLink={{ href: "/gallery?tab=albums", label: "cd .. (albums)" }}
-      >
-        {media.length === 0 ? (
-          <p className="text-xs text-neutral-500">
-            go 2 the imgs tab, select some imgs, then choose “add 2 album”.
-          </p>
-        ) : null}
-      </PageHeader>
+      />
+      {media.length === 0 ? (
+        <p className="text-xs text-neutral-500">
+          go 2 the imgs tab, select some imgs, then choose “add 2 album”.
+        </p>
+      ) : null}
 
       {shouldShowPatchBanner ? (
         <PatchNoteBanner
@@ -81,6 +80,6 @@ export default async function AlbumPage({
         isImageGenerationAvailable={!isNodeMode()}
         nodeShareContext={nodeShareContext}
       />
-    </main>
+    </PageScaffold>
   );
 }

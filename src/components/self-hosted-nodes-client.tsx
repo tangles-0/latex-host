@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 
+import AlertBanner from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 import Panel from "@/components/ui/panel";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { TermButton } from "@/components/ui/term-button";
 import type { SelfHostedNodeSummary } from "@/lib/self-hosted-nodes";
 
 type SelfHostedNodesClientProps = {
@@ -127,48 +131,53 @@ const SelfHostedNodesClient = ({
             database on your hardware.
           </p>
         </div>
-        <button
-          type="button"
+        <TermButton
+          variant="primary"
           disabled={isBusy}
           onClick={addNode}
-          className="rounded border border-emerald-500 px-3 py-2 text-xs text-emerald-700 disabled:opacity-50"
         >
           Add self-hosted node
-        </button>
+        </TermButton>
       </div>
       {linkCode ? (
-        <div className="rounded border border-emerald-300 bg-emerald-50 p-3">
-          <div className="text-xs text-emerald-800">
+        <AlertBanner tone="info">
+          <div className="text-xs">
             Enter this one-time code in the node setup page:
           </div>
-          <code className="mt-1 block select-all text-lg font-semibold tracking-wider text-emerald-950">
+          <code className="mt-1 block select-all text-lg font-semibold tracking-wider">
             {linkCode}
           </code>
-          <div className="mt-1 text-xs text-emerald-700">
+          <div className="mt-1 text-xs">
             This code is shown only once and expires in 15 minutes.
           </div>
-        </div>
+        </AlertBanner>
       ) : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
       {nodes.length === 0 ? (
-        <p className="rounded border border-dashed border-neutral-300 p-4 text-xs text-neutral-500">
-          No self-hosted nodes yet.
-        </p>
+        <EmptyState>No self-hosted nodes yet.</EmptyState>
       ) : (
         <div className="space-y-2">
           {nodes.map((node) => (
             <article
               key={node.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-200 p-3"
+              className="flex flex-wrap items-center justify-between gap-3 border border-neutral-200 bg-[var(--theme-card)] p-3"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">
                     {node.nodeHash ? `Node ${node.nodeHash}` : "Pending node"}
                   </span>
-                  <span className="rounded border border-neutral-300 px-2 py-0.5 text-[11px]">
+                  <StatusBadge
+                    tone={
+                      node.status === "ok"
+                        ? "ok"
+                        : node.status === "not_linked"
+                          ? "pend"
+                          : "err"
+                    }
+                  >
                     {statusLabel(node.status)}
-                  </span>
+                  </StatusBadge>
                 </div>
                 <div className="mt-1 break-all text-xs text-neutral-500">
                   {node.publicHttpsUrl ??
@@ -186,25 +195,22 @@ const SelfHostedNodesClient = ({
               </div>
               <div className="flex gap-2">
                 {node.nodeHash ? (
-                  <button
-                    type="button"
+                  <TermButton
                     disabled={isBusy}
                     onClick={() =>
                       updateDisabled(node.id, !node.isOwnerDisabled)
                     }
-                    className="rounded border border-neutral-300 px-3 py-1.5 text-xs disabled:opacity-50"
                   >
                     {node.isOwnerDisabled ? "Enable" : "Disable"}
-                  </button>
+                  </TermButton>
                 ) : null}
-                <button
-                  type="button"
+                <TermButton
+                  variant="danger"
                   disabled={isBusy}
                   onClick={() => removeNode(node.id)}
-                  className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 disabled:opacity-50"
                 >
                   Remove
-                </button>
+                </TermButton>
               </div>
             </article>
           ))}

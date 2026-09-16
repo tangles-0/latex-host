@@ -21,7 +21,7 @@ const NodeAuthorizePage = async ({
     redirect("/account");
   }
   return (
-    <main className="mx-auto min-h-screen max-w-xl px-6 py-12">
+    <main className="page-scaffold page-scaffold-narrow">
       <NodeAuthorizeClient
         nodeHash={nodeHash}
         publicHttpsUrl={node.publicHttpsUrl}

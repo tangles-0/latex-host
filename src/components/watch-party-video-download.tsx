@@ -26,7 +26,7 @@ export const WatchPartyVideoDownload = ({
       download={downloadFileName(title)}
       target="_blank"
       rel="noreferrer"
-      className="absolute right-2 top-2 inline-flex rounded bg-black/70 p-2 text-white"
+      className="absolute right-2 top-2 inline-flex rounded bg-[var(--theme-overlay)] p-2 text-[var(--theme-text)]"
       aria-label="Download video"
       title="Download video"
     >

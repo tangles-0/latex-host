@@ -1,17 +1,16 @@
-import Panel from "@/components/ui/panel";
+import Panel from "@/components/ui/panel"
 
 export default function StatCard({
   label,
-  value,
+  value
 }: {
-  label: string;
-  value: string | number;
+  label: string
+  value: string | number
 }) {
   return (
     <Panel>
       <div className="text-xs text-neutral-500">{label}</div>
-      <div className="mt-2 text-lg font-semibold">{value}</div>
+      <div className="mt-2 font-display text-lg text-[var(--theme-accent)]">{value}</div>
     </Panel>
-  );
+  )
 }
-

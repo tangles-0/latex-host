@@ -17,6 +17,10 @@ import {
 } from "lucide-react"
 import clsx from "clsx"
 
+import { StatusBadge } from "@/components/ui/status-badge"
+import { TermButton } from "@/components/ui/term-button"
+import { TermInput } from "@/components/ui/term-input"
+
 import { KNOWN_TYPES, MIME_CATEGORIES, MIME_PRESETS, normalizeTypes, type MimeCategoryId } from "./limit-options"
 
 type MimeTypePickerProps = {
@@ -104,29 +108,23 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
   const selectedInActiveCategory = activeCategory.types.filter(type => selected.has(type)).length
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <div className="border-b border-neutral-200 bg-neutral-50 p-4 sm:p-5">
+    <div className="overflow-hidden border border-neutral-200 bg-[var(--theme-card)]">
+      <div className="border-b border-neutral-200 p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-neutral-900">Allowed file types</h3>
+            <h3 className="text-sm font-semibold">Allowed file types</h3>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-500">
               Search by extension or MIME type, choose a preset, or browse a category. Changes are saved with this
               scope.
             </p>
           </div>
-          <div
-            className={clsx(
-              "inline-flex shrink-0 items-center gap-2 self-start rounded-full px-3 py-1.5 text-xs font-medium",
-              normalizedValue.length === 0 ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"
-            )}
-          >
-            {normalizedValue.length === 0 ? <ShieldAlert className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+          <StatusBadge tone={normalizedValue.length === 0 ? "pend" : "ok"}>
             {normalizedValue.length === 0 ? "Unrestricted" : `${normalizedValue.length} allowed`}
-          </div>
+          </StatusBadge>
         </div>
 
         {normalizedValue.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+          <div className="mt-4 border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
             No allowlist is active. Every file type is currently accepted for this scope. Choose a preset or select
             individual types to restrict uploads.
           </div>
@@ -138,9 +136,9 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
               key={preset.id}
               type="button"
               onClick={() => setTypes([...preset.types, ...custom])}
-              className="group rounded-xl border border-neutral-200 bg-white p-3 text-left transition hover:border-neutral-400 hover:bg-neutral-50 focus-visible:outline-none"
+              className="group border border-neutral-200 bg-[var(--theme-card)] p-3 text-left hover:border-neutral-200 focus-visible:outline-none"
             >
-              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-neutral-900">
+              <span className="flex items-center justify-between gap-2 text-xs font-semibold">
                 {preset.label}
                 <span className="text-[10px] font-medium text-neutral-500 opacity-0 transition group-hover:opacity-100">
                   Use preset
@@ -160,27 +158,21 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
               aria-hidden="true"
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
             />
-            <input
+            <TermInput
               type="search"
               value={query}
               onChange={event => setQuery(event.target.value)}
               placeholder="Search .tsx, Python, application/json..."
-              className="h-10 w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-neutral-400"
+              className="pl-9"
             />
           </label>
-          <button
-            type="button"
+          <TermButton
             aria-pressed={isShowingSelected}
+            active={isShowingSelected}
             onClick={() => setIsShowingSelected(current => !current)}
-            className={clsx(
-              "h-10 rounded-xl border px-3 text-xs font-medium transition",
-              isShowingSelected
-                ? "border-neutral-800 bg-neutral-100 text-neutral-900"
-                : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50"
-            )}
           >
             {isShowingSelected ? "Showing selected" : "Show selected only"}
-          </button>
+          </TermButton>
         </div>
 
         <div className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-2">
@@ -188,38 +180,27 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
             const categorySelected = category.types.filter(type => selected.has(type)).length
             const isActive = category.id === activeCategoryId && !normalizedQuery
             return (
-              <button
+              <TermButton
                 key={category.id}
-                type="button"
+                active={isActive}
                 onClick={() => {
                   setQuery("")
                   setActiveCategoryId(category.id)
                 }}
-                className={clsx(
-                  "inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition",
-                  isActive
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50"
-                )}
               >
                 {categoryIcon(category.id)}
                 {category.label}
-                <span
-                  className={clsx(
-                    "rounded-full px-1.5 py-0.5 text-[10px]",
-                    isActive ? "bg-white text-neutral-900" : "bg-neutral-100 text-neutral-500"
-                  )}
-                >
+                <span className="border border-neutral-200 px-1.5 py-0.5 text-[10px] text-neutral-500">
                   {categorySelected}/{category.types.length}
                 </span>
-              </button>
+              </TermButton>
             )
           })}
         </div>
 
         <div className="mt-3 flex flex-col gap-3 border-b border-neutral-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
+            <div className="flex items-center gap-2 text-sm font-semibold">
               {normalizedQuery ? (
                 <>
                   <Search className="h-4 w-4" />
@@ -240,28 +221,24 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
           </div>
           {!normalizedQuery ? (
             <div className="flex gap-2">
-              <button
-                type="button"
+              <TermButton
                 onClick={() => addTypes(activeCategory.types)}
                 disabled={selectedInActiveCategory === activeCategory.types.length}
-                className="rounded-lg border border-neutral-200 px-2.5 py-1.5 text-[11px] font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Select category
-              </button>
-              <button
-                type="button"
+              </TermButton>
+              <TermButton
                 onClick={() => removeTypes(activeCategory.types)}
                 disabled={selectedInActiveCategory === 0}
-                className="rounded-lg border border-neutral-200 px-2.5 py-1.5 text-[11px] font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Clear category
-              </button>
+              </TermButton>
             </div>
           ) : null}
         </div>
 
         {!normalizedQuery && activeCategory.id === "software" ? (
-          <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-5 text-amber-800">
+          <div className="mt-4 flex gap-2 border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-5 text-amber-800">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             Executables and packages can distribute untrusted code. Enable only the formats this group genuinely needs.
           </div>
@@ -278,16 +255,16 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
                   aria-pressed={isChecked}
                   onClick={() => toggleType(type)}
                   className={clsx(
-                    "flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 text-left transition focus-visible:outline-none",
+                    "flex min-h-12 items-center gap-3 border px-3 py-2 text-left focus-visible:outline-none",
                     isChecked
-                      ? "border-neutral-800 bg-neutral-100 text-neutral-900"
-                      : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50"
+                      ? "border-neutral-200 bg-[var(--theme-card)]"
+                      : "border-neutral-200 hover:border-neutral-200"
                   )}
                 >
                   <span
                     className={clsx(
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                      isChecked ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300 bg-white"
+                      "flex h-5 w-5 shrink-0 items-center justify-center border",
+                      isChecked ? "border-neutral-200 bg-[var(--theme-card)]" : "border-neutral-200"
                     )}
                   >
                     {isChecked ? (
@@ -308,24 +285,24 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
             })}
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-dashed border-neutral-300 px-4 py-8 text-center">
-            <p className="text-sm font-medium text-neutral-700">No file types found</p>
+          <div className="mt-4 border border-dashed border-neutral-200 px-4 py-8 text-center">
+            <p className="text-sm font-medium">No file types found</p>
             <p className="mt-1 text-xs text-neutral-500">
               Try another search, turn off “selected only,” or add a custom value below.
             </p>
           </div>
         )}
 
-        <div className="mt-5 rounded-xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
+        <div className="mt-5 border border-neutral-200 bg-[var(--theme-card)] p-4">
           <div className="flex flex-col gap-1">
-            <h4 className="text-xs font-semibold text-neutral-900">Custom MIME type or extension</h4>
+            <h4 className="text-xs font-semibold">Custom MIME type or extension</h4>
             <p className="text-[11px] text-neutral-500">
               Add values not listed above, such as <span className="font-mono">application/vnd.example</span> or{" "}
               <span className="font-mono">.custom</span>.
             </p>
           </div>
           <div className="mt-3 flex gap-2">
-            <input
+            <TermInput
               type="text"
               value={customType}
               onChange={event => setCustomType(event.target.value)}
@@ -336,17 +313,16 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
                 }
               }}
               placeholder=".ext or type/subtype"
-              className="h-9 min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-3 font-mono text-xs outline-none"
+              className="min-w-0 flex-1 font-mono"
             />
-            <button
-              type="button"
+            <TermButton
+              variant="primary"
               onClick={addCustomType}
               disabled={!customType.trim()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-black px-3 text-xs font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Plus className="h-3.5 w-3.5" />
               Add
-            </button>
+            </TermButton>
           </div>
           {custom.length > 0 ? (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -355,7 +331,7 @@ export const MimeTypePicker = ({ value, onChange }: MimeTypePickerProps) => {
                   key={type}
                   type="button"
                   onClick={() => removeTypes([type])}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-2.5 py-1 font-mono text-[10px] text-neutral-700 transition hover:border-red-200 hover:text-red-700"
+                  className="inline-flex items-center gap-1.5 border border-neutral-200 bg-[var(--theme-card)] px-2.5 py-1 font-mono text-[10px] hover:border-red-200 hover:text-red-700"
                   title={`Remove ${type}`}
                 >
                   {type}

@@ -34,15 +34,30 @@ import NoteMarkdown from "./note-markdown";
 import NoteRichEditor from "./note-rich-editor";
 import CodeFileEditor from "./code-file-editor";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { FileTile } from "@/components/ui/file-tile";
+import { GalleryFilterBar } from "@/components/gallery-filter-bar";
+import { TermButton } from "@/components/ui/term-button";
+import { TermInput } from "@/components/ui/term-input";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
 import { isEditableTextDocument, isRiskyShareFile } from "@/lib/media-types";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
+import {
+  applyGalleryFileFilters,
+  matchesGalleryFileType,
+  matchesGalleryShareFilter,
+  type GalleryFileTypeFilter,
+  type GalleryShareFilter,
+  type GallerySortKey,
+} from "@/lib/gallery-file-filters";
 import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 import { formatShareUrl, type NodeShareContext } from "@/lib/share-link-format";
 import { useShareLinkFormat } from "@/hooks/use-share-link-format";
 
 const SHOW_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-show-album-images";
+const HIDE_ALBUM_IMAGES_STORAGE_KEY = "latex-gallery-hide-album-images";
 const ROTATABLE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 const INTERNAL_IMAGE_DRAG_TYPE = "application/x-latex-image-id";
@@ -51,8 +66,37 @@ const NOTE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-note-autosave";
 const CODE_AUTOSAVE_STORAGE_KEY_PREFIX = "latex-code-autosave";
 const PREVIEW_POLL_MAX_MS = 2 * 60 * 1000;
 
-function isMarkdownDocumentExtension(ext: string): boolean {
-  return MARKDOWN_EXTENSIONS.has(ext.toLowerCase());
+function readHideAlbumFilesSetting(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    const hideStored = window.localStorage.getItem(
+      HIDE_ALBUM_IMAGES_STORAGE_KEY,
+    );
+    if (hideStored === "1") {
+      return true;
+    }
+    if (hideStored === "0") {
+      return false;
+    }
+    return (
+      window.localStorage.getItem(SHOW_ALBUM_IMAGES_STORAGE_KEY) === "0"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistHideAlbumFilesSetting(hidden: boolean) {
+  try {
+    window.localStorage.setItem(
+      HIDE_ALBUM_IMAGES_STORAGE_KEY,
+      hidden ? "1" : "0",
+    );
+  } catch {
+    // ignore storage errors
+  }
 }
 
 type PreviewStatus = "pending" | "started" | "complete" | "error";
@@ -172,7 +216,6 @@ type RotationDirection = "left" | "right";
 type NoteEditorMode = "markdown" | "preview" | "code";
 type NoteModalView = "note" | "history" | "history-preview";
 type EditorWindowMode = "windowed" | "large" | "fullscreen";
-type GalleryKindFilter = "all" | MediaKind;
 const PAGE_SIZE = 24;
 
 type NoteDetails = {
@@ -202,12 +245,13 @@ export default function GalleryClient({
   media,
   onImagesChange,
   createNoteRequestId,
+  createNoteOnMount = false,
+  onCreateNoteMountConsumed,
   onCreateNoteStateChange,
   showAlbumImageToggle = true,
   showCreateNoteButton = true,
   uploadAlbumId,
   hideImagesInAlbums = false,
-  kindFilter = "all",
   isAdmin = false,
   isImageGenerationAvailable = false,
   readOnly = false,
@@ -218,12 +262,13 @@ export default function GalleryClient({
   media: GalleryImage[];
   onImagesChange?: (next: GalleryImage[]) => void;
   createNoteRequestId?: number;
+  createNoteOnMount?: boolean;
+  onCreateNoteMountConsumed?: () => void;
   onCreateNoteStateChange?: (isCreating: boolean) => void;
   showAlbumImageToggle?: boolean;
   showCreateNoteButton?: boolean;
   uploadAlbumId?: string;
   hideImagesInAlbums?: boolean;
-  kindFilter?: GalleryKindFilter;
   isAdmin?: boolean;
   isImageGenerationAvailable?: boolean;
   readOnly?: boolean;
@@ -241,6 +286,7 @@ export default function GalleryClient({
   const [sharePasswordDraft, setSharePasswordDraft] = useState("");
   const [isSavingSharePassword, setIsSavingSharePassword] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [copiedShareValue, setCopiedShareValue] = useState("");
   const [isGenerating640, setIsGenerating640] = useState(false);
   const [isChecking640, setIsChecking640] = useState(false);
   const [has640Variant, setHas640Variant] = useState<boolean | null>(null);
@@ -257,6 +303,10 @@ export default function GalleryClient({
     GalleryUploadProgressEntry[]
   >([]);
   const [showAlbumImages, setShowAlbumImages] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<GalleryFileTypeFilter>("all");
+  const [shareFilter, setShareFilter] = useState<GalleryShareFilter>("all");
+  const [sortKey, setSortKey] = useState<GallerySortKey>("newest");
+  const [hideAlbumFiles, setHideAlbumFiles] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isRotating, setIsRotating] = useState(false);
   const [rotateError, setRotateError] = useState<string | null>(null);
@@ -319,7 +369,11 @@ export default function GalleryClient({
   const dragCounter = useRef(0);
   const lastSavedNoteContentRef = useRef("");
   const lastSavedCodeContentRef = useRef("");
-  const lastHandledCreateNoteRequestIdRef = useRef(createNoteRequestId ?? 0);
+  const lastHandledCreateNoteRequestIdRef = useRef(
+    createNoteOnMount
+      ? Math.max(0, (createNoteRequestId ?? 1) - 1)
+      : (createNoteRequestId ?? 0),
+  );
   const uploadModalDismissTimeoutRef = useRef<number | null>(null);
   const isGalleryModalOpenRef = useRef(false);
   const mediaRef = useRef(media);
@@ -400,6 +454,13 @@ export default function GalleryClient({
       // ignore storage errors
     }
   }, [showAlbumImages, showAlbumImageToggle]);
+
+  useEffect(() => {
+    if (inAlbumContext) {
+      return;
+    }
+    setHideAlbumFiles(readHideAlbumFilesSetting());
+  }, [inAlbumContext]);
 
   useEffect(() => {
     if (readOnly) {
@@ -513,27 +574,37 @@ export default function GalleryClient({
   }, []);
 
   const filteredItems = useMemo(() => {
-    let next = items;
-    if (kindFilter !== "all") {
-      next = next.filter((image) => image.kind === kindFilter);
-    }
-    if (hideImagesInAlbums) {
-      next = next.filter(
-        (image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId,
-      );
-    }
-    if (showAlbumImageToggle && !showAlbumImages) {
+    let next = inAlbumContext
+      ? items.filter(
+          (item) =>
+            matchesGalleryFileType(item, typeFilter) &&
+            matchesGalleryShareFilter(item, shareFilter),
+        )
+      : applyGalleryFileFilters(items, {
+          typeFilter,
+          shareFilter,
+          sort: sortKey,
+        });
+    const hideAlbumMembers =
+      hideImagesInAlbums ||
+      hideAlbumFiles ||
+      (showAlbumImageToggle && !showAlbumImages);
+    if (hideAlbumMembers) {
       next = next.filter(
         (image) => (image.albumIds?.length ?? 0) === 0 && !image.albumId,
       );
     }
     return next;
   }, [
+    hideAlbumFiles,
     hideImagesInAlbums,
+    inAlbumContext,
     items,
-    kindFilter,
+    shareFilter,
     showAlbumImageToggle,
     showAlbumImages,
+    sortKey,
+    typeFilter,
   ]);
 
   const displayItems = useMemo(
@@ -1536,6 +1607,11 @@ export default function GalleryClient({
     );
   }
 
+  async function copyShareLink(text: string, label: string) {
+    setCopiedShareValue(text);
+    await copyText(text, label);
+  }
+
   function to640VariantUrl(url: string): string {
     return url.replace(/\.([a-zA-Z0-9]+)$/, "-640.$1");
   }
@@ -1579,10 +1655,12 @@ export default function GalleryClient({
       hasPassword: payload.share.hasPassword,
       urls: payload.urls,
     };
-    setShare(nextShare);
-    setSharePasswordDraft("");
-    if (image.kind === "image" && image.ext.toLowerCase() !== "svg") {
-      void check640Variant(image.id);
+    if (active?.id === image.id) {
+      setShare(nextShare);
+      setSharePasswordDraft("");
+      if (image.kind === "image" && image.ext.toLowerCase() !== "svg") {
+        void check640Variant(image.id);
+      }
     }
     setItems((current) =>
       current.map((item) =>
@@ -1668,15 +1746,78 @@ export default function GalleryClient({
       return;
     }
 
-    setShare(null);
-    setSharePasswordDraft("");
-    setIsSavingSharePassword(false);
-    setHas640Variant(null);
-    setIsChecking640(false);
+    if (active?.id === image.id) {
+      setShare(null);
+      setSharePasswordDraft("");
+      setIsSavingSharePassword(false);
+      setHas640Variant(null);
+      setIsChecking640(false);
+    }
     setItems((current) =>
       current.map((item) =>
         item.id === image.id ? { ...item, shared: false } : item,
       ),
+    );
+  }
+
+  async function loadShareInfo(image: GalleryImage): Promise<ShareInfo | null> {
+    const response = await fetch(
+      `/api/media-shares?kind=${encodeURIComponent(image.kind)}&mediaId=${encodeURIComponent(image.id)}`,
+    );
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setShareError(payload.error ?? "Unable to load share info.");
+      return null;
+    }
+    const payload = (await response.json()) as
+      | {
+          share: { id: string; hasPassword?: boolean };
+          urls: ShareInfo["urls"];
+        }
+      | { share: null };
+    if (!payload.share) {
+      return null;
+    }
+    return {
+      id: payload.share.id,
+      hasPassword: payload.share.hasPassword,
+      urls: payload.urls,
+    };
+  }
+
+  async function toggleTileShare(image: GalleryImage) {
+    if (image.shared) {
+      await disableShare(image);
+      return;
+    }
+    await requestEnableShare(image);
+  }
+
+  async function copyTileShareLink(image: GalleryImage) {
+    let existing =
+      active?.id === image.id && share ? share : null;
+    if (!existing && image.shared) {
+      existing = await loadShareInfo(image);
+    }
+    if (!existing) {
+      if (
+        isRiskyShareFile({
+          kind: image.kind,
+          ext: image.ext,
+          mimeType: image.mimeType,
+        })
+      ) {
+        setPendingRiskyShare(image);
+        return;
+      }
+      existing = await enableShare(image);
+    }
+    if (!existing?.urls.original) {
+      return;
+    }
+    await copyText(
+      absoluteShareUrl(existing.urls.original),
+      `tile-copy-${image.id}`,
     );
   }
 
@@ -1755,7 +1896,7 @@ export default function GalleryClient({
       }
 
       setHas640Variant(true);
-      await copyText(absoluteShareUrl(variantUrl), "640");
+      await copyShareLink(absoluteShareUrl(variantUrl), "640");
     } catch (error) {
       setShareError(
         error instanceof Error
@@ -2315,6 +2456,12 @@ export default function GalleryClient({
   }, [createNoteRequestId]);
 
   useEffect(() => {
+    if (createNoteOnMount) {
+      onCreateNoteMountConsumed?.();
+    }
+  }, [createNoteOnMount, onCreateNoteMountConsumed]);
+
+  useEffect(() => {
     if (readOnly) {
       return;
     }
@@ -2414,12 +2561,19 @@ export default function GalleryClient({
     }
     setCurrentPage(1);
   }, [
+    hideAlbumFiles,
     hideImagesInAlbums,
-    kindFilter,
+    shareFilter,
     showAlbumImageToggle,
     showAlbumImages,
+    sortKey,
+    typeFilter,
     usePagination,
   ]);
+
+  useEffect(() => {
+    setCopiedShareValue("");
+  }, [share?.id]);
 
   useEffect(() => {
     if (!active) {
@@ -2582,9 +2736,7 @@ export default function GalleryClient({
           <p className="text-xs text-red-600">{noteHistoryError}</p>
         ) : null}
         {isLoadingNoteHistory ? (
-          <div className="rounded border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500">
-            Loading history...
-          </div>
+          <Skeleton className="h-24 w-full" />
         ) : noteHistoryEntries.length === 0 ? (
           <div className="rounded border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500">
             No saved versions yet.
@@ -2709,9 +2861,7 @@ export default function GalleryClient({
           className={`${isNoteLarge ? "min-h-[calc(100vh-16rem)]" : "min-h-[320px]"} rounded border border-neutral-200 p-4`}
         >
           {isLoadingNote ? (
-            <div className="flex min-h-[320px] items-center justify-center text-sm text-neutral-500">
-              Loading note...
-            </div>
+            <Skeleton className="min-h-[320px] w-full" />
           ) : (
             <NoteMarkdown content={noteContentDraft} />
           )}
@@ -2722,9 +2872,7 @@ export default function GalleryClient({
       <div className="space-y-3">
         {renderMarkdownEditorTabs(false)}
         {isLoadingNote ? (
-          <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
-            Loading note...
-          </div>
+          <Skeleton className="min-h-[320px] w-full" />
         ) : noteEditorMode === "markdown" ? (
           <NoteRichEditor
             value={noteContentDraft}
@@ -2751,11 +2899,7 @@ export default function GalleryClient({
       return null;
     }
     if (isLoadingCodeFile) {
-      return (
-        <div className="flex min-h-[320px] items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
-          Loading file...
-        </div>
-      );
+      return <Skeleton className="min-h-[320px] w-full" />;
     }
     if (codeSaveError && !activeCodeFile) {
       return (
@@ -2832,7 +2976,7 @@ export default function GalleryClient({
   return (
     <>
       {globalDragging ? (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/30">
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center modal-overlay">
           <div className="rounded border border-dashed bg-highlight border-border-highlight px-6 py-4 text-sm text-highlight">
             Drop files to upload
           </div>
@@ -2840,8 +2984,8 @@ export default function GalleryClient({
       ) : null}
 
       {dropUploadProgress.length > 0 ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm shadow-xl">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4">
+          <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">uploading to gallery</h3>
             <div className="mt-4 space-y-3">
               {dropUploadProgress.map((entry) => {
@@ -2894,7 +3038,7 @@ export default function GalleryClient({
       ) : null}
 
       {messages.length > 0 ? (
-        <div className="fixed top-4 left-1/2 z-50 w-full max-w-md -translate-x-1/2 space-y-2 px-4">
+        <div className="app-toast-stack space-y-2">
           {messages.map((item) => (
             <div
               key={item.id}
@@ -2952,50 +3096,66 @@ export default function GalleryClient({
         </div>
       ) : null}
 
-      {showAlbumImageToggle || showCreateNoteButton ? (
+      <GalleryFilterBar
+        typeFilter={typeFilter}
+        shareFilter={shareFilter}
+        sort={sortKey}
+        filteredCount={filteredItems.length}
+        showHideAlbumFiles={!inAlbumContext}
+        showSort={!inAlbumContext}
+        hideAlbumFiles={
+          hideAlbumFiles ||
+          hideImagesInAlbums ||
+          (showAlbumImageToggle && !showAlbumImages)
+        }
+        onTypeFilter={setTypeFilter}
+        onShareFilter={setShareFilter}
+        onSort={setSortKey}
+        onToggleHideAlbumFiles={() => {
+          if (showAlbumImageToggle) {
+            setShowAlbumImages((current) => !current);
+            return;
+          }
+          setHideAlbumFiles((current) => {
+            const next = !current;
+            persistHideAlbumFilesSetting(next);
+            return next;
+          });
+        }}
+      />
+
+      {showCreateNoteButton ? (
         <div className="flex items-center justify-end gap-2">
-          {showAlbumImageToggle ? (
-            <button
-              type="button"
-              onClick={() => setShowAlbumImages((current) => !current)}
-              className="rounded border border-neutral-200 px-3 py-1 text-xs"
-            >
-              {showAlbumImages
-                ? "Hide images in albums"
-                : "Show images in albums"}
-            </button>
-          ) : null}
-          {showCreateNoteButton ? (
-            <button
-              type="button"
-              onClick={() => void createNote()}
-              disabled={isCreatingNote}
-              className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
-            >
-              {isCreatingNote ? "Creating note..." : "+ new note"}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => void createNote()}
+            disabled={isCreatingNote}
+            className="rounded border border-neutral-200 px-3 py-1 text-xs disabled:opacity-50"
+          >
+            {isCreatingNote ? "Creating note..." : "+ new note"}
+          </button>
         </div>
       ) : null}
 
       {displayItems.length === 0 ? (
-        <div className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-neutral-500">
+        <EmptyState>
           {items.length === 0
             ? "No uploads yet. Drop files anywhere on this page or head to the upload page."
             : "No files to show with the current filter."}
-        </div>
+        </EmptyState>
       ) : (
         <div className="space-y-4">
           <div
             className={clsx(
               isCompactView
                 ? "flex flex-col gap-2"
-                : "grid justify-center gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,100%))] sm:[grid-template-columns:repeat(auto-fit,minmax(240px,320px))]",
+                : "grid justify-center gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr))] sm:[grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]",
             )}
           >
             {pagedDisplayItems.map((image) => (
-              <div
+              <FileTile
                 key={image.id}
+                selected={selected.has(image.id)}
                 draggable={inAlbumContext && !readOnly}
                 onDragStart={(event) => {
                   if (!inAlbumContext || readOnly) {
@@ -3040,11 +3200,9 @@ export default function GalleryClient({
                 }}
                 onClick={() => openModal(image)}
                 className={clsx(
-                  "gallery-tile relative cursor-pointer overflow-hidden rounded-md border text-left",
-                  isCompactView ? "flex items-center gap-3 p-2" : "pt-8",
-                  dragOverImageId === image.id
-                    ? "border-black ring-2 ring-black/20"
-                    : "border-neutral-200",
+                  "gallery-tile relative cursor-pointer overflow-hidden text-left",
+                  isCompactView ? "flex items-center gap-3 p-2" : "",
+                  dragOverImageId === image.id ? "neon-border" : "",
                   draggedImageId === image.id ? "opacity-70" : "",
                 )}
               >
@@ -3077,7 +3235,7 @@ export default function GalleryClient({
                         stopCardActivation(event);
                         setImageToDelete(image);
                       }}
-                      className="tile-control absolute right-1 top-1 z-10 rounded p-1"
+                      className="tile-control absolute right-1 top-1 z-20 rounded p-1"
                       aria-label="Delete image"
                       title="Delete image"
                     >
@@ -3247,7 +3405,7 @@ export default function GalleryClient({
                         </div>
                       ) : null}
                       {isEditableCodeGalleryItem(image) ? (
-                        <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
+                        <div className="pointer-events-none absolute bottom-2 left-2 status-badge status-badge-fix">
                           editable
                         </div>
                       ) : null}
@@ -3321,7 +3479,32 @@ export default function GalleryClient({
                     </div>
                   ) : null}
                 </div>
-              </div>
+                {readOnly || isCompactView ? null : (
+                  <div
+                    className="file-tile-hover-actions"
+                    onClick={stopCardActivation}
+                  >
+                    <TermButton
+                      className="flex-1"
+                      disabled={Boolean(image.publicStore && image.shared)}
+                      onClick={() => void toggleTileShare(image)}
+                    >
+                      {image.shared ? "⊘ unshare" : "⊕ share"}
+                    </TermButton>
+                    <TermButton
+                      variant="cyan"
+                      title={
+                        copied === `tile-copy-${image.id}`
+                          ? "copied"
+                          : "copy share link"
+                      }
+                      onClick={() => void copyTileShareLink(image)}
+                    >
+                      {copied === `tile-copy-${image.id}` ? "ok" : "⧉"}
+                    </TermButton>
+                  </div>
+                )}
+              </FileTile>
             ))}
           </div>
           {usePagination && totalPages > 1 ? (
@@ -3356,7 +3539,7 @@ export default function GalleryClient({
 
       {active ? (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 ${
+          className={`fixed inset-0 z-50 flex items-center justify-center modal-overlay ${
             isEditorFullscreen ? "" : "sm:px-4 sm:py-6"
           }`}
           onClick={(event) => {
@@ -3396,7 +3579,7 @@ export default function GalleryClient({
           }}
         >
           <div
-            className={`w-full bg-white text-sm ${
+            className={`w-full bg-[var(--theme-panel)] text-sm ${
               isEditorFullscreen
                 ? "flex h-full max-h-none max-w-none flex-col overflow-hidden rounded-none"
                 : `${isEditorExpanded ? "h-full max-h-none max-w-none rounded-none p-3 sm:p-4" : "max-h-full max-w-3xl p-2 sm:rounded-md sm:p-6"} overflow-y-auto overflow-x-hidden`
@@ -3487,9 +3670,7 @@ export default function GalleryClient({
                   ) : null}
                   {isNoteActive ? (
                     isLoadingNote ? (
-                      <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
-                        Loading note...
-                      </div>
+                      <Skeleton className="min-h-0 flex-1" />
                     ) : noteEditorMode === "markdown" && !readOnly ? (
                       <NoteRichEditor
                         value={noteContentDraft}
@@ -4061,23 +4242,115 @@ export default function GalleryClient({
                     {share ? (
                       <div className="space-y-3">
                         <div className="space-y-2">
-                          <label className="text-xs font-medium text-neutral-600">
-                            Share link
-                          </label>
-                          <button
-                            type="button"
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <TermButton
+                              active={copied === "direct"}
+                              onClick={() =>
+                                void copyShareLink(
+                                  absoluteShareUrl(share.urls.original),
+                                  "direct",
+                                )
+                              }
+                            >
+                              original
+                            </TermButton>
+                            {active.kind !== "note" ? (
+                              <>
+                                <TermButton
+                                  active={copied === "sm"}
+                                  onClick={() =>
+                                    void copyShareLink(
+                                      absoluteShareUrl(share.urls.sm),
+                                      "sm",
+                                    )
+                                  }
+                                >
+                                  sm
+                                </TermButton>
+                                <TermButton
+                                  active={copied === "lg"}
+                                  onClick={() =>
+                                    void copyShareLink(
+                                      absoluteShareUrl(share.urls.lg),
+                                      "lg",
+                                    )
+                                  }
+                                >
+                                  lg
+                                </TermButton>
+                              </>
+                            ) : null}
+                            {active.kind === "image" ? (
+                              <TermButton
+                                active={copied === "bbcode"}
+                                onClick={() =>
+                                  void copyShareLink(
+                                    `[img]${absoluteShareUrl(share.urls.original)}[/img]`,
+                                    "bbcode",
+                                  )
+                                }
+                              >
+                                bbcode
+                              </TermButton>
+                            ) : null}
+                            {active.kind !== "note" ? (
+                              <TermButton
+                                active={copied === "linked"}
+                                onClick={() =>
+                                  void copyShareLink(
+                                    active.kind === "image"
+                                      ? `[url=${absoluteShareUrl(share.urls.original)}][img]${absoluteShareUrl(share.urls.sm)}[/img][/url]`
+                                      : `[url]${absoluteShareUrl(share.urls.original)}[/url]`,
+                                    "linked",
+                                  )
+                                }
+                              >
+                                linked
+                              </TermButton>
+                            ) : null}
+                            {supports640Variant ? (
+                              isChecking640 ? (
+                                <TermButton disabled>640</TermButton>
+                              ) : has640Variant ? (
+                                <TermButton
+                                  active={copied === "640"}
+                                  onClick={() =>
+                                    void copyShareLink(
+                                      absoluteShareUrl(
+                                        to640VariantUrl(share.urls.original),
+                                      ),
+                                      "640",
+                                    )
+                                  }
+                                >
+                                  640
+                                </TermButton>
+                              ) : (
+                                <TermButton
+                                  onClick={() => void generate640Link(active)}
+                                  disabled={isGenerating640}
+                                >
+                                  {isGenerating640 ? "640..." : "640"}
+                                </TermButton>
+                              )
+                            ) : null}
+                          </div>
+                          <TermInput
+                            readOnly
+                            value={
+                              copiedShareValue ||
+                              absoluteShareUrl(share.urls.original)
+                            }
+                            onFocus={(event) => event.currentTarget.select()}
                             onClick={() =>
-                              copyText(
-                                absoluteShareUrl(share.urls.original),
-                                "direct",
+                              void copyShareLink(
+                                copiedShareValue ||
+                                  absoluteShareUrl(share.urls.original),
+                                copied ?? "direct",
                               )
                             }
-                            className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "direct" ? "text-emerald-600" : ""}`}
-                          >
-                            {copied === "direct"
-                              ? "Copied link to clipboard!"
-                              : absoluteShareUrl(share.urls.original)}
-                          </button>
+                            aria-label="copied share link"
+                          />
                         </div>
 
                         {active.kind === "note" ? (
@@ -4142,110 +4415,6 @@ export default function GalleryClient({
                             </p>
                           </div>
                         ) : null}
-
-                        {active.kind === "image" ? (
-                          <div className="space-y-2">
-                            <label className="text-xs font-medium text-neutral-600">
-                              BBCode
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                copyText(
-                                  `[img]${absoluteShareUrl(share.urls.original)}[/img]`,
-                                  "bbcode",
-                                )
-                              }
-                              className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "bbcode" ? "text-emerald-600" : ""}`}
-                            >
-                              {copied === "bbcode"
-                                ? "Copied link to clipboard!"
-                                : `[img]${absoluteShareUrl(share.urls.original)}[/img]`}
-                            </button>
-                          </div>
-                        ) : null}
-
-                        {active.kind !== "note" ? (
-                          <div className="space-y-2">
-                            <label className="text-xs font-medium text-neutral-600">
-                              Linked BBCode
-                            </label>
-                            {active.kind === "image" ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  copyText(
-                                    `[url=${absoluteShareUrl(share.urls.original)}][img]${absoluteShareUrl(share.urls.sm)}[/img][/url]`,
-                                    "linked",
-                                  )
-                                }
-                                className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "linked" ? "text-emerald-600" : ""}`}
-                              >
-                                {copied === "linked"
-                                  ? "Copied link to clipboard!"
-                                  : `[url=${absoluteShareUrl(share.urls.original)}][img]${absoluteShareUrl(share.urls.sm)}[/img][/url]`}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  copyText(
-                                    `[url]${absoluteShareUrl(share.urls.original)}[/url]`,
-                                    "linked",
-                                  )
-                                }
-                                className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "linked" ? "text-emerald-600" : ""}`}
-                              >
-                                {copied === "linked"
-                                  ? "Copied link to clipboard!"
-                                  : `[url]${absoluteShareUrl(share.urls.original)}[/url]`}
-                              </button>
-                            )}
-                          </div>
-                        ) : null}
-
-                        {supports640Variant ? (
-                          <div className="space-y-2">
-                            <label className="text-xs font-medium text-neutral-600">
-                              Direct link (max size 640x480)
-                            </label>
-                            {isChecking640 ? (
-                              <div className="w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs text-neutral-500">
-                                Checking 640x480 variant...
-                              </div>
-                            ) : has640Variant ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  copyText(
-                                    absoluteShareUrl(
-                                      to640VariantUrl(share.urls.original),
-                                    ),
-                                    "640",
-                                  )
-                                }
-                                className={`w-full max-w-full break-all rounded border border-neutral-200 px-3 py-2 text-left text-xs ${copied === "640" ? "text-emerald-600" : ""}`}
-                              >
-                                {copied === "640"
-                                  ? "Copied link to clipboard!"
-                                  : absoluteShareUrl(
-                                      to640VariantUrl(share.urls.original),
-                                    )}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => void generate640Link(active)}
-                                disabled={isGenerating640}
-                                className="w-full rounded border border-neutral-200 px-3 py-2 text-xs disabled:opacity-50"
-                              >
-                                {isGenerating640
-                                  ? "Generating..."
-                                  : "Generate 640x480 image"}
-                              </button>
-                            )}
-                          </div>
-                        ) : null}
                       </div>
                     ) : readOnly ? null : (
                       <p className="text-xs text-neutral-500 text-center">
@@ -4300,8 +4469,8 @@ export default function GalleryClient({
       ) : null}
 
       {isAddModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+          <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">Add to album</h3>
             <p className="mt-1 text-xs text-neutral-500">
               Choose an album to add {selectedIds.length} file
@@ -4343,8 +4512,8 @@ export default function GalleryClient({
       ) : null}
 
       {imageToDelete ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 text-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+          <div className="modal-panel w-full max-w-md p-6 text-sm">
             <h3 className="text-lg font-semibold">Delete image?</h3>
             <p className="mt-1 text-xs text-neutral-500">
               {inAlbumContext

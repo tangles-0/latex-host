@@ -171,12 +171,12 @@ share --> vblob
 - [.legacy/scripts/infra](/media/nvme_raid0/Repos/latex-host/.legacy/scripts/infra)
 - [src/app/api/admin/settings/db-push/route.ts](/media/nvme_raid0/Repos/latex-host/src/app/api/admin/settings/db-push/route.ts)
 - [src/lib/billing-cost-explorer.ts](/media/nvme_raid0/Repos/latex-host/src/lib/billing-cost-explorer.ts)
-- [src/app/api/admin/settings/db-import/route.ts](/media/nvme_raid0/Repos/latex-host/src/app/api/admin/settings/db-import/route.ts) (refactor/remove binary branches)
+- [src/app/api/admin/settings/db-import/route.ts](src/app/api/admin/settings/db-import/route.ts) — removed with Database admin
 
 ### Validation gate
 
 - No dead references to retired AWS paths.
-- Admin DB export/import test cases are implemented and executed end-to-end without pg_* binaries.
+- Admin DB export/import tooling was removed; do not reintroduce binary pg dump/restore in the app.
 
 ## Phase 7 - Worker-Readiness Expansion Plan (design now, implement later)
 

@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { StatusBadge } from "@/components/ui/status-badge";
+import { TermButton } from "@/components/ui/term-button";
+import { TermTable } from "@/components/ui/term-table";
 import type { AdminSelfHostedNodeSummary } from "@/lib/self-hosted-nodes";
 
 type AdminNodesClientProps = {
@@ -109,9 +112,8 @@ const AdminNodesClient = ({ initialNodes }: AdminNodesClientProps) => {
   return (
     <div className="space-y-3">
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
-      <div className="overflow-auto rounded-md border border-neutral-200">
-        <table className="w-full min-w-[1100px] border-collapse text-xs">
-          <thead className="bg-neutral-50 text-left text-[11px] uppercase text-neutral-500">
+      <TermTable className="min-w-[1100px] text-xs">
+          <thead className="text-left text-[11px] uppercase text-neutral-500">
             <tr>
               <th className="px-3 py-2" scope="col">
                 Owner
@@ -169,9 +171,17 @@ const AdminNodesClient = ({ initialNodes }: AdminNodesClientProps) => {
                   )}
                 </td>
                 <td className="px-3 py-2">
-                  <span className="rounded border border-neutral-300 px-2 py-0.5">
+                  <StatusBadge
+                    tone={
+                      node.status === "ok" &&
+                      !node.isAdminDisabled &&
+                      !node.isOwnerDisabled
+                        ? "ok"
+                        : "err"
+                    }
+                  >
                     {statusLabel(node)}
-                  </span>
+                  </StatusBadge>
                 </td>
                 <td className="px-3 py-2">
                   {node.isForwardingEnabled ? "enabled" : "disabled"}
@@ -182,31 +192,27 @@ const AdminNodesClient = ({ initialNodes }: AdminNodesClientProps) => {
                 <td className="px-3 py-2">{formatTimestamp(node.createdAt)}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
-                    <button
-                      type="button"
+                    <TermButton
                       onClick={() =>
                         void updateDisabled(node, !node.isAdminDisabled)
                       }
                       disabled={busyNodeId === node.id}
-                      className="rounded border border-amber-300 px-2 py-1 text-amber-800 disabled:opacity-50"
                     >
                       {node.isAdminDisabled ? "Enable" : "Disable"}
-                    </button>
-                    <button
-                      type="button"
+                    </TermButton>
+                    <TermButton
+                      variant="danger"
                       onClick={() => void deleteNode(node)}
                       disabled={busyNodeId === node.id}
-                      className="rounded border border-red-300 px-2 py-1 text-red-700 disabled:opacity-50"
                     >
                       Delete
-                    </button>
+                    </TermButton>
                   </div>
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
-      </div>
+      </TermTable>
     </div>
   );
 };
