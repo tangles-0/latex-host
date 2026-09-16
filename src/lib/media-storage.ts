@@ -14,6 +14,11 @@ import {
   contentTypeForExt,
   isLocalTextPreviewDocument,
 } from "@/lib/media-types";
+import {
+  deletePublicBlob,
+  getPublicBlob,
+  headPublicBlob,
+} from "@/lib/public-blob";
 
 type StorageBackend = "local" | "blob";
 export type MediaSize = "original" | "sm" | "lg";
@@ -94,6 +99,15 @@ function buildStorageKey(
   );
 }
 
+export function buildMediaOriginalStorageKey(
+  kind: BlobMediaKind,
+  baseName: string,
+  ext: string,
+  uploadedAt: Date,
+): string {
+  return buildStorageKey(kind, baseName, ext, "original", uploadedAt);
+}
+
 function mediaStorageKey(input: {
   kind: BlobMediaKind;
   baseName: string;
@@ -172,7 +186,33 @@ async function deleteKey(key: string): Promise<void> {
   await fs.rm(absolutePathForKey(key), { force: true });
 }
 
-async function readKey(key: string): Promise<Buffer> {
+type StoredObjectRef = {
+  key: string;
+  publicStore?: boolean;
+};
+
+function resolveStoredObject(input: {
+  kind: BlobMediaKind;
+  baseName: string;
+  ext: string;
+  size: MediaSize;
+  uploadedAt: Date;
+  publicBlobKey?: string | null;
+}): StoredObjectRef {
+  if (input.size === "original" && input.publicBlobKey?.trim()) {
+    return { key: input.publicBlobKey.trim(), publicStore: true };
+  }
+  return { key: mediaStorageKey(input) };
+}
+
+async function readKey(key: string, publicStore = false): Promise<Buffer> {
+  if (publicStore) {
+    const response = await getPublicBlob(key, { useCache: false });
+    if (!response || response.statusCode !== 200 || !response.stream) {
+      throw new Error("Public blob object was not found.");
+    }
+    return readWebStreamToBuffer(response.stream);
+  }
   if (STORAGE_BACKEND === "blob") {
     const response = await blobGet(key, {
       access: BLOB_ACCESS,
@@ -186,7 +226,11 @@ async function readKey(key: string): Promise<Buffer> {
   return fs.readFile(absolutePathForKey(key));
 }
 
-async function getKeySize(key: string): Promise<number> {
+async function getKeySize(key: string, publicStore = false): Promise<number> {
+  if (publicStore) {
+    const head = await headPublicBlob(key);
+    return Number(head.size ?? 0);
+  }
   if (STORAGE_BACKEND === "blob") {
     const head = await blobHead(key);
     return Number(head.size ?? 0);
@@ -199,7 +243,20 @@ async function readKeyRange(
   key: string,
   start: number,
   end: number,
+  publicStore = false,
 ): Promise<Buffer> {
+  if (publicStore) {
+    const response = await getPublicBlob(key, {
+      useCache: false,
+      headers: {
+        Range: `bytes=${start}-${end}`,
+      },
+    });
+    if (!response || response.statusCode === 304 || !response.stream) {
+      throw new Error("Public blob range read returned an empty body.");
+    }
+    return readWebStreamToBuffer(response.stream);
+  }
   if (STORAGE_BACKEND === "blob") {
     const response = await blobGet(key, {
       access: BLOB_ACCESS,
@@ -224,7 +281,17 @@ async function readKeyRange(
   }
 }
 
-async function readKeyStream(key: string): Promise<ReadableStream<Uint8Array>> {
+async function readKeyStream(
+  key: string,
+  publicStore = false,
+): Promise<ReadableStream<Uint8Array>> {
+  if (publicStore) {
+    const response = await getPublicBlob(key, { useCache: true });
+    if (!response || response.statusCode !== 200 || !response.stream) {
+      throw new Error("Public blob object was not found.");
+    }
+    return response.stream;
+  }
   if (STORAGE_BACKEND === "blob") {
     const response = await blobGet(key, {
       access: BLOB_ACCESS,
@@ -244,7 +311,20 @@ async function readKeyRangeStream(
   key: string,
   start: number,
   end: number,
+  publicStore = false,
 ): Promise<ReadableStream<Uint8Array>> {
+  if (publicStore) {
+    const response = await getPublicBlob(key, {
+      useCache: false,
+      headers: {
+        Range: `bytes=${start}-${end}`,
+      },
+    });
+    if (!response || response.statusCode === 304 || !response.stream) {
+      throw new Error("Public blob range stream returned an empty body.");
+    }
+    return response.stream;
+  }
   if (STORAGE_BACKEND === "blob") {
     const response = await blobGet(key, {
       access: BLOB_ACCESS,
@@ -838,74 +918,67 @@ export async function overwriteTextDocumentContent(input: {
   };
 }
 
-export async function getMediaBuffer(input: {
+type MediaLookupInput = {
   kind: BlobMediaKind;
   baseName: string;
   ext: string;
   size: MediaSize;
   uploadedAt: Date;
-}): Promise<Buffer> {
-  const key = mediaStorageKey(input);
-  return await readKey(key);
+  publicBlobKey?: string | null;
+  publicBlobUrl?: string | null;
+};
+
+export async function getMediaBuffer(input: MediaLookupInput): Promise<Buffer> {
+  const stored = resolveStoredObject(input);
+  return readKey(stored.key, stored.publicStore);
 }
 
-export async function getMediaBufferSize(input: {
-  kind: BlobMediaKind;
-  baseName: string;
-  ext: string;
-  size: MediaSize;
-  uploadedAt: Date;
-}): Promise<number> {
-  const key = mediaStorageKey(input);
-  return getKeySize(key);
+export async function getMediaBufferSize(input: MediaLookupInput): Promise<number> {
+  const stored = resolveStoredObject(input);
+  return getKeySize(stored.key, stored.publicStore);
 }
 
-export async function getMediaBufferRange(input: {
-  kind: BlobMediaKind;
-  baseName: string;
-  ext: string;
-  size: MediaSize;
-  uploadedAt: Date;
-  start: number;
-  end: number;
-}): Promise<Buffer> {
-  const key = mediaStorageKey(input);
-  return readKeyRange(key, input.start, input.end);
+export async function getMediaBufferRange(
+  input: MediaLookupInput & { start: number; end: number },
+): Promise<Buffer> {
+  const stored = resolveStoredObject(input);
+  return readKeyRange(stored.key, input.start, input.end, stored.publicStore);
 }
 
-export async function getMediaStream(input: {
-  kind: BlobMediaKind;
-  baseName: string;
-  ext: string;
-  size: MediaSize;
-  uploadedAt: Date;
-}): Promise<ReadableStream<Uint8Array>> {
-  const key = mediaStorageKey(input);
-  return readKeyStream(key);
+export async function getMediaStream(
+  input: MediaLookupInput,
+): Promise<ReadableStream<Uint8Array>> {
+  const stored = resolveStoredObject(input);
+  return readKeyStream(stored.key, stored.publicStore);
 }
 
-export async function getMediaRangeStream(input: {
-  kind: BlobMediaKind;
-  baseName: string;
-  ext: string;
-  size: MediaSize;
-  uploadedAt: Date;
-  start: number;
-  end: number;
-}): Promise<ReadableStream<Uint8Array>> {
-  const key = mediaStorageKey(input);
-  return readKeyRangeStream(key, input.start, input.end);
+export async function getMediaRangeStream(
+  input: MediaLookupInput & { start: number; end: number },
+): Promise<ReadableStream<Uint8Array>> {
+  const stored = resolveStoredObject(input);
+  return readKeyRangeStream(
+    stored.key,
+    input.start,
+    input.end,
+    stored.publicStore,
+  );
 }
 
-export async function getMediaSignedUrl(input: {
-  kind: BlobMediaKind;
-  baseName: string;
-  ext: string;
-  size: MediaSize;
-  uploadedAt: Date;
-  responseContentType?: string;
-}): Promise<string> {
-  const key = mediaStorageKey(input);
+export async function getMediaSignedUrl(
+  input: MediaLookupInput & { responseContentType?: string },
+): Promise<string> {
+  if (input.size === "original" && input.publicBlobUrl?.trim()) {
+    return input.publicBlobUrl.trim();
+  }
+  const stored = resolveStoredObject(input);
+  if (stored.publicStore) {
+    const blob = await getPublicBlob(stored.key, { useCache: true });
+    if (!blob) {
+      throw new Error("Public blob object was not found.");
+    }
+    return blob.blob.url;
+  }
+  const key = stored.key;
   if (STORAGE_BACKEND === "blob") {
     const blob = await blobGet(key, { access: BLOB_ACCESS, useCache: true });
     if (!blob) {
@@ -916,6 +989,98 @@ export async function getMediaSignedUrl(input: {
   throw new Error(
     "Direct media URLs are not available for local storage backend.",
   );
+}
+
+export function publicOriginalRedirectUrl(input: {
+  size: MediaSize;
+  publicBlobUrl?: string | null;
+}): string | null {
+  if (input.size !== "original") {
+    return null;
+  }
+  const url = input.publicBlobUrl?.trim();
+  return url || null;
+}
+
+export async function storePublicOriginalFromUpload(input: {
+  kind: BlobMediaKind;
+  sourceKey: string;
+  publicBlobUrl: string;
+  sizeOriginal: number;
+  ext: string;
+  mimeType: string;
+  uploadedAt: Date;
+  baseName: string;
+}): Promise<StoredMediaResult> {
+  const expectedKey = buildMediaOriginalStorageKey(
+    input.kind,
+    input.baseName,
+    input.ext,
+    input.uploadedAt,
+  );
+  if (input.sourceKey !== expectedKey) {
+    throw new Error("Public upload key does not match the reserved media path.");
+  }
+  const head = await headPublicBlob(input.sourceKey);
+  const sizeOriginal = Number(head.size ?? input.sizeOriginal);
+  if (sizeOriginal !== input.sizeOriginal) {
+    throw new Error("Uploaded file size does not match the declared file size.");
+  }
+  return {
+    baseName: input.baseName,
+    ext: input.ext,
+    mimeType: input.mimeType,
+    sizeOriginal,
+    sizeSm: 0,
+    sizeLg: 0,
+    previewStatus: "pending",
+  };
+}
+
+export async function deleteStoredMedia(input: {
+  kind: BlobMediaKind;
+  baseName: string;
+  ext: string;
+  uploadedAt: Date;
+  publicBlobKey?: string | null;
+}): Promise<void> {
+  if (input.publicBlobKey?.trim()) {
+    try {
+      await deletePublicBlob(input.publicBlobKey.trim());
+    } catch {
+      // The original may already be gone from the public store.
+    }
+  } else {
+    try {
+      await deleteKey(
+        mediaStorageKey({
+          kind: input.kind,
+          baseName: input.baseName,
+          ext: input.ext,
+          size: "original",
+          uploadedAt: input.uploadedAt,
+        }),
+      );
+    } catch {
+      // Ignore missing private originals.
+    }
+  }
+  const previewExt = input.kind === "image" ? input.ext : "png";
+  for (const size of ["sm", "lg"] as const) {
+    try {
+      await deleteKey(
+        mediaStorageKey({
+          kind: input.kind,
+          baseName: input.baseName,
+          ext: previewExt,
+          size,
+          uploadedAt: input.uploadedAt,
+        }),
+      );
+    } catch {
+      // Variants are optional until preview generation finishes.
+    }
+  }
 }
 
 const linkOrCopyLocalFile = async (

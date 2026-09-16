@@ -63,58 +63,78 @@ const withThumbnail = async (
 };
 
 export const GET = async () => {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  try {
+    const userId = await getSessionUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const [existing, hasAccess] = await Promise.all([
+      listImageGenerationsForUser(userId),
+      canUserGenerateImages(userId),
+    ]);
+    const active = existing.filter(
+      (generation) =>
+        generation.status === "pending" ||
+        generation.status === "generating" ||
+        generation.status === "uploading",
+    );
+
+    await Promise.all(
+      active.map(async (generation) => {
+        const workerStatus = await requestImageGenerationStatus(generation.id);
+        if (!workerStatus.ok) {
+          return;
+        }
+
+        await updateImageGenerationForUser({
+          userId,
+          generationId: generation.id,
+          status: workerStatus.generation.status,
+          error: workerStatus.generation.error ?? null,
+          ...(workerStatus.generation.mediaId
+            ? { mediaId: workerStatus.generation.mediaId }
+            : {}),
+          ...(typeof workerStatus.generation.queuePosition === "number"
+            ? { queuePosition: workerStatus.generation.queuePosition }
+            : {}),
+        });
+      }),
+    );
+
+    await expireStaleImageGenerationsForUser(
+      userId,
+      new Date(Date.now() - imageGenerationJobSafetyMaxAgeMs),
+    );
+    const generations = await listImageGenerationsForUser(userId);
+    return NextResponse.json({
+      hasAccess,
+      generations: await Promise.all(
+        generations.map((generation) => withThumbnail(userId, generation)),
+      ),
+    });
+  } catch (error) {
+    console.error("Failed to list image generations", error);
+    return NextResponse.json(
+      { error: "Unable to load image generations." },
+      { status: 500 },
+    );
   }
-
-  const [existing, hasAccess] = await Promise.all([
-    listImageGenerationsForUser(userId),
-    canUserGenerateImages(userId),
-  ]);
-  const active = existing.filter(
-    (generation) =>
-      generation.status === "pending" ||
-      generation.status === "generating" ||
-      generation.status === "uploading",
-  );
-
-  await Promise.all(
-    active.map(async (generation) => {
-      const workerStatus = await requestImageGenerationStatus(generation.id);
-      if (!workerStatus.ok) {
-        return;
-      }
-
-      await updateImageGenerationForUser({
-        userId,
-        generationId: generation.id,
-        status: workerStatus.generation.status,
-        error: workerStatus.generation.error ?? null,
-        ...(workerStatus.generation.mediaId
-          ? { mediaId: workerStatus.generation.mediaId }
-          : {}),
-        ...(typeof workerStatus.generation.queuePosition === "number"
-          ? { queuePosition: workerStatus.generation.queuePosition }
-          : {}),
-      });
-    }),
-  );
-
-  await expireStaleImageGenerationsForUser(
-    userId,
-    new Date(Date.now() - imageGenerationJobSafetyMaxAgeMs),
-  );
-  const generations = await listImageGenerationsForUser(userId);
-  return NextResponse.json({
-    hasAccess,
-    generations: await Promise.all(
-      generations.map((generation) => withThumbnail(userId, generation)),
-    ),
-  });
 };
 
 export const POST = async (request: Request) => {
+  try {
+    return await createImageGeneration(request);
+  } catch (error) {
+    console.error("Failed to queue image generation", error);
+    return NextResponse.json(
+      { error: "Unable to generate image." },
+      { status: 500 },
+    );
+  }
+};
+
+const createImageGeneration = async (request: Request) => {
   const userId = await getSessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });

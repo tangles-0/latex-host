@@ -10,6 +10,7 @@ import {
   getMediaSignedUrl,
   getMediaRangeStream,
   getMediaStream,
+  publicOriginalRedirectUrl,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
 import { getImageBuffer } from "@/lib/storage";
@@ -318,6 +319,21 @@ export async function GET(
             downloadFileName: imageDownloadFileName,
           });
         }
+        const publicImageUrl = publicOriginalRedirectUrl({
+          size: imageRequestedSize,
+          publicBlobUrl: image.publicBlobUrl,
+        });
+        if (publicImageUrl && !downloadRequested) {
+          return withPublicImageCors(
+            new Response(null, {
+              status: 307,
+              headers: {
+                Location: publicImageUrl,
+                "Cache-Control": "no-store",
+              },
+            }),
+          );
+        }
         if (usesS3StorageBackend() && !downloadRequested) {
           const responseExt =
             imageRequestedSize === "original" ? image.ext : "png";
@@ -329,6 +345,8 @@ export async function GET(
             size: imageRequestedSize,
             uploadedAt: new Date(image.uploadedAt),
             responseContentType: mimeType,
+            publicBlobKey: image.publicBlobKey,
+            publicBlobUrl: image.publicBlobUrl,
           });
           if (allowHtmlNavigationMode && isDocumentNavigation(request)) {
             const html = signedMediaViewerHtml({
@@ -361,6 +379,8 @@ export async function GET(
           ext: image.ext,
           size: imageRequestedSize,
           uploadedAt: new Date(image.uploadedAt),
+          publicBlobKey: image.publicBlobKey,
+          publicBlobUrl: image.publicBlobUrl,
         });
         const headers = publicCacheHeaders(image.ext);
         if (downloadRequested) {
@@ -415,6 +435,21 @@ export async function GET(
       });
     }
     const storedSize = requestedSize === "x512" ? "lg" : requestedSize;
+    const publicMediaUrl = publicOriginalRedirectUrl({
+      size: storedSize,
+      publicBlobUrl: media.publicBlobUrl,
+    });
+    if (publicMediaUrl && !downloadRequested) {
+      return withPublicImageCors(
+        new Response(null, {
+          status: 307,
+          headers: {
+            Location: publicMediaUrl,
+            "Cache-Control": "no-store",
+          },
+        }),
+      );
+    }
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (media.kind === "video" ||
@@ -429,6 +464,8 @@ export async function GET(
         size: storedSize,
         uploadedAt: new Date(media.uploadedAt),
         responseContentType: mimeType,
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       if (allowHtmlNavigationMode && isDocumentNavigation(request)) {
         const html = signedMediaViewerHtml({
@@ -463,6 +500,8 @@ export async function GET(
         ext: media.ext,
         size: "original",
         uploadedAt,
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       const rangeHeader = request.headers.get("range");
       if (rangeHeader) {
@@ -486,6 +525,8 @@ export async function GET(
           uploadedAt,
           start: byteRange.start,
           end: byteRange.end,
+          publicBlobKey: media.publicBlobKey,
+          publicBlobUrl: media.publicBlobUrl,
         });
         const headers = publicCacheHeaders(media.ext);
         headers.set(
@@ -512,6 +553,8 @@ export async function GET(
       ext: media.ext,
       size: storedSize,
       uploadedAt: new Date(media.uploadedAt),
+      publicBlobKey: media.publicBlobKey,
+      publicBlobUrl: media.publicBlobUrl,
     });
     const headers = publicCacheHeaders(responseExt);
     if (isRangeStreamableOriginal) {

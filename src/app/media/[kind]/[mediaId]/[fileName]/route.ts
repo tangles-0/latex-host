@@ -18,6 +18,7 @@ import {
   getMediaSignedUrl,
   getMediaRangeStream,
   getMediaStream,
+  publicOriginalRedirectUrl,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
 
@@ -203,6 +204,13 @@ export async function GET(
     ) {
       return new Response("Not found", { status: 404 });
     }
+    const publicUrl = publicOriginalRedirectUrl({
+      size: requestedSize,
+      publicBlobUrl: media.publicBlobUrl,
+    });
+    if (publicUrl && !downloadRequested) {
+      return Response.redirect(publicUrl, 307);
+    }
     const isRangeStreamableOriginal =
       requestedSize === "original" &&
       (parsedKind === "video" ||
@@ -216,6 +224,8 @@ export async function GET(
         size: requestedSize,
         uploadedAt: new Date(media.uploadedAt),
         responseContentType: contentTypeForExt(responseExt),
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       return Response.redirect(signedUrl, 307);
     }
@@ -226,6 +236,8 @@ export async function GET(
         ext: media.ext,
         size: requestedSize,
         uploadedAt,
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       const rangeHeader = request.headers.get("range");
       if (rangeHeader) {
@@ -247,6 +259,8 @@ export async function GET(
           uploadedAt,
           start: byteRange.start,
           end: byteRange.end,
+          publicBlobKey: media.publicBlobKey,
+          publicBlobUrl: media.publicBlobUrl,
         });
         return new Response(stream, {
           status: 206,
@@ -266,6 +280,8 @@ export async function GET(
       ext: media.ext,
       size: requestedSize,
       uploadedAt: new Date(media.uploadedAt),
+      publicBlobKey: media.publicBlobKey,
+      publicBlobUrl: media.publicBlobUrl,
     });
     const headers = new Headers({
       "Content-Type": contentTypeForExt(responseExt),

@@ -4,10 +4,12 @@ import { getAlbumForUser } from "@/lib/metadata-store";
 import {
   deleteMediaForUser,
   deleteShareForMedia,
+  getMediaForUser,
   removeMediaFromAlbum,
   updateMediaAlbum,
   type MediaKind,
 } from "@/lib/media-store";
+import { canDisableMediaShare } from "@/lib/public-blob";
 
 export const runtime = "nodejs";
 
@@ -49,10 +51,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
   if (action === "disableSharing") {
+    let skippedPublic = 0;
     for (const item of mediaItems) {
+      const media = await getMediaForUser(item.kind, item.id, userId);
+      if (media && !canDisableMediaShare(media)) {
+        skippedPublic += 1;
+        continue;
+      }
       await deleteShareForMedia(item.kind, item.id, userId);
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, skippedPublic });
   }
   if (action === "delete") {
     await deleteMediaForUser(userId, mediaItems);

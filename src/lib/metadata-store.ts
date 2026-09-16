@@ -65,6 +65,9 @@ export type ImageEntry = {
   sizeLg: number;
   uploadedAt: string;
   shared?: boolean;
+  publicStore?: boolean;
+  publicBlobKey?: string;
+  publicBlobUrl?: string;
 };
 
 export type ShareLink = {
@@ -131,6 +134,9 @@ function mapImageRow(row: typeof images.$inferSelect): ImageEntry {
     sizeSm: row.sizeSm,
     sizeLg: row.sizeLg,
     uploadedAt: row.uploadedAt.toISOString(),
+    publicStore: Boolean(row.publicBlobKey || row.publicBlobUrl),
+    publicBlobKey: row.publicBlobKey ?? undefined,
+    publicBlobUrl: row.publicBlobUrl ?? undefined,
   };
 }
 

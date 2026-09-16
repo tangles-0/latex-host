@@ -80,6 +80,7 @@ type GalleryImage = {
   previewText?: string;
   content?: string;
   shared?: boolean;
+  publicStore?: boolean;
 };
 
 function isPreviewPollingStatus(status: PreviewStatus | undefined): boolean {
@@ -1648,6 +1649,12 @@ export default function GalleryClient({
   }
 
   async function disableShare(image: GalleryImage) {
+    if (image.publicStore) {
+      setShareError(
+        "Public-store uploads stay public and cannot have their share link removed.",
+      );
+      return;
+    }
     setShareError(null);
     const response = await fetch("/api/media-shares", {
       method: "DELETE",
@@ -2172,7 +2179,9 @@ export default function GalleryClient({
     }
     setItems((current) =>
       current.map((item) =>
-        selected.has(item.id) ? { ...item, shared: false } : item,
+        selected.has(item.id) && !item.publicStore
+          ? { ...item, shared: false }
+          : item,
       ),
     );
     setSelected(new Set());
@@ -3928,13 +3937,18 @@ export default function GalleryClient({
                                 ? disableShare(active)
                                 : requestEnableShare(active))
                             }
+                            disabled={Boolean(share && active.publicStore)}
                             className={`rounded px-3 py-1 text-xs ${
                               share
                                 ? "bg-black text-white"
                                 : "border border-neutral-200"
-                            }`}
+                            } disabled:opacity-50`}
                           >
-                            {share ? "disable" : "enable"}
+                            {share
+                              ? active.publicStore
+                                ? "always public"
+                                : "disable"
+                              : "enable"}
                           </button>
                         )}
                       </div>

@@ -13,16 +13,29 @@ import {
   storeGenericMediaFromBuffer,
   storeGenericMediaFromStoredUpload,
   storeImageMediaFromBuffer,
+  storeGeneratedPreviewForMedia,
   storeImageOriginalFromBuffer,
   storeImageOriginalFromStoredUpload,
+  storePublicOriginalFromUpload,
+  getMediaBuffer,
 } from "@/lib/media-storage";
 import {
   isThumbnailServiceSupported,
   mediaKindFromType,
+  type AsyncPreviewKind,
   type BlobMediaKind,
 } from "@/lib/media-types";
 import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 import type { Visibility } from "@/lib/api-v1/schemas";
+
+function thumbnailKindFor(input: {
+  kind: BlobMediaKind;
+  mimeType: string;
+  ext: string;
+  fileSizeBytes: number;
+}): AsyncPreviewKind | null {
+  return isThumbnailServiceSupported(input) ? input.kind : null;
+}
 
 export async function registerMediaFromBuffer(input: {
   request: Request;
@@ -37,14 +50,14 @@ export async function registerMediaFromBuffer(input: {
 }): Promise<MediaEntry> {
   const kind = mediaKindFromType(input.mimeType, input.ext);
   const uploadedAt = new Date();
-  const canUseThumbnailService = isThumbnailServiceSupported({
+  const thumbnailInput = {
     kind,
     mimeType: input.mimeType,
     ext: input.ext,
     fileSizeBytes: input.buffer.byteLength,
-  });
-  const thumbnailKind =
-    canUseThumbnailService && kind !== "other" ? (kind as Exclude<BlobMediaKind, "other">) : null;
+  };
+  const canUseThumbnailService = isThumbnailServiceSupported(thumbnailInput);
+  const thumbnailKind = thumbnailKindFor(thumbnailInput);
 
   const stored =
     kind === "image"
@@ -140,14 +153,14 @@ export async function registerMediaFromUploadSession(input: {
 }): Promise<MediaEntry> {
   const kind = mediaKindFromType(input.session.mimeType, input.session.ext);
   const uploadedAt = new Date();
-  const canUseThumbnailService = isThumbnailServiceSupported({
+  const thumbnailInput = {
     kind,
     mimeType: input.session.mimeType,
     ext: input.session.ext,
     fileSizeBytes: input.session.fileSize,
-  });
-  const thumbnailKind =
-    canUseThumbnailService && kind !== "other" ? (kind as Exclude<BlobMediaKind, "other">) : null;
+  };
+  const canUseThumbnailService = isThumbnailServiceSupported(thumbnailInput);
+  const thumbnailKind = thumbnailKindFor(thumbnailInput);
 
   let stored;
   if (kind === "image") {
@@ -235,6 +248,135 @@ export async function registerMediaFromUploadSession(input: {
   }
 
   return media;
+}
+
+export async function registerMediaFromPublicUpload(input: {
+  request: Request;
+  userId: string;
+  session: {
+    storageKey: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    ext: string;
+    baseName: string;
+    uploadedAt: string;
+  };
+  publicBlobUrl: string;
+  albumId?: string;
+  keepOriginalFileName?: boolean;
+}): Promise<MediaEntry> {
+  const kind = mediaKindFromType(input.session.mimeType, input.session.ext);
+  const uploadedAt = new Date(input.session.uploadedAt);
+  const stored = await storePublicOriginalFromUpload({
+    kind,
+    sourceKey: input.session.storageKey,
+    publicBlobUrl: input.publicBlobUrl,
+    sizeOriginal: input.session.fileSize,
+    ext: input.session.ext,
+    mimeType: input.session.mimeType,
+    uploadedAt,
+    baseName: input.session.baseName,
+  });
+
+  const media = await addMediaForUser({
+    userId: input.userId,
+    kind,
+    albumId: input.albumId,
+    baseName: stored.baseName,
+    originalFileName: input.keepOriginalFileName
+      ? input.session.fileName
+      : undefined,
+    ext: stored.ext,
+    mimeType: stored.mimeType,
+    width: stored.width,
+    height: stored.height,
+    sizeOriginal: stored.sizeOriginal,
+    sizeSm: stored.sizeSm,
+    sizeLg: stored.sizeLg,
+    previewStatus: stored.previewStatus,
+    uploadedAt: uploadedAt.toISOString(),
+    publicBlobKey: input.session.storageKey,
+    publicBlobUrl: input.publicBlobUrl,
+  });
+
+  const share = await createShareForMedia(kind, media.id, input.userId);
+  const thumbnailKind = thumbnailKindFor({
+    kind,
+    mimeType: input.session.mimeType,
+    ext: input.session.ext,
+    fileSizeBytes: input.session.fileSize,
+  });
+
+  if (!thumbnailKind && kind === "image") {
+    try {
+      const original = await getMediaBuffer({
+        kind: "image",
+        baseName: media.baseName,
+        ext: media.ext,
+        size: "original",
+        uploadedAt,
+        publicBlobKey: input.session.storageKey,
+      });
+      const previews = await storeGeneratedPreviewForMedia({
+        kind: "image",
+        baseName: media.baseName,
+        ext: media.ext,
+        uploadedAt,
+        previewImageBuffer: original,
+      });
+      const updated = await updateMediaPreviewForUser({
+        userId: input.userId,
+        kind,
+        mediaId: media.id,
+        previewStatus: "complete",
+        sizeSm: previews.sizeSm,
+        sizeLg: previews.sizeLg,
+        width: previews.width,
+        height: previews.height,
+      });
+      return {
+        ...(updated ?? media),
+        shared: Boolean(share?.code),
+      };
+    } catch {
+      // Keep the original public object even if local preview generation fails.
+    }
+  }
+
+  if (thumbnailKind && media.previewStatus === "pending") {
+    const queued = await requestPreviewGeneration({
+      mediaId: media.id,
+      kind: thumbnailKind,
+      ext: media.ext,
+      mimeType: media.mimeType,
+      fileSizeBytes: media.sizeOriginal,
+      downloadUrl: buildAppUrl(
+        input.request,
+        `/api/thumbnails/${media.id}/source`,
+      ),
+    });
+    if (!queued.ok) {
+      await updateMediaPreviewForUser({
+        userId: input.userId,
+        kind,
+        mediaId: media.id,
+        previewStatus: "error",
+        previewError: queued.error,
+      });
+      return {
+        ...media,
+        shared: Boolean(share?.code),
+        previewStatus: "error",
+        previewError: queued.error,
+      };
+    }
+  }
+
+  return {
+    ...media,
+    shared: Boolean(share?.code),
+  };
 }
 
 export async function ensureShareForVisibility(input: {

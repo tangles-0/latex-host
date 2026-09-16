@@ -427,6 +427,8 @@ export const images = pgTable("images", {
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("complete"),
   previewError: text("preview_error"),
+  publicBlobKey: text("public_blob_key"),
+  publicBlobUrl: text("public_blob_url"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
 });
 
@@ -454,6 +456,8 @@ export const videos = pgTable("videos", {
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("pending"),
   previewError: text("preview_error"),
+  publicBlobKey: text("public_blob_key"),
+  publicBlobUrl: text("public_blob_url"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
 });
 
@@ -478,6 +482,8 @@ export const documents = pgTable("documents", {
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("pending"),
   previewError: text("preview_error"),
+  publicBlobKey: text("public_blob_key"),
+  publicBlobUrl: text("public_blob_url"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
 });
 
@@ -501,6 +507,8 @@ export const files = pgTable("files", {
   sizeLg: bigint("size_lg", { mode: "number" }).notNull().default(0),
   previewStatus: text("preview_status").notNull().default("pending"),
   previewError: text("preview_error"),
+  publicBlobKey: text("public_blob_key"),
+  publicBlobUrl: text("public_blob_url"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull(),
 });
 

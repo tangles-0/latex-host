@@ -16,8 +16,13 @@ import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
 import { db } from "@/db";
 import { uploadSessions } from "@/db/schema";
 import { contentTypeForExt, type BlobMediaKind } from "@/lib/media-types";
+import {
+  buildMediaBaseName,
+  buildMediaOriginalStorageKey,
+} from "@/lib/media-storage";
+import { deletePublicBlob, isPublicBlobConfigured } from "@/lib/public-blob";
 
-type StorageBackend = "local" | "blob";
+type StorageBackend = "local" | "blob" | "public-blob";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SESSION_DIR = path.join(DATA_DIR, "upload-sessions");
@@ -168,6 +173,28 @@ export function expectedPartSizeBytes(session: Pick<UploadSessionEntry, "fileSiz
   return Math.min(normalizedChunkSize, remaining);
 }
 
+type PublicSessionMetadata = {
+  store: "public";
+  baseName: string;
+};
+
+export function parsePublicSessionMetadata(
+  raw: string | null | undefined,
+): PublicSessionMetadata | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<PublicSessionMetadata>;
+    if (parsed.store === "public" && typeof parsed.baseName === "string" && parsed.baseName.trim()) {
+      return { store: "public", baseName: parsed.baseName };
+    }
+  } catch {
+    // Private multipart sessions store different JSON here.
+  }
+  return undefined;
+}
+
 type InitInput = {
   userId: string;
   fileName: string;
@@ -177,6 +204,7 @@ type InitInput = {
   ext: string;
   checksum?: string;
   targetType?: BlobMediaKind;
+  store?: "private" | "public";
 };
 
 function mapSession(row: typeof uploadSessions.$inferSelect): UploadSessionEntry {
@@ -226,8 +254,14 @@ async function ensureSessionDirs(id: string): Promise<void> {
 }
 
 export async function initUploadSession(input: InitInput): Promise<UploadSessionEntry> {
-  const chunkSize = normalizeChunkSize(input.chunkSize);
-  if (input.checksum) {
+  const usePublicStore = input.store === "public";
+  if (usePublicStore && !isPublicBlobConfigured()) {
+    throw new Error("Public blob store is not configured.");
+  }
+  const chunkSize = usePublicStore
+    ? Math.max(1, Math.floor(input.fileSize))
+    : normalizeChunkSize(input.chunkSize);
+  if (input.checksum && !usePublicStore) {
     const existingRows = await db
       .select()
       .from(uploadSessions)
@@ -254,10 +288,22 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
   const sessionId = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + MAX_SESSION_AGE_MS);
-  const storageKey = buildSessionStorageKey(sessionId, input.ext, now);
+  const targetType = input.targetType ?? "other";
+  let storageKey = buildSessionStorageKey(sessionId, input.ext, now);
   let s3UploadId: string | null = null;
+  let backend: StorageBackend = STORAGE_BACKEND;
 
-  if (STORAGE_BACKEND === "local") {
+  if (usePublicStore) {
+    const baseName = buildMediaBaseName(now);
+    storageKey = buildMediaOriginalStorageKey(
+      targetType,
+      baseName,
+      input.ext,
+      now,
+    );
+    s3UploadId = JSON.stringify({ store: "public", baseName } satisfies PublicSessionMetadata);
+    backend = "public-blob";
+  } else if (STORAGE_BACKEND === "local") {
     await ensureSessionDirs(sessionId);
   } else if (STORAGE_BACKEND === "blob") {
     const metadata = await createBlobMultipartSession(
@@ -270,8 +316,8 @@ export async function initUploadSession(input: InitInput): Promise<UploadSession
   await db.insert(uploadSessions).values({
     id: sessionId,
     userId: input.userId,
-    backend: STORAGE_BACKEND,
-    targetType: input.targetType ?? "other",
+    backend,
+    targetType,
     mimeType: input.mimeType,
     ext: input.ext,
     checksum: input.checksum ?? null,
@@ -324,6 +370,12 @@ export async function clearUploadSessionsForUser(
     const mapped = mapSession(row);
     if (mapped.backend === "local") {
       await fs.rm(path.join(SESSION_DIR, mapped.id), { recursive: true, force: true });
+    } else if (mapped.backend === "public-blob" && mapped.storageKey) {
+      try {
+        await deletePublicBlob(mapped.storageKey);
+      } catch {
+        // Ignore if the public object was never uploaded.
+      }
     } else if (mapped.backend === "blob" && mapped.storageKey) {
       const multipartMetadata = parseBlobMultipartMetadata(mapped.s3UploadId);
       if (!multipartMetadata) {
@@ -615,6 +667,14 @@ export async function completeUploadSession(session: UploadSessionEntry): Promis
 export async function abortUploadSession(session: UploadSessionEntry): Promise<void> {
   if (session.backend === "local") {
     await fs.rm(path.join(SESSION_DIR, session.id), { recursive: true, force: true });
+  } else if (session.backend === "public-blob") {
+    if (session.storageKey) {
+      try {
+        await deletePublicBlob(session.storageKey);
+      } catch {
+        // No-op for unfinished public uploads.
+      }
+    }
   } else if (session.backend === "blob") {
     if (session.storageKey) {
       const multipartMetadata = parseBlobMultipartMetadata(session.s3UploadId);
@@ -639,6 +699,23 @@ export async function abortUploadSession(session: UploadSessionEntry): Promise<v
     .update(uploadSessions)
     .set({ state: "failed", error: "aborted", updatedAt: new Date() })
     .where(eq(uploadSessions.id, session.id));
+}
+
+export async function markPublicUploadSessionComplete(
+  session: UploadSessionEntry,
+): Promise<UploadSessionEntry> {
+  if (session.backend !== "public-blob") {
+    throw new Error("Upload session is not a public blob upload.");
+  }
+  await db
+    .update(uploadSessions)
+    .set({ state: "complete", updatedAt: new Date() })
+    .where(eq(uploadSessions.id, session.id));
+  const completed = await getUploadSessionForUser(session.id, session.userId);
+  if (!completed) {
+    throw new Error("Upload completion failed.");
+  }
+  return completed;
 }
 
 export function getCompletedUploadPath(session: UploadSessionEntry): string {

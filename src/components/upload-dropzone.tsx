@@ -13,6 +13,7 @@ import { isRiskyShareFile } from "@/lib/media-types";
 import {
   DEFAULT_RESUMABLE_THRESHOLD,
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
+  PUBLIC_STORE_UPLOAD_STORAGE_KEY,
   uploadSingleMedia,
 } from "@/lib/upload-client";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -171,9 +172,11 @@ function extractClipboardImageFiles(event: ClipboardEvent): File[] {
 export default function UploadDropzone({
   uploadsEnabled = true,
   resumableThresholdBytes = DEFAULT_RESUMABLE_THRESHOLD,
+  publicUploadsEnabled = false,
 }: {
   uploadsEnabled?: boolean;
   resumableThresholdBytes?: number;
+  publicUploadsEnabled?: boolean;
 }) {
   const [albumId, setAlbumId] = useState("");
   const [status, setStatus] = useState<UploadState>("idle");
@@ -224,6 +227,9 @@ export default function UploadDropzone({
   const [isClearingFailed, setIsClearingFailed] = useState(false);
   const [keepOriginalFileName, setKeepOriginalFileName] = useState(false);
   const [hasLoadedKeepOriginalFileName, setHasLoadedKeepOriginalFileName] =
+    useState(false);
+  const [uploadToPublicStore, setUploadToPublicStore] = useState(false);
+  const [hasLoadedPublicStoreUpload, setHasLoadedPublicStoreUpload] =
     useState(false);
   const [youtubeIngests, setYoutubeIngests] = useState<YoutubeIngest[]>([]);
   const [isYoutubeModalOpen, setIsYoutubeModalOpen] = useState(false);
@@ -423,6 +429,24 @@ export default function UploadDropzone({
   }, []);
 
   useEffect(() => {
+    if (!publicUploadsEnabled) {
+      setUploadToPublicStore(false);
+      setHasLoadedPublicStoreUpload(true);
+      return;
+    }
+    try {
+      const stored = window.localStorage.getItem(
+        PUBLIC_STORE_UPLOAD_STORAGE_KEY,
+      );
+      setUploadToPublicStore(stored === "1");
+    } catch {
+      // ignore storage errors
+    } finally {
+      setHasLoadedPublicStoreUpload(true);
+    }
+  }, [publicUploadsEnabled]);
+
+  useEffect(() => {
     if (!hasLoadedKeepOriginalFileName) {
       return;
     }
@@ -435,6 +459,24 @@ export default function UploadDropzone({
       // ignore storage errors
     }
   }, [hasLoadedKeepOriginalFileName, keepOriginalFileName]);
+
+  useEffect(() => {
+    if (!hasLoadedPublicStoreUpload || !publicUploadsEnabled) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        PUBLIC_STORE_UPLOAD_STORAGE_KEY,
+        uploadToPublicStore ? "1" : "0",
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [
+    hasLoadedPublicStoreUpload,
+    publicUploadsEnabled,
+    uploadToPublicStore,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -670,11 +712,14 @@ export default function UploadDropzone({
 
     for (const file of items) {
       const fileKey = `${file.name}::${file.size}::${file.lastModified}`;
+      const usePublicStore = publicUploadsEnabled && uploadToPublicStore;
       let checksum: string | undefined;
-      try {
-        checksum = await hashFileForResume(file);
-      } catch {
-        checksum = undefined;
+      if (!usePublicStore) {
+        try {
+          checksum = await hashFileForResume(file);
+        } catch {
+          checksum = undefined;
+        }
       }
       const resumeCandidate = checksum
         ? incompleteSessions.find(
@@ -720,6 +765,7 @@ export default function UploadDropzone({
           resumeFromSessionId: selectedResumeCandidate?.id,
           checksum,
           keepOriginalFileName,
+          publicStore: publicUploadsEnabled && uploadToPublicStore,
           onProgress: (uploaded, total) => {
             setUploadProgress((current) => ({
               ...current,
@@ -768,6 +814,15 @@ export default function UploadDropzone({
         ];
         return next.slice(0, 10);
       });
+      if (result.urls?.original) {
+        setShareStates((current) => ({
+          ...current,
+          [image.id]: {
+            id: image.id,
+            urls: { original: result.urls!.original },
+          },
+        }));
+      }
       setUploadProgress((current) => {
         const next = { ...current };
         delete next[fileKey];
@@ -1284,6 +1339,24 @@ export default function UploadDropzone({
         />
         keep original file name
       </label>
+      {publicUploadsEnabled ? (
+        <label className="flex items-start gap-2 text-xs text-neutral-600">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={uploadToPublicStore}
+            onChange={(event) => setUploadToPublicStore(event.target.checked)}
+          />
+          <span>
+            upload directly to the public store
+            <span className="mt-1 block text-neutral-500">
+              public uploads are always public. they still get a /share link and
+              appear in your gallery, but the file itself is stored on a public
+              blob.
+            </span>
+          </span>
+        </label>
+      ) : null}
 
       <div
         role="button"

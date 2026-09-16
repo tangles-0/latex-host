@@ -88,6 +88,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       ext: media.ext,
       size: "original",
       uploadedAt: new Date(media.uploadedAt),
+      publicBlobKey: media.publicBlobKey,
+      publicBlobUrl: media.publicBlobUrl,
     });
     return NextResponse.json({
       content: buffer.toString("utf8"),

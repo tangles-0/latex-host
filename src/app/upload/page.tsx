@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { getAppSettings } from "@/lib/metadata-store";
+import { isPublicBlobConfigured } from "@/lib/public-blob";
 import UploadDropzone from "@/components/upload-dropzone";
 import AlertBanner from "@/components/ui/alert-banner";
 import PageHeader from "@/components/ui/page-header";
@@ -29,6 +30,7 @@ export default async function UploadPage() {
       <UploadDropzone
         uploadsEnabled={settings.uploadsEnabled}
         resumableThresholdBytes={settings.resumableThresholdBytes}
+        publicUploadsEnabled={isPublicBlobConfigured()}
       />
 
       

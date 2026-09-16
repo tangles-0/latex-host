@@ -1,23 +1,20 @@
-import { del as blobDelete, put as blobPut } from "@vercel/blob"
+import { put as blobPut } from "@vercel/blob"
+import {
+  deletePublicBlob,
+  getPublicBlobToken,
+  getPublicBlobStoreId,
+  getPublicBlobWebhookPublicKey,
+  isPublicBlobConfigured,
+} from "@/lib/public-blob"
 
 export const WATCH_PARTY_ENCODE_PROFILE = "h264-aac-1080p-v1"
 
-export const getPublicBlobToken = (): string => {
-  const token = process.env.BLOB_PUBLIC_READ_WRITE_TOKEN?.trim()
-  if (!token) {
-    throw new Error("BLOB_PUBLIC_READ_WRITE_TOKEN is not set.")
-  }
-  return token
+export {
+  getPublicBlobToken,
+  getPublicBlobStoreId,
+  getPublicBlobWebhookPublicKey,
+  isPublicBlobConfigured,
 }
-
-export const getPublicBlobStoreId = (): string =>
-  process.env.BLOB_PUBLIC_STORE_ID?.trim() ?? ""
-
-export const getPublicBlobWebhookPublicKey = (): string =>
-  process.env.BLOB_PUBLIC_WEBHOOK_PUBLIC_KEY?.trim() ?? ""
-
-export const isPublicBlobConfigured = (): boolean =>
-  Boolean(process.env.BLOB_PUBLIC_READ_WRITE_TOKEN?.trim())
 
 export const watchPartyObjectKey = (
   videoId: string,
@@ -42,8 +39,5 @@ export const putWatchPartyMp4 = async (input: {
 }
 
 export const deleteWatchPartyObject = async (urlOrKey: string): Promise<void> => {
-  if (!urlOrKey.trim()) {
-    return
-  }
-  await blobDelete(urlOrKey, { token: getPublicBlobToken() })
+  await deletePublicBlob(urlOrKey)
 }

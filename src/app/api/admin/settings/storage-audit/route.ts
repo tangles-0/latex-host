@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { del as blobDelete, head as blobHead, list as blobList } from "@vercel/blob";
+import { headPublicBlob } from "@/lib/public-blob";
 import { and, inArray, isNotNull, ne } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -88,13 +89,23 @@ async function runStorageAudit(): Promise<{
     uploadedAt: Date;
     requiredSizes: Array<"original" | "sm" | "lg">;
     previewExt: string;
+    publicBlobKey?: string | null;
   }) => {
     const missingKeys: string[] = [];
     for (const size of input.requiredSizes) {
       const ext = size === "original" ? input.ext : input.previewExt;
-      const pathname = buildStoragePathname(input.kind, input.baseName, ext, size, input.uploadedAt);
-      expected.add(pathname);
-      if (!(await blobExists(pathname))) {
+      const pathname =
+        size === "original" && input.publicBlobKey
+          ? input.publicBlobKey
+          : buildStoragePathname(input.kind, input.baseName, ext, size, input.uploadedAt);
+      if (!(size === "original" && input.publicBlobKey)) {
+        expected.add(pathname);
+      }
+      const exists =
+        size === "original" && input.publicBlobKey
+          ? await publicBlobExists(pathname)
+          : await blobExists(pathname);
+      if (!exists) {
         missingKeys.push(pathname);
       }
     }
@@ -120,6 +131,7 @@ async function runStorageAudit(): Promise<{
       uploadedAt: row.uploadedAt,
       requiredSizes: ["original", "sm", "lg"],
       previewExt: row.ext,
+      publicBlobKey: row.publicBlobKey,
     });
   }
   for (const row of videoRows) {
@@ -134,6 +146,7 @@ async function runStorageAudit(): Promise<{
       uploadedAt: row.uploadedAt,
       requiredSizes: sizes,
       previewExt: "png",
+      publicBlobKey: row.publicBlobKey,
     });
   }
   for (const row of documentRows) {
@@ -148,6 +161,7 @@ async function runStorageAudit(): Promise<{
       uploadedAt: row.uploadedAt,
       requiredSizes: sizes,
       previewExt: "png",
+      publicBlobKey: row.publicBlobKey,
     });
   }
   for (const row of fileRows) {
@@ -162,6 +176,7 @@ async function runStorageAudit(): Promise<{
       uploadedAt: row.uploadedAt,
       requiredSizes: sizes,
       previewExt: "png",
+      publicBlobKey: row.publicBlobKey,
     });
   }
 
@@ -186,6 +201,15 @@ async function runStorageAudit(): Promise<{
 async function blobExists(pathname: string): Promise<boolean> {
   try {
     await blobHead(pathname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function publicBlobExists(pathname: string): Promise<boolean> {
+  try {
+    await headPublicBlob(pathname);
     return true;
   } catch {
     return false;

@@ -18,6 +18,7 @@ import {
   initUploadSession,
 } from "@/lib/upload-sessions";
 import { isWorkerIngestAuthorized } from "@/lib/preview-worker";
+import { isPublicBlobConfigured } from "@/lib/public-blob";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     chunkSize?: number;
     checksum?: string;
     targetType?: BlobMediaKind;
+    store?: "private" | "public";
   };
   if (!userId && isWorkerRequest) {
     userId = payload.userId?.trim() ?? "";
@@ -113,6 +115,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
   const kind = mediaKindFromType(mimeType, ext);
+  const store = payload.store === "public" ? "public" : "private";
+  if (store === "public" && !isPublicBlobConfigured()) {
+    return NextResponse.json(
+      { error: "Public uploads are not available." },
+      { status: 400 },
+    );
+  }
   if (fileSize > getMaxAllowedBytesForKind(groupLimits, kind)) {
     return NextResponse.json(
       { error: "File exceeds size limit." },
@@ -129,6 +138,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     ext,
     checksum,
     targetType: isWorkerRequest ? kind : (payload.targetType ?? kind),
+    store,
   });
 
   return NextResponse.json({
@@ -137,6 +147,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     totalParts: session.totalParts,
     uploadedParts: session.uploadedParts,
     storageKey: session.storageKey,
+    publicDirect: session.backend === "public-blob",
     multipart: await getBlobMultipartClientState(session),
   });
 }

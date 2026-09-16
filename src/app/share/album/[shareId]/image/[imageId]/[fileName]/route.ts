@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getAlbumShareById, getImage } from "@/lib/metadata-store";
 import { mediaIsInAlbum } from "@/lib/media-store";
-import { getMediaSignedUrl, getMediaStream, usesS3StorageBackend } from "@/lib/media-storage";
+import { getMediaSignedUrl, getMediaStream, publicOriginalRedirectUrl, usesS3StorageBackend } from "@/lib/media-storage";
 import { consumeRequestRateLimit } from "@/lib/request-rate-limit";
 import { unavailableImageResponse } from "@/lib/unavailable-image";
 
@@ -88,14 +88,30 @@ export async function GET(
       return unavailableImageResponse(parsed.ext);
     }
 
+    const requestedSize = parsed.size === "x640" ? "lg" : parsed.size;
+    const publicUrl = publicOriginalRedirectUrl({
+      size: requestedSize,
+      publicBlobUrl: image.publicBlobUrl,
+    });
+    if (publicUrl) {
+      return new Response(null, {
+        status: 307,
+        headers: {
+          Location: publicUrl,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
     if (usesS3StorageBackend()) {
       const signedUrl = await getMediaSignedUrl({
         kind: "image",
         baseName: image.baseName,
         ext: image.ext,
-        size: parsed.size === "x640" ? "lg" : parsed.size,
+        size: requestedSize,
         uploadedAt: new Date(image.uploadedAt),
         responseContentType: contentTypeForExt(image.ext),
+        publicBlobKey: image.publicBlobKey,
+        publicBlobUrl: image.publicBlobUrl,
       });
       return new Response(null, {
         status: 307,
@@ -109,8 +125,10 @@ export async function GET(
       kind: "image",
       baseName: image.baseName,
       ext: image.ext,
-      size: parsed.size === "x640" ? "lg" : parsed.size,
+      size: requestedSize,
       uploadedAt: new Date(image.uploadedAt),
+      publicBlobKey: image.publicBlobKey,
+      publicBlobUrl: image.publicBlobUrl,
     });
     return new Response(data, {
       headers: publicCacheHeaders(image.ext),

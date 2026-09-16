@@ -1,4 +1,4 @@
-import { uploadPart as uploadBlobPart } from "@vercel/blob/client";
+import { upload as uploadPublicBlob, uploadPart as uploadBlobPart } from "@vercel/blob/client";
 import {
   extFromFileName,
   mediaKindFromType,
@@ -20,7 +20,12 @@ export type UploadResult = {
     height?: number;
     uploadedAt: string;
     shared?: boolean;
+    publicStore?: boolean;
+    publicBlobUrl?: string;
     previewStatus?: "pending" | "started" | "complete" | "error";
+  };
+  urls?: {
+    original: string;
   };
 };
 
@@ -30,6 +35,8 @@ export const DEFAULT_RESUMABLE_THRESHOLD = 4 * 1024 * 1024;
 const MAX_SERVER_FUNCTION_PAYLOAD_SAFE_BYTES = 4 * 1024 * 1024;
 export const KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY =
   "latex-keep-original-file-name";
+export const PUBLIC_STORE_UPLOAD_STORAGE_KEY = "latex-public-store-upload";
+const PUBLIC_DIRECT_MULTIPART_THRESHOLD = 8 * 1024 * 1024;
 const PART_RETRY_LIMIT = 4;
 
 export type UploadOptions = {
@@ -38,6 +45,7 @@ export type UploadOptions = {
   resumeFromSessionId?: string;
   checksum?: string;
   keepOriginalFileName?: boolean;
+  publicStore?: boolean;
 };
 
 type InitUploadResponse = {
@@ -259,6 +267,92 @@ async function uploadResumable(
   };
 }
 
+async function uploadPublicDirect(
+  file: File,
+  targetType: BlobMediaKind,
+  albumId?: string,
+  options?: UploadOptions,
+): Promise<UploadResult> {
+  const initResponse = await fetch("/api/uploads/init", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+      targetType,
+      store: "public",
+    }),
+  });
+  if (!initResponse.ok) {
+    let errorMessage = "Unable to initialize public upload.";
+    try {
+      const payload = (await initResponse.json()) as { error?: string };
+      if (payload.error) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+    return { ok: false, message: `${file.name}: ${errorMessage}` };
+  }
+  const initPayload = (await initResponse.json()) as InitUploadResponse;
+  if (!initPayload.storageKey) {
+    return {
+      ok: false,
+      message: `${file.name}: Public upload is missing its storage path.`,
+    };
+  }
+
+  const blob = await uploadPublicBlob(initPayload.storageKey, file, {
+    access: "public",
+    handleUploadUrl: "/api/uploads/public",
+    multipart: file.size >= PUBLIC_DIRECT_MULTIPART_THRESHOLD,
+    clientPayload: JSON.stringify({ sessionId: initPayload.sessionId }),
+    contentType: file.type || undefined,
+    onUploadProgress: ({ loaded, total }) => {
+      options?.onProgress?.(loaded, total);
+    },
+  });
+
+  const finalizeResponse = await fetch("/api/media/from-public-upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId: initPayload.sessionId,
+      url: blob.url,
+      pathname: blob.pathname,
+      albumId,
+      keepOriginalFileName: options?.keepOriginalFileName === true,
+    }),
+  });
+  if (!finalizeResponse.ok) {
+    let errorMessage = "Public upload finished but media registration failed.";
+    try {
+      const payload = (await finalizeResponse.json()) as { error?: string };
+      if (payload.error) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+    return { ok: false, message: `${file.name}: ${errorMessage}` };
+  }
+  const payload = (await finalizeResponse.json()) as {
+    media: UploadResult["media"];
+    urls?: { original: string };
+  };
+  options?.onProgress?.(file.size, file.size);
+  return {
+    ok: true,
+    message: `${file.name} uploaded`,
+    media: payload.media
+      ? { ...payload.media, shared: true, publicStore: true }
+      : payload.media,
+    urls: payload.urls,
+  };
+}
+
 export async function uploadSingleMedia(
   file: File,
   albumId?: string,
@@ -266,6 +360,10 @@ export async function uploadSingleMedia(
 ): Promise<UploadResult> {
   const type = file.type.toLowerCase();
   const kind = mediaKindFromType(type, extFromFileName(file.name));
+
+  if (options?.publicStore) {
+    return uploadPublicDirect(file, kind, albumId, options);
+  }
 
   const resumableThresholdBytes = Math.max(
     1024 * 1024,

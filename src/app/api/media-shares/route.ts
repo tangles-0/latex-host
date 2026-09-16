@@ -9,6 +9,10 @@ import {
   type MediaKind,
 } from "@/lib/media-store";
 import { isMediaKind } from "@/lib/media-types";
+import {
+  canDisableMediaShare,
+  PUBLIC_STORE_SHARE_LOCKED_MESSAGE,
+} from "@/lib/public-blob";
 import { buildPublicShareUrls } from "@/lib/public-share-urls";
 
 export const runtime = "nodejs";
@@ -174,6 +178,16 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   if (!kind || !mediaId) {
     return NextResponse.json(
       { error: "kind and mediaId are required." },
+      { status: 400 },
+    );
+  }
+  const media = await getMediaForUser(kind, mediaId, userId);
+  if (!media) {
+    return NextResponse.json({ error: "Media not found." }, { status: 404 });
+  }
+  if (!canDisableMediaShare(media)) {
+    return NextResponse.json(
+      { error: PUBLIC_STORE_SHARE_LOCKED_MESSAGE },
       { status: 400 },
     );
   }

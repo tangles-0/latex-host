@@ -69,6 +69,8 @@ export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
         size,
         uploadedAt: new Date(media.uploadedAt),
         responseContentType: contentType,
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       return NextResponse.redirect(signed, 302);
     } catch {
@@ -82,6 +84,8 @@ export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
     ext,
     size,
     uploadedAt: new Date(media.uploadedAt),
+    publicBlobKey: media.publicBlobKey,
+    publicBlobUrl: media.publicBlobUrl,
   });
 
   const headers = new Headers({

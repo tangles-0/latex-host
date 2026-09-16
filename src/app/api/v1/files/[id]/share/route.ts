@@ -1,5 +1,9 @@
 import { deleteShareForMedia } from "@/lib/media-store";
 import { withApiV1ParamsRoute } from "@/lib/api-v1/handler";
+import {
+  canDisableMediaShare,
+  PUBLIC_STORE_SHARE_LOCKED_MESSAGE,
+} from "@/lib/public-blob";
 import { apiV1Error, apiV1Json } from "@/lib/api-v1/errors";
 import { getBlobFileForUser } from "@/lib/api-v1/list";
 import { ensureShareForVisibility } from "@/lib/api-v1/media-register";
@@ -51,6 +55,9 @@ export const DELETE = withApiV1ParamsRoute(async (_request, auth, context) => {
   const media = await getBlobFileForUser(auth.userId, id);
   if (!media) {
     return apiV1Error(404, "not_found", "File not found.");
+  }
+  if (!canDisableMediaShare(media)) {
+    return apiV1Error(400, "invalid_request", PUBLIC_STORE_SHARE_LOCKED_MESSAGE);
   }
   await deleteShareForMedia(media.kind, media.id, auth.userId);
   return new Response(null, { status: 204 });

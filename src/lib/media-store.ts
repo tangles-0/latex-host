@@ -32,6 +32,8 @@ import {
   updateAlbumMembershipCaptionForUser,
 } from "@/lib/album-membership-store";
 import { deleteConstrainedShareImage, deleteImageFiles } from "@/lib/storage";
+import { deleteStoredMedia } from "@/lib/media-storage";
+import { isPublicStoreMedia } from "@/lib/public-blob";
 import { generateUniqueShareCode } from "@/lib/share-code";
 export type { MediaKind } from "@/lib/media-types";
 export type PreviewStatus = "pending" | "started" | "complete" | "error";
@@ -63,6 +65,9 @@ export type MediaEntry = {
   content?: string;
   updatedAt?: string;
   shared?: boolean;
+  publicStore?: boolean;
+  publicBlobKey?: string;
+  publicBlobUrl?: string;
 };
 
 type BlobMediaEntry = Omit<MediaEntry, "kind"> & { kind: BlobMediaKind };
@@ -127,6 +132,9 @@ function mapImageRow(row: typeof images.$inferSelect): MediaEntry {
     sizeLg: row.sizeLg,
     previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
+    publicStore: isPublicStoreMedia(row),
+    publicBlobKey: row.publicBlobKey ?? undefined,
+    publicBlobUrl: row.publicBlobUrl ?? undefined,
   };
 }
 
@@ -150,6 +158,9 @@ function mapVideoRow(row: typeof videos.$inferSelect): MediaEntry {
     sizeLg: row.sizeLg,
     previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
+    publicStore: isPublicStoreMedia(row),
+    publicBlobKey: row.publicBlobKey ?? undefined,
+    publicBlobUrl: row.publicBlobUrl ?? undefined,
   };
 }
 
@@ -170,6 +181,9 @@ function mapDocumentRow(row: typeof documents.$inferSelect): MediaEntry {
     sizeLg: row.sizeLg,
     previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
+    publicStore: isPublicStoreMedia(row),
+    publicBlobKey: row.publicBlobKey ?? undefined,
+    publicBlobUrl: row.publicBlobUrl ?? undefined,
   };
 }
 
@@ -189,6 +203,9 @@ function mapFileRow(row: typeof files.$inferSelect): MediaEntry {
     sizeLg: row.sizeLg,
     previewStatus: normalizePreviewStatus(row.previewStatus),
     previewError: row.previewError ?? undefined,
+    publicStore: isPublicStoreMedia(row),
+    publicBlobKey: row.publicBlobKey ?? undefined,
+    publicBlobUrl: row.publicBlobUrl ?? undefined,
   };
 }
 
@@ -296,6 +313,8 @@ export async function addMediaForUser(input: {
   previewStatus: PreviewStatus;
   previewError?: string;
   uploadedAt: string;
+  publicBlobKey?: string;
+  publicBlobUrl?: string;
 }): Promise<MediaEntry> {
   const id = randomUUID();
   const uploadedAt = new Date(input.uploadedAt);
@@ -318,6 +337,8 @@ export async function addMediaForUser(input: {
       sizeLg: input.sizeLg,
       previewStatus: input.previewStatus,
       previewError: input.previewError ?? null,
+      publicBlobKey: input.publicBlobKey ?? null,
+      publicBlobUrl: input.publicBlobUrl ?? null,
       uploadedAt,
     });
     if (input.albumId) {
@@ -355,6 +376,9 @@ export async function addMediaForUser(input: {
       sizeLg: input.sizeLg,
       previewStatus: input.previewStatus,
       previewError: input.previewError,
+      publicStore: Boolean(input.publicBlobKey || input.publicBlobUrl),
+      publicBlobKey: input.publicBlobKey,
+      publicBlobUrl: input.publicBlobUrl,
     };
   }
 
@@ -375,6 +399,8 @@ export async function addMediaForUser(input: {
       sizeLg: input.sizeLg,
       previewStatus: input.previewStatus,
       previewError: input.previewError ?? null,
+      publicBlobKey: input.publicBlobKey ?? null,
+      publicBlobUrl: input.publicBlobUrl ?? null,
       uploadedAt,
     });
   } else if (input.kind === "document") {
@@ -392,6 +418,8 @@ export async function addMediaForUser(input: {
       sizeLg: input.sizeLg,
       previewStatus: input.previewStatus,
       previewError: input.previewError ?? null,
+      publicBlobKey: input.publicBlobKey ?? null,
+      publicBlobUrl: input.publicBlobUrl ?? null,
       uploadedAt,
     });
   } else if (input.kind === "other") {
@@ -408,6 +436,8 @@ export async function addMediaForUser(input: {
       sizeLg: input.sizeLg,
       previewStatus: input.previewStatus,
       previewError: input.previewError ?? null,
+      publicBlobKey: input.publicBlobKey ?? null,
+      publicBlobUrl: input.publicBlobUrl ?? null,
       uploadedAt,
     });
   } else {
@@ -463,6 +493,9 @@ export async function addMediaForUser(input: {
     sizeLg: input.sizeLg,
     previewStatus: input.previewStatus,
     previewError: input.previewError,
+    publicStore: Boolean(input.publicBlobKey || input.publicBlobUrl),
+    publicBlobKey: input.publicBlobKey,
+    publicBlobUrl: input.publicBlobUrl,
   };
 }
 
@@ -2156,6 +2189,15 @@ export async function deleteMediaForUser(
       continue;
     }
     await deleteShareForMedia(item.kind, item.id, userId);
+    if (item.kind !== "note") {
+      await deleteStoredMedia({
+        kind: item.kind,
+        baseName: media.baseName,
+        ext: media.ext,
+        uploadedAt: new Date(media.uploadedAt),
+        publicBlobKey: media.publicBlobKey,
+      });
+    }
     if (item.kind === "image") {
       await deleteImageFiles(
         media.baseName,

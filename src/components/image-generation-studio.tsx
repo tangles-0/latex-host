@@ -38,6 +38,23 @@ const formatStatus = (generation: ImageGenerationEntry) => {
   return generation.status;
 };
 
+const readJson = async (response: Response) => {
+  const text = await response.text();
+  if (!text) {
+    throw new Error(
+      response.ok
+        ? "The server returned an empty response."
+        : `Request failed (${response.status}).`,
+    );
+  }
+
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Request failed (${response.status}).`);
+  }
+};
+
 const sourceThumbnailUrl = (media: MediaEntry) =>
   `/media/image/${media.id}/${media.baseName}-sm.${media.ext}`;
 
@@ -93,7 +110,7 @@ export const ImageGenerationStudio = ({
       const response = await fetch("/api/image-generations", {
         cache: "no-store",
       });
-      const payload = (await response.json()) as {
+      const payload = (await readJson(response)) as {
         generations?: ImageGenerationEntry[];
         error?: string;
       };
@@ -215,7 +232,7 @@ export const ImageGenerationStudio = ({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const payload = (await response.json()) as {
+    const payload = (await readJson(response)) as {
       generation?: ImageGenerationEntry;
       error?: string;
     };

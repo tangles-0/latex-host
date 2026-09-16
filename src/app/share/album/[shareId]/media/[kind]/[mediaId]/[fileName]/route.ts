@@ -12,6 +12,7 @@ import {
   getMediaSignedUrl,
   getMediaRangeStream,
   getMediaStream,
+  publicOriginalRedirectUrl,
   usesS3StorageBackend,
 } from "@/lib/media-storage";
 import {
@@ -195,6 +196,21 @@ export async function GET(
       (parsedKind === "video" ||
         (parsedKind === "other" &&
           (media.mimeType ?? "").toLowerCase().startsWith("audio/")));
+    const publicUrl = publicOriginalRedirectUrl({
+      size: requestedSize,
+      publicBlobUrl: media.publicBlobUrl,
+    });
+    if (publicUrl && !downloadRequested) {
+      return withPublicCors(
+        new Response(null, {
+          status: 307,
+          headers: {
+            Location: publicUrl,
+            "Cache-Control": "no-store",
+          },
+        }),
+      );
+    }
     if (usesS3StorageBackend() && !downloadRequested) {
       const signedUrl = await getMediaSignedUrl({
         kind: parsedKind,
@@ -203,6 +219,8 @@ export async function GET(
         size: requestedSize,
         uploadedAt: new Date(media.uploadedAt),
         responseContentType: contentTypeForExt(responseExt),
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       return withPublicCors(
         new Response(null, {
@@ -223,6 +241,8 @@ export async function GET(
         ext: media.ext,
         size: requestedSize,
         uploadedAt,
+        publicBlobKey: media.publicBlobKey,
+        publicBlobUrl: media.publicBlobUrl,
       });
       const rangeHeader = request.headers.get("range");
       if (rangeHeader) {
@@ -246,6 +266,8 @@ export async function GET(
           uploadedAt,
           start: byteRange.start,
           end: byteRange.end,
+          publicBlobKey: media.publicBlobKey,
+          publicBlobUrl: media.publicBlobUrl,
         });
         const headers = publicCacheHeaders(media.ext);
         headers.set(
@@ -267,6 +289,8 @@ export async function GET(
       ext: media.ext,
       size: requestedSize,
       uploadedAt: new Date(media.uploadedAt),
+      publicBlobKey: media.publicBlobKey,
+      publicBlobUrl: media.publicBlobUrl,
     });
     const headers = publicCacheHeaders(responseExt);
     if (isRangeStreamableOriginal && !downloadRequested) {

@@ -21,12 +21,18 @@ export async function GET(
     return Response.json({ error: "Media not found." }, { status: 404 });
   }
 
+  if (media.publicBlobUrl) {
+    return Response.redirect(media.publicBlobUrl, 307);
+  }
+
   const stream = await getMediaStream({
     kind: media.kind,
     baseName: media.baseName,
     ext: media.ext,
     size: "original",
     uploadedAt: new Date(media.uploadedAt),
+    publicBlobKey: media.publicBlobKey,
+    publicBlobUrl: media.publicBlobUrl,
   });
 
   return new Response(stream, {
