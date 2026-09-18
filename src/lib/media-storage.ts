@@ -18,6 +18,7 @@ import {
   deletePublicBlob,
   getPublicBlob,
   headPublicBlob,
+  putPublicBlob,
 } from "@/lib/public-blob";
 
 type StorageBackend = "local" | "blob";
@@ -198,9 +199,14 @@ function resolveStoredObject(input: {
   size: MediaSize;
   uploadedAt: Date;
   publicBlobKey?: string | null;
+  publicBlobUrl?: string | null;
 }): StoredObjectRef {
-  if (input.size === "original" && input.publicBlobKey?.trim()) {
-    return { key: input.publicBlobKey.trim(), publicStore: true };
+  if (input.size === "original") {
+    const publicUrl = input.publicBlobUrl?.trim();
+    const publicKey = input.publicBlobKey?.trim();
+    if (publicUrl || publicKey) {
+      return { key: publicUrl || publicKey || "", publicStore: true };
+    }
   }
   return { key: mediaStorageKey(input) };
 }
@@ -854,6 +860,7 @@ export async function overwriteTextDocumentContent(input: {
   mimeType: string;
   uploadedAt: Date;
   content: string;
+  publicBlobKey?: string | null;
 }): Promise<{
   sizeOriginal: number;
   sizeSm: number;
@@ -861,14 +868,22 @@ export async function overwriteTextDocumentContent(input: {
   previewStatus: "complete" | "error";
 }> {
   const buffer = Buffer.from(input.content, "utf8");
-  const originalKey = buildStorageKey(
-    "document",
-    input.baseName,
-    input.ext,
-    "original",
-    input.uploadedAt,
-  );
-  await writeKey(originalKey, input.ext, buffer);
+  const originalKey =
+    input.publicBlobKey?.trim() ||
+    buildStorageKey(
+      "document",
+      input.baseName,
+      input.ext,
+      "original",
+      input.uploadedAt,
+    );
+  if (input.publicBlobKey?.trim()) {
+    await putPublicBlob(originalKey, buffer, {
+      contentType: input.mimeType || contentTypeForExt(input.ext),
+    });
+  } else {
+    await writeKey(originalKey, input.ext, buffer);
+  }
 
   const preview = await tryGenerateDocumentPreview(
     buffer,

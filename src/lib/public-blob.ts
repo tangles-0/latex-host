@@ -2,6 +2,7 @@ import {
   del as blobDelete,
   get as blobGet,
   head as blobHead,
+  put as blobPut,
 } from "@vercel/blob"
 
 export const getPublicBlobToken = (): string => {
@@ -24,11 +25,58 @@ export const isPublicBlobConfigured = (): boolean =>
 export const headPublicBlob = async (keyOrUrl: string) =>
   blobHead(keyOrUrl, { token: getPublicBlobToken() })
 
+export const publicBlobUrlForKey = (key: string): string | undefined => {
+  const storeId = getPublicBlobStoreId()
+  const pathname = key.trim().replace(/^\/+/, "")
+  if (!storeId || !pathname || pathname.startsWith("http://") || pathname.startsWith("https://")) {
+    return undefined
+  }
+  return `https://${storeId}.public.blob.vercel-storage.com/${pathname}`
+}
+
+export const resolvePublicBlobLocator = (
+  keyOrUrl: string,
+  url?: string | null,
+): string => {
+  const candidates = [url, keyOrUrl]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+  for (const candidate of candidates) {
+    if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+      return candidate
+    }
+  }
+  for (const candidate of candidates) {
+    const built = publicBlobUrlForKey(candidate)
+    if (built) {
+      return built
+    }
+  }
+  return candidates[0] ?? keyOrUrl
+}
+
+export const putPublicBlob = async (
+  key: string,
+  body: Parameters<typeof blobPut>[1],
+  options?: { contentType?: string },
+) =>
+  blobPut(key, body, {
+    access: "public",
+    token: getPublicBlobToken(),
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: options?.contentType,
+  })
+
 export const getPublicBlob = async (
   keyOrUrl: string,
-  options?: { useCache?: boolean; headers?: Record<string, string> },
+  options?: {
+    useCache?: boolean
+    headers?: Record<string, string>
+    url?: string | null
+  },
 ) =>
-  blobGet(keyOrUrl, {
+  blobGet(resolvePublicBlobLocator(keyOrUrl, options?.url), {
     access: "public",
     token: getPublicBlobToken(),
     useCache: options?.useCache,

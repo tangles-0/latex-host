@@ -95,7 +95,13 @@ export async function GET(request: Request): Promise<NextResponse> {
       content: buffer.toString("utf8"),
       media,
     });
-  } catch {
+  } catch (error) {
+    console.error("Unable to read document content.", {
+      mediaId: media.id,
+      publicBlobKey: media.publicBlobKey,
+      publicBlobUrl: media.publicBlobUrl,
+      error: error instanceof Error ? error.message : error,
+    });
     return NextResponse.json(
       { error: "Unable to read document content." },
       { status: 500 },
@@ -157,6 +163,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
       mimeType: owned.mimeType ?? "text/plain",
       uploadedAt: new Date(owned.uploadedAt),
       content,
+      publicBlobKey: owned.publicBlobKey,
     });
     const media = await updateDocumentContentMetadataForUser({
       userId,
