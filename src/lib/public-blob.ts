@@ -1,6 +1,5 @@
 import {
   del as blobDelete,
-  get as blobGet,
   head as blobHead,
   put as blobPut,
 } from "@vercel/blob"
@@ -68,6 +67,24 @@ export const putPublicBlob = async (
     contentType: options?.contentType,
   })
 
+const isHttpUrl = (value: string): boolean =>
+  value.startsWith("http://") || value.startsWith("https://")
+
+const resolvePublicBlobFetchUrl = async (
+  keyOrUrl: string,
+  url?: string | null,
+): Promise<string> => {
+  const locator = resolvePublicBlobLocator(keyOrUrl, url)
+  if (isHttpUrl(locator)) {
+    return locator
+  }
+  const head = await headPublicBlob(locator)
+  if (!head.url) {
+    throw new Error("Public blob head did not return a URL.")
+  }
+  return head.url
+}
+
 export const getPublicBlob = async (
   keyOrUrl: string,
   options?: {
@@ -75,13 +92,31 @@ export const getPublicBlob = async (
     headers?: Record<string, string>
     url?: string | null
   },
-) =>
-  blobGet(resolvePublicBlobLocator(keyOrUrl, options?.url), {
-    access: "public",
-    token: getPublicBlobToken(),
-    useCache: options?.useCache,
+) => {
+  // Public CDN rejects the ?cache=0 query that @vercel/blob get() adds for
+  // useCache: false. Fetch the public URL directly and ignore that flag.
+  void options?.useCache
+  const fetchUrl = await resolvePublicBlobFetchUrl(keyOrUrl, options?.url)
+  const response = await fetch(fetchUrl, {
     headers: options?.headers,
   })
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch public blob: ${response.status} ${response.statusText}`,
+    )
+  }
+  if (!response.body) {
+    throw new Error("Public blob response body is null.")
+  }
+  return {
+    statusCode: response.status,
+    stream: response.body,
+    blob: { url: fetchUrl },
+  }
+}
 
 export const deletePublicBlob = async (urlOrKey: string): Promise<void> => {
   if (!urlOrKey.trim()) {

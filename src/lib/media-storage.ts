@@ -19,6 +19,7 @@ import {
   getPublicBlob,
   headPublicBlob,
   putPublicBlob,
+  resolvePublicBlobLocator,
 } from "@/lib/public-blob";
 
 type StorageBackend = "local" | "blob";
@@ -987,11 +988,15 @@ export async function getMediaSignedUrl(
   }
   const stored = resolveStoredObject(input);
   if (stored.publicStore) {
-    const blob = await getPublicBlob(stored.key, { useCache: true });
-    if (!blob) {
+    const locator = resolvePublicBlobLocator(stored.key, input.publicBlobUrl);
+    if (locator.startsWith("http://") || locator.startsWith("https://")) {
+      return locator;
+    }
+    const head = await headPublicBlob(locator);
+    if (!head.url) {
       throw new Error("Public blob object was not found.");
     }
-    return blob.blob.url;
+    return head.url;
   }
   const key = stored.key;
   if (STORAGE_BACKEND === "blob") {
