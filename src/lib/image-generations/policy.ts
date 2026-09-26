@@ -1,4 +1,4 @@
-export const imageGenerationJobSafetyMaxAgeMs = 5 * 60_000;
+export const imageGenerationJobSafetyMaxAgeMs = 15 * 60_000;
 
 export const isImageGenerationExpired = (
   lastActivityAt: string | Date,

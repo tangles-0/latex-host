@@ -48,19 +48,19 @@ describe("image generation requests", () => {
     ).toBe(false);
   });
 
-  it("uses a longer host safety timeout than the one-minute image generation phase", () => {
+  it("uses a longer host safety timeout than a 2048 LiteLLM job", () => {
     const lastActivityAt = "2026-08-29T00:00:00.000Z";
 
     expect(
       isImageGenerationExpired(
         lastActivityAt,
-        new Date(lastActivityAt).getTime() + 60_000,
+        new Date(lastActivityAt).getTime() + 10 * 60_000,
       ),
     ).toBe(false);
     expect(
       isImageGenerationExpired(
         lastActivityAt,
-        new Date(lastActivityAt).getTime() + 5 * 60_000,
+        new Date(lastActivityAt).getTime() + 15 * 60_000,
       ),
     ).toBe(true);
   });

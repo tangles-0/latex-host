@@ -25,8 +25,8 @@ import type { MediaEntry } from "@/lib/media-store";
 const pollIntervalMs = 2_000;
 const denoisingPresets = [
   { value: 0.25, label: "subtle" },
-  { value: 0.5, label: "restyle" },
-  { value: 0.75, label: "replace" },
+  { value: 0.6, label: "restyle" },
+  { value: 1, label: "redraw" },
 ] as const;
 
 const isActiveStatus = (status: ImageGenerationEntry["status"]) =>
@@ -597,8 +597,9 @@ export const ImageGenerationStudio = ({
                 ))}
               </div>
               <p className="text-[11px] leading-5 text-neutral-500">
-                0.2–0.35 keeps most of the original. 0.4–0.6 restyles it.
-                0.7+ mostly replaces it.
+                0.05–0.35 keeps most of the original. 0.6 restyles it.
+                1.0 fully redraws it. Inpaint defaults to a full redraw
+                inside the mask.
               </p>
             </div>
           ) : null}

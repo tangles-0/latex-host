@@ -127,7 +127,7 @@ export const ImageGenerationMaskEditor = ({
       return;
     }
 
-    const maxSide = 1024;
+    const maxSide = 2048;
     const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
     const width = Math.max(1, Math.round(image.naturalWidth * scale));
     const height = Math.max(1, Math.round(image.naturalHeight * scale));

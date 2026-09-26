@@ -19,8 +19,8 @@ describe("image-to-image requests", () => {
 
   it("labels denoising strength for the UI", () => {
     expect(denoisingStrengthLabel(0.25)).toBe("subtle cleanup");
-    expect(denoisingStrengthLabel(0.5)).toBe("substantial restyle");
-    expect(denoisingStrengthLabel(0.8)).toBe("mostly replace");
+    expect(denoisingStrengthLabel(0.6)).toBe("substantial restyle");
+    expect(denoisingStrengthLabel(1)).toBe("full redraw");
   });
 
   it("strips data URL prefixes from mask payloads", () => {
@@ -56,7 +56,14 @@ describe("image-to-image requests", () => {
       imageGenerationInputSchema.safeParse({
         prompt: "restyle",
         sourceMediaId: "img-1",
-        denoisingStrength: 0.1,
+        denoisingStrength: 0.04,
+      }).success,
+    ).toBe(false);
+    expect(
+      imageGenerationInputSchema.safeParse({
+        prompt: "restyle",
+        sourceMediaId: "img-1",
+        denoisingStrength: 1.1,
       }).success,
     ).toBe(false);
     expect(
@@ -65,7 +72,7 @@ describe("image-to-image requests", () => {
         sourceMediaId: "img-1",
         denoisingStrength: 1,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("decodes a compact PNG mask", () => {

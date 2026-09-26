@@ -1,6 +1,6 @@
-export const minDenoisingStrength = 0.2;
-export const maxDenoisingStrength = 0.9;
-export const defaultDenoisingStrength = 0.5;
+export const minDenoisingStrength = 0.05;
+export const maxDenoisingStrength = 1;
+export const defaultDenoisingStrength = 0.6;
 export const maxImageGenerationMaskChars = 2_000_000;
 export const maxImageGenerationMaskBytes = 1_500_000;
 
@@ -8,10 +8,10 @@ export const denoisingStrengthLabel = (value: number) => {
   if (value <= 0.35) {
     return "subtle cleanup";
   }
-  if (value <= 0.6) {
+  if (value < 1) {
     return "substantial restyle";
   }
-  return "mostly replace";
+  return "full redraw";
 };
 
 export const stripBase64Payload = (value: string) => {
