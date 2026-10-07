@@ -4,9 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import clsx from "clsx";
-import { LightFileImage } from "@energiz3r/icon-library/Icons/Light/LightFileImage";
-
 import { ImageGenerationMaskEditor } from "@/components/image-generation-mask-editor";
+import { ImageGenerationStatusIcon } from "@/components/image-generation-status-icon";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SectionHeader } from "@/components/ui/section-header";
 import { SkeletonTable } from "@/components/ui/skeleton";
@@ -699,16 +698,8 @@ export const ImageGenerationStudio = ({
                       </button>
                     ) : (
                       <div className="flex h-full w-full items-center justify-center">
-                        <LightFileImage
-                          className={clsx(
-                            "h-6 w-6",
-                            generation.status === "failed"
-                              ? "text-red-400"
-                              : generation.status === "cancelled"
-                                ? "text-neutral-300"
-                                : "text-neutral-400",
-                          )}
-                          fill="currentColor"
+                        <ImageGenerationStatusIcon
+                          status={generation.status}
                         />
                       </div>
                     )}
