@@ -35,6 +35,7 @@ const mapImageGeneration = (
   hasMask: row.hasMask,
   status: row.status as ImageGenerationStatus,
   queuePosition: row.queuePosition ?? undefined,
+  lane: row.lane === "fast" || row.lane === "4k" ? row.lane : undefined,
   error: row.error ?? undefined,
   mediaId: row.mediaId ?? undefined,
   createdAt: row.createdAt.toISOString(),
@@ -152,6 +153,7 @@ export const updateImageGenerationForUser = async ({
   error,
   mediaId,
   queuePosition,
+  lane,
 }: {
   userId: string;
   generationId: string;
@@ -159,6 +161,7 @@ export const updateImageGenerationForUser = async ({
   error?: string | null;
   mediaId?: string | null;
   queuePosition?: number | null;
+  lane?: "fast" | "4k" | null;
 }) => {
   const now = new Date();
   const [updated] = await db
@@ -167,6 +170,7 @@ export const updateImageGenerationForUser = async ({
       status,
       ...(error !== undefined ? { error } : {}),
       ...(mediaId !== undefined ? { mediaId } : {}),
+      ...(lane !== undefined ? { lane } : {}),
       ...(status === "pending" && queuePosition !== undefined
         ? { queuePosition }
         : {}),

@@ -688,6 +688,7 @@ export const imageGenerations = pgTable(
     hasMask: boolean("has_mask").notNull().default(false),
     status: text("status").notNull().default("pending"),
     queuePosition: integer("queue_position"),
+    lane: text("lane"),
     error: text("error"),
     mediaId: text("media_id"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),

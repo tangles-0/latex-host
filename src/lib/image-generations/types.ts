@@ -69,6 +69,7 @@ export type ImageGenerationEntry = Omit<
   id: string;
   status: ImageGenerationStatus;
   queuePosition?: number;
+  lane?: "fast" | "4k";
   error?: string;
   mediaId?: string;
   thumbnailUrl?: string;

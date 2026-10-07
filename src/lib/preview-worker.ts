@@ -56,6 +56,7 @@ export type WorkerImageGenerationStatus = {
   error?: string;
   mediaId?: string;
   queuePosition?: number;
+  lane?: "fast" | "4k";
   createdAt: string;
   updatedAt: string;
 };

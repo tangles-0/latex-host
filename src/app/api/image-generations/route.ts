@@ -18,6 +18,7 @@ import {
   imageGenerationInputSchema,
   type ImageGenerationEntry,
 } from "@/lib/image-generations/types";
+import { shouldApplyWorkerImageGenerationStatus } from "@/lib/image-generations/status-label";
 import { getMediaForUser } from "@/lib/media-store";
 import {
   getAppSettings,
@@ -87,6 +88,17 @@ export const GET = async () => {
           return;
         }
 
+        if (
+          !shouldApplyWorkerImageGenerationStatus({
+            currentStatus: generation.status,
+            currentUpdatedAt: generation.updatedAt,
+            workerStatus: workerStatus.generation.status,
+            workerUpdatedAt: workerStatus.generation.updatedAt,
+          })
+        ) {
+          return;
+        }
+
         await updateImageGenerationForUser({
           userId,
           generationId: generation.id,
@@ -97,6 +109,9 @@ export const GET = async () => {
             : {}),
           ...(typeof workerStatus.generation.queuePosition === "number"
             ? { queuePosition: workerStatus.generation.queuePosition }
+            : {}),
+          ...(workerStatus.generation.lane
+            ? { lane: workerStatus.generation.lane }
             : {}),
         });
       }),

@@ -20,6 +20,7 @@ import {
   minDenoisingStrength,
 } from "@/lib/image-generations/img2img";
 import type { ImageGenerationEntry } from "@/lib/image-generations/types";
+import { formatImageGenerationStatus } from "@/lib/image-generations/status-label";
 import type { MediaEntry } from "@/lib/media-store";
 
 const pollIntervalMs = 2_000;
@@ -32,15 +33,8 @@ const denoisingPresets = [
 const isActiveStatus = (status: ImageGenerationEntry["status"]) =>
   status === "pending" || status === "generating" || status === "uploading";
 
-const formatStatus = (generation: ImageGenerationEntry) => {
-  if (generation.status === "pending") {
-    return generation.queuePosition
-      ? `queued - position #${generation.queuePosition}`
-      : "queued";
-  }
-
-  return generation.status;
-};
+const formatStatus = (generation: ImageGenerationEntry) =>
+  formatImageGenerationStatus(generation);
 
 const readJson = async (response: Response) => {
   const text = await response.text();

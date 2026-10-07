@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 const statusPayloadSchema = z.object({
   status: z.enum(["generating", "uploading", "complete", "failed", "cancelled"]),
   error: z.string().max(4000).optional(),
+  lane: z.enum(["fast", "4k"]).optional(),
 });
 
 export const POST = async (
@@ -63,6 +64,7 @@ export const POST = async (
     userId: generation.userId,
     generationId,
     status: parsed.data.status,
+    lane: parsed.data.lane,
     error:
       parsed.data.status === "failed"
         ? (parsed.data.error ?? "Image generation failed.")
