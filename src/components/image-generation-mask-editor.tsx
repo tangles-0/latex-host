@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import clsx from "clsx";
 
+import { TermButton } from "@/components/ui/term-button";
+
 const brushPresets = [
   { id: "fine", label: "fine", size: 10 },
   { id: "medium", label: "medium", size: 28 },
@@ -62,6 +64,7 @@ export const ImageGenerationMaskEditor = ({
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const undoFnRef = useRef<() => void>(() => {});
   const redoFnRef = useRef<() => void>(() => {});
+  const applyFnRef = useRef<() => void>(() => {});
   const [tool, setTool] = useState<BrushTool>("paint");
   const [brushSize, setBrushSize] = useState(28);
   const [hardness, setHardness] = useState(80);
@@ -153,6 +156,10 @@ export const ImageGenerationMaskEditor = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onCancel();
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyFnRef.current();
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -269,11 +276,6 @@ export const ImageGenerationMaskEditor = ({
     redrawOverlay();
   };
 
-  useEffect(() => {
-    undoFnRef.current = undo;
-    redoFnRef.current = redo;
-  });
-
   const clearMask = () => {
     const maskCanvas = maskCanvasRef.current;
     const context = maskCanvas?.getContext("2d");
@@ -338,6 +340,23 @@ export const ImageGenerationMaskEditor = ({
     }
   };
 
+  useEffect(() => {
+    undoFnRef.current = undo;
+    redoFnRef.current = redo;
+    applyFnRef.current = () => {
+      void applyMask();
+    };
+  });
+
+  const applyButton = (
+    <TermButton
+      variant="primary"
+      onClick={() => void applyMask()}
+    >
+      apply mask
+    </TermButton>
+  );
+
   return (
     <div
       role="dialog"
@@ -358,20 +377,8 @@ export const ImageGenerationMaskEditor = ({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded border border-neutral-200 px-3 py-1.5 text-xs"
-          >
-            cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void applyMask()}
-            className="rounded bg-black px-3 py-1.5 text-xs text-white"
-          >
-            use mask
-          </button>
+          <TermButton onClick={onCancel}>cancel</TermButton>
+          {applyButton}
         </div>
       </header>
 
@@ -619,6 +626,7 @@ export const ImageGenerationMaskEditor = ({
             >
               clear
             </button>
+            {applyButton}
           </div>
           {error ? (
             <p
@@ -629,11 +637,16 @@ export const ImageGenerationMaskEditor = ({
             </p>
           ) : null}
           <p className="text-[11px] leading-5 text-neutral-500">
-            B paints, E erases, Esc cancels. White in the exported mask is the
-            area the model may edit.
+            B paints, E erases, Enter applies, Esc cancels. White in the
+            exported mask is the area the model may edit.
           </p>
         </aside>
       </div>
+
+      <footer className="flex items-center justify-end gap-2 border-t border-neutral-200 bg-[var(--theme-panel)] px-4 py-3 sm:px-6">
+        <TermButton onClick={onCancel}>cancel</TermButton>
+        {applyButton}
+      </footer>
     </div>
   );
 };
