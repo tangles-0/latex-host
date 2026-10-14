@@ -25,7 +25,7 @@ export function WaveformThumbnail({
       <img
         src={smUrl}
         alt={alt}
-        className="absolute inset-0 h-full w-full object-contain"
+        className="absolute inset-0 h-full w-full object-fill"
         loading="lazy"
         draggable={false}
         onDragStart={(event) => event.preventDefault()}
@@ -37,7 +37,7 @@ export function WaveformThumbnail({
           src={lgUrl}
           alt=""
           className={clsx(
-            "absolute inset-0 h-full w-full object-contain transition-opacity duration-300",
+            "absolute inset-0 h-full w-full object-fill transition-opacity duration-300",
             lgLoaded ? "opacity-100" : "opacity-0",
           )}
           draggable={false}

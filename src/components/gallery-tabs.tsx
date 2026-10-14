@@ -5,7 +5,6 @@ import { type ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
-import { WaveformThumbnail } from "@/components/ui/waveform-thumbnail";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import {
   hasAudioWaveformThumbnail,
@@ -409,11 +408,12 @@ export default function GalleryTabs({
                             />
                           ) : preview.type === "thumbnail" &&
                             preview.kind === "other" ? (
-                            <WaveformThumbnail
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
                               key={preview.id}
-                              smUrl={`/media/${preview.kind}/${preview.id}/${preview.baseName}-sm.${preview.ext}`}
-                              lgUrl={`/media/${preview.kind}/${preview.id}/${preview.baseName}-lg.${preview.ext}`}
-                              className={albumPreviewFrameClass(index)}
+                              src={`/media/${preview.kind}/${preview.id}/${preview.baseName}-sm.${preview.ext}`}
+                              alt="album preview"
+                              className={`${albumPreviewFrameClass(index)} object-fill`}
                             />
                           ) : preview.type === "thumbnail" ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
