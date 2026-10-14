@@ -35,6 +35,7 @@ import NoteRichEditor from "./note-rich-editor";
 import CodeFileEditor from "./code-file-editor";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { FileTile } from "@/components/ui/file-tile";
+import { WaveformThumbnail } from "@/components/ui/waveform-thumbnail";
 import { GalleryFilterBar } from "@/components/gallery-filter-bar";
 import { PrivacyFilePreview } from "@/components/privacy-preview";
 import { TermButton } from "@/components/ui/term-button";
@@ -3406,6 +3407,17 @@ export default function GalleryClient({
                         </div>
                       )}
                     </div>
+                  ) : hasAudioWaveformThumbnail(image) ? (
+                    <WaveformThumbnail
+                      smUrl={image.thumbUrl}
+                      lgUrl={image.lgUrl}
+                      className={clsx(
+                        "rounded",
+                        isCompactView
+                          ? "h-20 w-20"
+                          : "mt-2 h-48 max-h-64 w-full",
+                      )}
+                    />
                   ) : (
                     <div
                       className={clsx("relative", isCompactView ? "" : "mt-2")}

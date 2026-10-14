@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
+import { WaveformThumbnail } from "@/components/ui/waveform-thumbnail";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import {
   hasAudioWaveformThumbnail,
@@ -88,13 +89,17 @@ function previewExtForMedia(image: GalleryImage): string {
   return image.kind === "image" ? image.ext : "png";
 }
 
-function albumPreviewTileClass(index: number): string {
+function albumPreviewFrameClass(index: number): string {
   const transforms = [
     "-rotate-3 -skew-y-1",
     "rotate-1 translate-y-1",
     "rotate-3 -translate-y-1 skew-y-1",
   ];
-  return `h-20 w-full rounded object-cover shadow-sm ring-1 ring-black/5 transform-gpu ${transforms[index] ?? ""}`;
+  return `h-20 w-full rounded shadow-sm ring-1 ring-black/5 transform-gpu ${transforms[index] ?? ""}`;
+}
+
+function albumPreviewTileClass(index: number): string {
+  return `${albumPreviewFrameClass(index)} object-cover`;
 }
 
 export default function GalleryTabs({
@@ -401,6 +406,14 @@ export default function GalleryTabs({
                               mimeType={preview.mimeType}
                               className={albumPreviewTileClass(index)}
                               iconClassName="h-6 w-6"
+                            />
+                          ) : preview.type === "thumbnail" &&
+                            preview.kind === "other" ? (
+                            <WaveformThumbnail
+                              key={preview.id}
+                              smUrl={`/media/${preview.kind}/${preview.id}/${preview.baseName}-sm.${preview.ext}`}
+                              lgUrl={`/media/${preview.kind}/${preview.id}/${preview.baseName}-lg.${preview.ext}`}
+                              className={albumPreviewFrameClass(index)}
                             />
                           ) : preview.type === "thumbnail" ? (
                             /* eslint-disable-next-line @next/next/no-img-element */

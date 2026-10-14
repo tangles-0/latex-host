@@ -7,6 +7,7 @@ import { AlbumShareLightbox } from "@/components/album-share-lightbox";
 import { albumShareMediaUrls } from "@/lib/album-share-media";
 import NoteMarkdown from "@/components/note-markdown";
 import { FileTile } from "@/components/ui/file-tile";
+import { WaveformThumbnail } from "@/components/ui/waveform-thumbnail";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SectionHeader } from "@/components/ui/section-header";
 import { renderFileIconForExtension } from "@/lib/FileIconHelper";
@@ -108,7 +109,13 @@ export default function AlbumShareView({
                       </div>
                     </div>
                   ) : isDisplayAsCompactView ? (
-                    hasPreviewImage ? (
+                    hasAudioWaveformThumbnail(item) ? (
+                      <WaveformThumbnail
+                        smUrl={thumbUrl}
+                        lgUrl={previewUrl}
+                        className="h-20 w-20 rounded"
+                      />
+                    ) : hasPreviewImage ? (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
                         src={thumbUrl}
