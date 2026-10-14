@@ -36,6 +36,7 @@ import CodeFileEditor from "./code-file-editor";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { FileTile } from "@/components/ui/file-tile";
 import { GalleryFilterBar } from "@/components/gallery-filter-bar";
+import { PrivacyFilePreview } from "@/components/privacy-preview";
 import { TermButton } from "@/components/ui/term-button";
 import { TermInput } from "@/components/ui/term-input";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -52,6 +53,10 @@ import {
   type GalleryShareFilter,
   type GallerySortKey,
 } from "@/lib/gallery-file-filters";
+import {
+  persistGalleryPrivacyMode,
+  useGalleryPrivacyMode,
+} from "@/lib/gallery-privacy";
 import { RISKY_SHARE_WARNING } from "@/lib/risky-share";
 import { formatShareUrl, type NodeShareContext } from "@/lib/share-link-format";
 import { useShareLinkFormat } from "@/hooks/use-share-link-format";
@@ -312,6 +317,7 @@ export default function GalleryClient({
   const [shareFilter, setShareFilter] = useState<GalleryShareFilter>("all");
   const [sortKey, setSortKey] = useState<GallerySortKey>("newest");
   const [hideAlbumFiles, setHideAlbumFiles] = useState(false);
+  const privacyMode = useGalleryPrivacyMode();
   const [currentPage, setCurrentPage] = useState(1);
   const [isRotating, setIsRotating] = useState(false);
   const [rotateError, setRotateError] = useState<string | null>(null);
@@ -3116,6 +3122,7 @@ export default function GalleryClient({
         onTypeFilter={setTypeFilter}
         onShareFilter={setShareFilter}
         onSort={setSortKey}
+        privacyMode={privacyMode}
         onToggleHideAlbumFiles={() => {
           if (showAlbumImageToggle) {
             setShowAlbumImages((current) => !current);
@@ -3127,6 +3134,7 @@ export default function GalleryClient({
             return next;
           });
         }}
+        onTogglePrivacy={() => persistGalleryPrivacyMode(!privacyMode)}
       />
 
       {showCreateNoteButton ? (
@@ -3273,7 +3281,15 @@ export default function GalleryClient({
                     isCompactView ? "relative shrink-0" : "block w-full",
                   )}
                 >
-                  {image.previewStatus === "pending" ? (
+                  {privacyMode ? (
+                    <PrivacyFilePreview
+                      seed={image.id}
+                      kind={image.kind}
+                      ext={image.ext}
+                      mimeType={image.mimeType}
+                      compact={isCompactView}
+                    />
+                  ) : image.previewStatus === "pending" ? (
                     <div
                       className={clsx(
                         "flex items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50",

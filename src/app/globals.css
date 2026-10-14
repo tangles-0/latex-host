@@ -1928,6 +1928,11 @@ h1,
   padding: 3px 9px;
 }
 
+.gallery-filter-bar .privacy-toggle {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 .gallery-filter-label {
   font-size: 10px;
   color: var(--theme-text-soft);
@@ -2037,6 +2042,81 @@ h1,
 .neon-border {
   border: 1px solid var(--theme-accent) !important;
   box-shadow: var(--theme-glow);
+}
+
+.privacy-preview {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.privacy-preview-plain {
+  background: transparent;
+}
+
+.privacy-blur-layer {
+  position: absolute;
+  inset: -28%;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.privacy-blur-shapes {
+  filter: blur(32px);
+  transform: scale(1.2);
+}
+
+.privacy-preview-shapes::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: #000;
+  opacity: 0.5;
+}
+
+[data-theme="light"] .privacy-preview-shapes::after,
+[data-theme="author"] .privacy-preview-shapes::after {
+  background: #fff;
+  opacity: 0.55;
+}
+
+.privacy-blur-base,
+.privacy-blur-shape {
+  position: absolute;
+  display: block;
+}
+
+.privacy-blur-base {
+  inset: 0;
+}
+
+.privacy-blur-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 12% 8%;
+  color: var(--theme-text);
+  font-family: var(--theme-font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  filter: blur(3px);
+  opacity: 0.92;
+}
+
+.privacy-preview-icon {
+  position: relative;
+  z-index: 1;
+  color: var(--theme-text);
+  filter: drop-shadow(0 0 6px var(--theme-card))
+    drop-shadow(0 0 2px var(--theme-bg));
 }
 
 .file-tile,

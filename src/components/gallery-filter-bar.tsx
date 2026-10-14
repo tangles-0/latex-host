@@ -20,10 +20,12 @@ type GalleryFilterBarProps = {
   showHideAlbumFiles?: boolean;
   hideAlbumFiles?: boolean;
   showSort?: boolean;
+  privacyMode?: boolean;
   onTypeFilter: (value: GalleryFileTypeFilter) => void;
   onShareFilter: (value: GalleryShareFilter) => void;
   onSort: (value: GallerySortKey) => void;
   onToggleHideAlbumFiles?: () => void;
+  onTogglePrivacy?: () => void;
 };
 
 export const GalleryFilterBar = ({
@@ -34,10 +36,12 @@ export const GalleryFilterBar = ({
   showHideAlbumFiles = false,
   hideAlbumFiles = false,
   showSort = true,
+  privacyMode = false,
   onTypeFilter,
   onShareFilter,
   onSort,
   onToggleHideAlbumFiles,
+  onTogglePrivacy,
 }: GalleryFilterBarProps) => {
   const typeLabel =
     GALLERY_FILE_TYPE_OPTIONS.find((option) => option.value === typeFilter)
@@ -79,6 +83,12 @@ export const GalleryFilterBar = ({
               {sortLabel}
             </>
           ) : null}
+          {privacyMode ? (
+            <>
+              <span aria-hidden="true"> · </span>
+              PRIVACY
+            </>
+          ) : null}
         </span>
         <span className="gallery-filter-count">
           {filteredCount} file{filteredCount === 1 ? "" : "s"}
@@ -101,6 +111,14 @@ export const GalleryFilterBar = ({
                 {option.label}
               </TermButton>
             ))}
+            <TermButton
+              className="privacy-toggle"
+              active={privacyMode}
+              aria-pressed={privacyMode}
+              onClick={onTogglePrivacy}
+            >
+              PRIVACY
+            </TermButton>
           </div>
         </div>
 

@@ -12,7 +12,9 @@ import { useShareLinkFormat } from "@/hooks/use-share-link-format";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
 import { LightTrashAlt } from "@energiz3r/icon-library/Icons/Light/LightTrashAlt";
 import { LightFilePlus } from "@energiz3r/icon-library/Icons/Light/LightFilePlus";
+import { PrivacyFilePreview } from "@/components/privacy-preview";
 import { AlbumTile } from "@/components/ui/album-tile";
+import { useGalleryPrivacyMode } from "@/lib/gallery-privacy";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TermButton } from "@/components/ui/term-button";
 import { TermInput } from "@/components/ui/term-input";
@@ -48,11 +50,15 @@ type AlbumPreview =
       kind: MediaKind;
       baseName: string;
       ext: string;
+      fileExt: string;
+      mimeType?: string;
     }
   | {
       type: "icon";
       id: string;
+      kind: MediaKind;
       ext: string;
+      mimeType?: string;
     };
 
 function mediaBelongsToAlbum(image: GalleryImage, albumId: string): boolean {
@@ -122,6 +128,7 @@ export default function GalleryTabs({
   const [createNoteOnMount, setCreateNoteOnMount] = useState(false);
   const [, setIsCreatingNote] = useState(false);
   const [delBtnLabel, setDelBtnLabel] = useState("del album");
+  const privacyMode = useGalleryPrivacyMode();
   const [shareLinkFormat, setShareLinkFormat] = useShareLinkFormat(
     Boolean(nodeShareContext),
   );
@@ -168,6 +175,8 @@ export default function GalleryTabs({
         kind: image.kind,
         baseName: image.baseName,
         ext: previewExtForMedia(image),
+        fileExt: image.ext,
+        mimeType: image.mimeType,
       }));
     const thumbnailPreviewIds = new Set(
       thumbnailPreviews.map((preview) => preview.id),
@@ -178,7 +187,9 @@ export default function GalleryTabs({
       .map((image) => ({
         type: "icon" as const,
         id: image.id,
+        kind: image.kind,
         ext: image.ext,
+        mimeType: image.mimeType,
       }));
 
     return {
@@ -367,7 +378,21 @@ export default function GalleryTabs({
                     <div className="grid grid-cols-3 gap-2">
                       {album.previews.length > 0 ? (
                         album.previews.map((preview, index) =>
-                          preview.type === "thumbnail" ? (
+                          privacyMode ? (
+                            <PrivacyFilePreview
+                              key={preview.id}
+                              seed={preview.id}
+                              kind={preview.kind}
+                              ext={
+                                preview.type === "thumbnail"
+                                  ? preview.fileExt
+                                  : preview.ext
+                              }
+                              mimeType={preview.mimeType}
+                              className={albumPreviewTileClass(index)}
+                              iconClassName="h-6 w-6"
+                            />
+                          ) : preview.type === "thumbnail" ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img
                               key={preview.id}
