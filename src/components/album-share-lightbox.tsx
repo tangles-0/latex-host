@@ -18,6 +18,7 @@ import {
   isAudioExtension,
   renderFileIconForExtension,
 } from "@/lib/FileIconHelper";
+import { hasAudioWaveformThumbnail } from "@/lib/media-types";
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 const LIGHTBOX_CONTROLS_HIDE_MS = 3000;
@@ -369,10 +370,19 @@ export const AlbumShareLightbox = ({
             />
           ) : isAudio ? (
             <AlbumShareLightboxIconStage>
-              {renderFileIconForExtension(item.ext, {
-                className: "h-20 w-20",
-                fill: "currentColor",
-              })}
+              {hasAudioWaveformThumbnail(item) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={urls.previewUrl}
+                  alt="Audio waveform"
+                  className="max-h-48 w-full max-w-sm rounded object-contain"
+                />
+              ) : (
+                renderFileIconForExtension(item.ext, {
+                  className: "h-20 w-20",
+                  fill: "currentColor",
+                })
+              )}
               <audio
                 key={item.id}
                 src={urls.fullUrl}

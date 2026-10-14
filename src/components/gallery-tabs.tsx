@@ -6,7 +6,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import GalleryClient from "@/components/gallery-client";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
-import type { MediaKind } from "@/lib/media-types";
+import {
+  hasAudioWaveformThumbnail,
+  type MediaKind,
+} from "@/lib/media-types";
 import type { NodeShareContext } from "@/lib/share-link-format";
 import { useShareLinkFormat } from "@/hooks/use-share-link-format";
 import { LightPencil } from "@energiz3r/icon-library/Icons/Light/LightPencil";
@@ -41,6 +44,8 @@ type GalleryImage = {
   shared?: boolean;
   previewStatus?: "pending" | "started" | "complete" | "error";
   previewText?: string;
+  sizeSm?: number;
+  sizeLg?: number;
 };
 
 type AlbumPreview =
@@ -66,12 +71,17 @@ function mediaBelongsToAlbum(image: GalleryImage, albumId: string): boolean {
 }
 
 function hasThumbnailPreview(image: GalleryImage): boolean {
-  return (
-    (image.kind === "image" ||
-      image.kind === "video" ||
-      image.kind === "document") &&
-    image.previewStatus === "complete"
-  );
+  if (image.previewStatus !== "complete") {
+    return false;
+  }
+  if (
+    image.kind === "image" ||
+    image.kind === "video" ||
+    image.kind === "document"
+  ) {
+    return true;
+  }
+  return hasAudioWaveformThumbnail(image);
 }
 
 function previewExtForMedia(image: GalleryImage): string {

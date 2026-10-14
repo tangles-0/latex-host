@@ -15,7 +15,6 @@ import {
   contentTypeForExt,
   isThumbnailServiceSupported,
   mediaKindFromType,
-  type BlobMediaKind,
 } from "@/lib/media-types";
 import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 import { isNodeMode } from "@/lib/self-hosted-nodes";
@@ -307,7 +306,7 @@ const importOneFile = async (
     ext,
     fileSizeBytes: info.size,
   })
-    ? (kind as Exclude<BlobMediaKind, "other">)
+    ? kind
     : null;
   const stored = await storeMediaFromLocalFile({
     sourcePath,

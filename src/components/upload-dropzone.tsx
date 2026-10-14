@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { BlobMediaKind } from "@/lib/media-types";
-import { isRiskyShareFile } from "@/lib/media-types";
+import { hasAudioWaveformThumbnail, isRiskyShareFile } from "@/lib/media-types";
 import {
   DEFAULT_RESUMABLE_THRESHOLD,
   KEEP_ORIGINAL_FILE_NAME_STORAGE_KEY,
@@ -1453,7 +1453,8 @@ export default function UploadDropzone({
                           );
                         })()}
                       </div>
-                    ) : image.kind === "other" ? (
+                    ) : image.kind === "other" &&
+                      !hasAudioWaveformThumbnail(image) ? (
                       <div className="flex h-8 w-8 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
                         {(() => {
                           const Icon = getFileIconForExtension(image.ext);
@@ -1542,7 +1543,9 @@ export default function UploadDropzone({
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
                           <LightClock className="h-4 w-4" fill="currentColor" />
                         </div>
-                      ) : media.previewStatus !== "complete" ? (
+                      ) : media.previewStatus !== "complete" ||
+                        (media.kind === "other" &&
+                          !hasAudioWaveformThumbnail(media)) ? (
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500">
                           {(() => {
                             const Icon = getFileIconForExtension(media.ext);

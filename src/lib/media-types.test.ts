@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   contentTypeForExt,
   extFromFileName,
+  GENERIC_FILE_PREVIEW_LG_BYTES,
+  GENERIC_FILE_PREVIEW_SM_BYTES,
+  hasAudioWaveformThumbnail,
+  isAudioPreviewFile,
   isRiskyShareFile,
   isTextPreviewDocument,
   isThumbnailServiceSupported,
@@ -106,6 +110,81 @@ describe("text preview offload", () => {
         fileSizeBytes: 1024,
       }),
     ).toBe(true);
+  });
+});
+
+describe("audio waveform eligibility", () => {
+  it("treats common audio as previewable", () => {
+    expect(isAudioPreviewFile("audio/mpeg", "mp3")).toBe(true);
+    expect(isAudioPreviewFile("audio/wav", "wav")).toBe(true);
+    expect(isAudioPreviewFile("application/octet-stream", "flac")).toBe(true);
+    expect(
+      isThumbnailServiceSupported({
+        kind: "other",
+        mimeType: "audio/mpeg",
+        ext: "mp3",
+        fileSizeBytes: 2048,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects midi, archives, and other binaries", () => {
+    expect(isAudioPreviewFile("audio/midi", "mid")).toBe(false);
+    expect(isAudioPreviewFile("audio/midi", "midi")).toBe(false);
+    expect(
+      isThumbnailServiceSupported({
+        kind: "other",
+        mimeType: "audio/midi",
+        ext: "mid",
+        fileSizeBytes: 2048,
+      }),
+    ).toBe(false);
+    expect(
+      isThumbnailServiceSupported({
+        kind: "other",
+        mimeType: "application/zip",
+        ext: "zip",
+        fileSizeBytes: 2048,
+      }),
+    ).toBe(false);
+    expect(
+      isThumbnailServiceSupported({
+        kind: "other",
+        mimeType: "application/octet-stream",
+        ext: "bin",
+        fileSizeBytes: 2048,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides legacy placeholder previews and shows generated waveforms", () => {
+    expect(
+      hasAudioWaveformThumbnail({
+        mimeType: "audio/mpeg",
+        ext: "mp3",
+        previewStatus: "complete",
+        sizeSm: GENERIC_FILE_PREVIEW_SM_BYTES,
+        sizeLg: GENERIC_FILE_PREVIEW_LG_BYTES,
+      }),
+    ).toBe(false);
+    expect(
+      hasAudioWaveformThumbnail({
+        mimeType: "audio/mpeg",
+        ext: "mp3",
+        previewStatus: "complete",
+        sizeSm: 4096,
+        sizeLg: 12288,
+      }),
+    ).toBe(true);
+    expect(
+      hasAudioWaveformThumbnail({
+        mimeType: "audio/mpeg",
+        ext: "mp3",
+        previewStatus: "pending",
+        sizeSm: 0,
+        sizeLg: 0,
+      }),
+    ).toBe(false);
   });
 });
 

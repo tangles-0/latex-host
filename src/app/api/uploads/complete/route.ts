@@ -209,7 +209,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         ext: completed.ext,
         mimeType: completed.mimeType,
         uploadedAt,
-        deferPreview: !isAudio,
+        deferPreview: true,
       });
       const media = await addMediaForUser({
         userId,
@@ -232,28 +232,26 @@ export async function POST(request: Request): Promise<NextResponse> {
         error: null,
         mediaId: media.id,
       });
-      if (!isAudio) {
-        const queued = await requestPreviewGeneration({
+      const queued = await requestPreviewGeneration({
+        mediaId: media.id,
+        kind: mediaKind,
+        ext: media.ext,
+        mimeType: media.mimeType,
+        fileSizeBytes: media.sizeOriginal,
+        downloadUrl: buildAppUrl(
+          request,
+          `/api/thumbnails/${media.id}/source`,
+        ),
+        ...(isAudio ? {} : { youtubeId }),
+      });
+      if (!queued.ok) {
+        await updateMediaPreviewForUser({
+          userId,
+          kind: mediaKind,
           mediaId: media.id,
-          kind: "video",
-          ext: media.ext,
-          mimeType: media.mimeType,
-          fileSizeBytes: media.sizeOriginal,
-          downloadUrl: buildAppUrl(
-            request,
-            `/api/thumbnails/${media.id}/source`,
-          ),
-          youtubeId,
+          previewStatus: "error",
+          previewError: queued.error,
         });
-        if (!queued.ok) {
-          await updateMediaPreviewForUser({
-            userId,
-            kind: "video",
-            mediaId: media.id,
-            previewStatus: "error",
-            previewError: queued.error,
-          });
-        }
       }
       return NextResponse.json({
         sessionId: completed.id,

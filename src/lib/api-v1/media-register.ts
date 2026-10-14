@@ -22,7 +22,6 @@ import {
 import {
   isThumbnailServiceSupported,
   mediaKindFromType,
-  type AsyncPreviewKind,
   type BlobMediaKind,
 } from "@/lib/media-types";
 import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
@@ -33,7 +32,7 @@ function thumbnailKindFor(input: {
   mimeType: string;
   ext: string;
   fileSizeBytes: number;
-}): AsyncPreviewKind | null {
+}): BlobMediaKind | null {
   return isThumbnailServiceSupported(input) ? input.kind : null;
 }
 

@@ -1,4 +1,5 @@
 import {
+  isAudioPreviewFile,
   isTextPreviewDocument,
   isThumbnailServiceSupported,
   type AsyncPreviewKind,
@@ -6,9 +7,11 @@ import {
 } from "@/lib/media-types";
 export { isAsyncPreviewKind } from "@/lib/media-types";
 
+type PreviewRequestKind = AsyncPreviewKind | "other";
+
 type PreviewRequestPayloadBase = {
   mediaId: string;
-  kind: AsyncPreviewKind;
+  kind: PreviewRequestKind;
   ext: string;
   mimeType: string;
   fileSizeBytes: number;
@@ -21,7 +24,12 @@ type PreviewRequestPayload = PreviewRequestPayloadBase &
     | { downloadUrl?: never; localSourcePath: string }
   );
 
-export type ThumbnailServiceContentType = "image" | "video" | "doc" | "text";
+export type ThumbnailServiceContentType =
+  | "image"
+  | "video"
+  | "audio"
+  | "doc"
+  | "text";
 
 export type ThumbnailServiceRequestPayload = {
   mediaId: string;
@@ -92,14 +100,23 @@ function workerUrl(path: string): string {
 }
 
 export function thumbnailContentTypeForKind(
-  kind: AsyncPreviewKind,
+  kind: PreviewRequestKind,
   mimeType = "",
   ext = "",
 ): ThumbnailServiceContentType {
+  if (isAudioPreviewFile(mimeType, ext)) {
+    return "audio";
+  }
   if (kind === "document" && isTextPreviewDocument(mimeType, ext)) {
     return "text";
   }
-  return kind === "document" ? "doc" : kind;
+  if (kind === "document") {
+    return "doc";
+  }
+  if (kind === "image" || kind === "video") {
+    return kind;
+  }
+  return "audio";
 }
 
 export function buildAppUrl(request: Request, path: string): string {

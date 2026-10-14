@@ -94,6 +94,18 @@ export const AUDIO_EXTENSIONS = new Set([
   "wma",
 ]);
 
+export const MIDI_EXTENSIONS = new Set(["midi", "mid"]);
+
+export const MIDI_MIME_TYPES = new Set([
+  "audio/midi",
+  "audio/mid",
+  "audio/x-midi",
+]);
+
+/** Byte sizes of the generic `asPreviewPng("File Preview")` placeholder. */
+export const GENERIC_FILE_PREVIEW_SM_BYTES = 2678;
+export const GENERIC_FILE_PREVIEW_LG_BYTES = 8644;
+
 /** Multi-segment archive suffixes; longer forms first for matching. */
 export const COMPOUND_ARCHIVE_EXTENSIONS = [
   "tar.gz",
@@ -505,17 +517,55 @@ export function isOfficeOrPdfDocument(mimeType: string, ext: string): boolean {
   );
 }
 
+export function isAudioPreviewFile(mimeType: string, ext: string): boolean {
+  const normalizedMime = mimeType.toLowerCase();
+  const normalizedExt = ext.toLowerCase();
+  if (
+    MIDI_EXTENSIONS.has(normalizedExt) ||
+    MIDI_MIME_TYPES.has(normalizedMime)
+  ) {
+    return false;
+  }
+  return (
+    normalizedMime.startsWith("audio/") || AUDIO_EXTENSIONS.has(normalizedExt)
+  );
+}
+
+export function isGenericFilePreviewSize(
+  sizeSm?: number,
+  sizeLg?: number,
+): boolean {
+  return (
+    sizeSm === GENERIC_FILE_PREVIEW_SM_BYTES &&
+    sizeLg === GENERIC_FILE_PREVIEW_LG_BYTES
+  );
+}
+
+export function hasAudioWaveformThumbnail(input: {
+  mimeType?: string;
+  ext: string;
+  previewStatus?: string;
+  sizeSm?: number;
+  sizeLg?: number;
+}): boolean {
+  if (!isAudioPreviewFile(input.mimeType ?? "", input.ext)) {
+    return false;
+  }
+  if (input.previewStatus !== "complete") {
+    return false;
+  }
+  if (isGenericFilePreviewSize(input.sizeSm, input.sizeLg)) {
+    return false;
+  }
+  return input.sizeSm !== 0;
+}
+
 export function isThumbnailServiceSupported(input: {
   kind: BlobMediaKind;
   mimeType: string;
   ext: string;
   fileSizeBytes: number;
-}): input is {
-  kind: AsyncPreviewKind;
-  mimeType: string;
-  ext: string;
-  fileSizeBytes: number;
-} {
+}): boolean {
   const normalizedMime = input.mimeType.toLowerCase();
   const normalizedExt = input.ext.toLowerCase();
   if (input.kind === "image") {
@@ -536,6 +586,9 @@ export function isThumbnailServiceSupported(input: {
       isTextPreviewDocument(normalizedMime, normalizedExt) ||
       isOfficeOrPdfDocument(normalizedMime, normalizedExt)
     );
+  }
+  if (input.kind === "other") {
+    return isAudioPreviewFile(normalizedMime, normalizedExt);
   }
   return false;
 }

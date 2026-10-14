@@ -10,7 +10,10 @@ import { FileTile } from "@/components/ui/file-tile";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SectionHeader } from "@/components/ui/section-header";
 import { renderFileIconForExtension } from "@/lib/FileIconHelper";
-import type { MediaKind } from "@/lib/media-types";
+import {
+  hasAudioWaveformThumbnail,
+  type MediaKind,
+} from "@/lib/media-types";
 
 type AlbumMedia = {
   id: string;
@@ -26,6 +29,8 @@ type AlbumMedia = {
   uploadedAt: string;
   content?: string;
   sizeOriginal?: number;
+  sizeSm?: number;
+  sizeLg?: number;
 };
 
 export default function AlbumShareView({
@@ -60,10 +65,11 @@ export default function AlbumShareView({
           const thumbUrl = `/share/album/${shareId}/media/${item.kind}/${item.id}/${item.baseName}-sm.${previewExt}`;
           const displayName = item.originalFileName ?? item.baseName;
           const hasPreviewImage =
-            (item.kind === "image" ||
+            ((item.kind === "image" ||
               item.kind === "video" ||
               item.kind === "document") &&
-            item.previewStatus === "complete";
+              item.previewStatus === "complete") ||
+            hasAudioWaveformThumbnail(item);
 
           return (
             <FileTile

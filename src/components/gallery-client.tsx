@@ -43,7 +43,12 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getFileIconForExtension } from "@/lib/FileIconHelper";
 import type { MediaKind } from "@/lib/media-types";
-import { isEditableTextDocument, isRiskyShareFile } from "@/lib/media-types";
+import {
+  hasAudioWaveformThumbnail,
+  isAudioPreviewFile,
+  isEditableTextDocument,
+  isRiskyShareFile,
+} from "@/lib/media-types";
 import { reconcileGalleryMedia } from "@/lib/gallery-media";
 import {
   applyGalleryFileFilters,
@@ -1522,7 +1527,12 @@ export default function GalleryClient({
   }
 
   async function regenerateVideoThumbnail() {
-    if (!active || active.kind !== "video" || isRegeneratingVideoPreview) {
+    if (
+      !active ||
+      isRegeneratingVideoPreview ||
+      (active.kind !== "video" &&
+        !isAudioPreviewFile(active.mimeType ?? "", active.ext))
+    ) {
       return;
     }
     setPreviewActionError(null);
@@ -3355,7 +3365,8 @@ export default function GalleryClient({
                         );
                       })()}
                     </div>
-                  ) : image.kind === "other" ? (
+                  ) : image.kind === "other" &&
+                    !hasAudioWaveformThumbnail(image) ? (
                     <div
                       className={clsx(
                         "flex items-center justify-center rounded border border-dashed border-neutral-300 bg-neutral-50",
@@ -4096,6 +4107,7 @@ export default function GalleryClient({
                         }
                         ext={active.ext}
                         mimeType={active.mimeType}
+                        hasWaveformPreview={hasAudioWaveformThumbnail(active)}
                       />
                     )}
                   </div>
@@ -4444,7 +4456,13 @@ export default function GalleryClient({
                     )}
 
                     {!readOnly &&
-                    (active.kind === "image" || active.kind === "video") ? (
+                    (active.kind === "image" ||
+                      active.kind === "video" ||
+                      (isAdmin &&
+                        isAudioPreviewFile(
+                          active.mimeType ?? "",
+                          active.ext,
+                        ))) ? (
                       <div className="flex flex-wrap gap-2">
                         {active.kind === "image" &&
                         isImageGenerationAvailable ? (
@@ -4467,7 +4485,12 @@ export default function GalleryClient({
                               : "Start watch party"}
                           </button>
                         ) : null}
-                        {active.kind === "video" && isAdmin ? (
+                        {(active.kind === "video" ||
+                          isAudioPreviewFile(
+                            active.mimeType ?? "",
+                            active.ext,
+                          )) &&
+                        isAdmin ? (
                           <button
                             type="button"
                             onClick={() => void regenerateVideoThumbnail()}

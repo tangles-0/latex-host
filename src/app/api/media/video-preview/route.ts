@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/auth";
-import { getMediaForUser, updateVideoPreviewForUser } from "@/lib/media-store";
+import { getMediaForUser, updateMediaPreviewForUser } from "@/lib/media-store";
+import { isAudioPreviewFile } from "@/lib/media-types";
 import { buildAppUrl, requestPreviewGeneration } from "@/lib/preview-worker";
 
 export const runtime = "nodejs";
@@ -20,21 +21,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const media = await getMediaForUser("video", mediaId, userId);
+  const video = await getMediaForUser("video", mediaId, userId);
+  const other = video ? null : await getMediaForUser("other", mediaId, userId);
+  const media =
+    video ??
+    (other && isAudioPreviewFile(other.mimeType, other.ext) ? other : null);
   if (!media) {
-    return NextResponse.json({ error: "Video not found." }, { status: 404 });
+    return NextResponse.json({ error: "Media not found." }, { status: 404 });
   }
+  const kind = video ? ("video" as const) : ("other" as const);
 
   try {
-    await updateVideoPreviewForUser({
+    await updateMediaPreviewForUser({
       userId,
+      kind,
       mediaId,
       previewStatus: "pending",
       previewError: null,
+      sizeSm: 0,
+      sizeLg: 0,
     });
     const queued = await requestPreviewGeneration({
       mediaId,
-      kind: "video",
+      kind,
       ext: media.ext,
       mimeType: media.mimeType,
       fileSizeBytes: media.sizeOriginal,
@@ -51,9 +60,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const message =
       error instanceof Error
         ? error.message
-        : "Unable to generate video preview.";
-    await updateVideoPreviewForUser({
+        : "Unable to generate preview.";
+    await updateMediaPreviewForUser({
       userId,
+      kind,
       mediaId,
       previewStatus: "error",
       previewError: message,

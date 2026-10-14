@@ -14,6 +14,7 @@ export function FileViewerContent({
   previewUrl,
   ext,
   mimeType,
+  hasWaveformPreview = false,
 }: {
   kind: "video" | "document" | "other";
   previewStatus?: "pending" | "started" | "complete" | "error";
@@ -21,6 +22,7 @@ export function FileViewerContent({
   previewUrl: string;
   ext?: string;
   mimeType?: string;
+  hasWaveformPreview?: boolean;
 }) {
   const iconClass = "h-12 w-12 text-neutral-500";
 
@@ -78,10 +80,19 @@ export function FileViewerContent({
     return (
       <div className="space-y-3 rounded border border-neutral-200 bg-neutral-50 p-4">
         <div className="flex items-center justify-center">
-          {renderFileIconForExtension(ext, {
-            className: iconClass,
-            fill: "currentColor",
-          })}
+          {hasWaveformPreview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt="Audio waveform"
+              className="max-h-48 w-full rounded border border-neutral-200 object-contain"
+            />
+          ) : (
+            renderFileIconForExtension(ext, {
+              className: iconClass,
+              fill: "currentColor",
+            })
+          )}
         </div>
         <audio src={fullUrl} controls className="w-full" preload="metadata" />
       </div>

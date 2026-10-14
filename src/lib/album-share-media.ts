@@ -10,6 +10,8 @@ export type AlbumShareMediaItem = {
   mimeType: string;
   previewStatus?: "pending" | "started" | "complete" | "error";
   content?: string;
+  sizeSm?: number;
+  sizeLg?: number;
 };
 
 export const albumShareMediaUrls = (

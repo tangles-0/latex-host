@@ -2,7 +2,31 @@ import { describe, expect, it } from "vitest";
 import {
   isAsyncPreviewKind,
   isWorkerIngestAuthorized,
+  thumbnailContentTypeForKind,
 } from "@/lib/preview-worker";
+
+describe("thumbnailContentTypeForKind", () => {
+  it("maps audio files to the audio worker content type", () => {
+    expect(thumbnailContentTypeForKind("other", "audio/mpeg", "mp3")).toBe(
+      "audio",
+    );
+    expect(thumbnailContentTypeForKind("other", "audio/wav", "wav")).toBe(
+      "audio",
+    );
+  });
+
+  it("keeps existing mappings for video and text documents", () => {
+    expect(thumbnailContentTypeForKind("video", "video/mp4", "mp4")).toBe(
+      "video",
+    );
+    expect(
+      thumbnailContentTypeForKind("document", "application/javascript", "js"),
+    ).toBe("text");
+    expect(thumbnailContentTypeForKind("document", "application/pdf", "pdf")).toBe(
+      "doc",
+    );
+  });
+});
 
 describe("isAsyncPreviewKind", () => {
   it("accepts supported kinds", () => {
