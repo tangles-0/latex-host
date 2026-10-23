@@ -1,6 +1,6 @@
 import path from "path";
 import { promises as fs } from "fs";
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import {
   del as blobDelete,
   get as blobGet,
@@ -344,7 +344,7 @@ async function resolveOutputFormat(buffer: Buffer): Promise<OutputFormat> {
 }
 
 async function encodeOutput(
-  image: sharp.Sharp,
+  image: Sharp,
   output: OutputFormat,
   quality: number,
 ): Promise<Buffer> {

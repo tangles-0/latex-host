@@ -1,7 +1,7 @@
 import path from "path";
 import { createReadStream, promises as fs } from "fs";
 import { Readable } from "stream";
-import sharp from "sharp";
+import sharp, { type FormatEnum, type Sharp } from "sharp";
 import {
   copy as blobCopy,
   del as blobDelete,
@@ -692,7 +692,7 @@ export async function storeImageMediaFromBuffer(input: {
       const width = metadata.width ?? undefined;
       const height = metadata.pageHeight ?? metadata.height ?? undefined;
       const originalBuffer = input.buffer;
-      const encodeAnimated = (pipeline: sharp.Sharp) =>
+      const encodeAnimated = (pipeline: Sharp) =>
         ext === "gif" ? pipeline.gif() : pipeline.webp();
       const smBuffer = await encodeAnimated(
         image.clone().resize({ width: 320, withoutEnlargement: true }),
@@ -730,8 +730,8 @@ export async function storeImageMediaFromBuffer(input: {
   }
   const image = sharp(input.buffer).rotate();
   const metadata = await image.metadata();
-  const format: keyof sharp.FormatEnum =
-    ext === "jpg" ? "jpeg" : (ext as keyof sharp.FormatEnum);
+  const format: keyof FormatEnum =
+    ext === "jpg" ? "jpeg" : (ext as keyof FormatEnum);
   const originalBuffer = await image.clone().toFormat(format).toBuffer();
   const smBuffer = await image
     .clone()
@@ -1218,8 +1218,8 @@ export async function storeGeneratedPreviewForMedia(input: {
   height?: number;
 }> {
   const outputExt = input.kind === "image" ? input.ext.toLowerCase() : "png";
-  const outputFormat: keyof sharp.FormatEnum =
-    outputExt === "jpg" ? "jpeg" : (outputExt as keyof sharp.FormatEnum);
+  const outputFormat: keyof FormatEnum =
+    outputExt === "jpg" ? "jpeg" : (outputExt as keyof FormatEnum);
   const sourceOptions =
     outputExt === "gif" || outputExt === "webp"
       ? { animated: true, pages: -1 }
