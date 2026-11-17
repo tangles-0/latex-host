@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import clsx from "clsx";
@@ -8,6 +9,7 @@ import clsx from "clsx";
 import {
   nextUserSort,
   sortUsers,
+  USER_TABLE_SORT_COOKIE,
   type UserSortDirection,
   type UserSortKey,
 } from "@/components/manage-users-table-sort";
@@ -77,18 +79,32 @@ const SortHeader = ({
   );
 };
 
+const rememberUserSort = (key: UserSortKey, direction: UserSortDirection) => {
+  document.cookie = `${USER_TABLE_SORT_COOKIE}=${key}:${direction}; Path=/; Max-Age=31536000; SameSite=Lax`;
+};
+
 export default function ManageUsersTable({
   currentUserId,
   users,
+  initialSort,
 }: {
   currentUserId: string;
   users: UserStats[];
+  initialSort: { key: UserSortKey; direction: UserSortDirection };
 }) {
+  const router = useRouter();
   const [items, setItems] = useState(users);
+  const [syncedUsers, setSyncedUsers] = useState(users);
   const [error, setError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<UserSortKey>("email");
-  const [sortDirection, setSortDirection] = useState<UserSortDirection>("asc");
+  const [sortKey, setSortKey] = useState<UserSortKey>(initialSort.key);
+  const [sortDirection, setSortDirection] = useState<UserSortDirection>(
+    initialSort.direction,
+  );
+  if (syncedUsers !== users) {
+    setSyncedUsers(users);
+    setItems(users);
+  }
 
   const sortedItems = useMemo(
     () => sortUsers(items, sortKey, sortDirection),
@@ -99,6 +115,7 @@ export default function ManageUsersTable({
     const nextSort = nextUserSort(sortKey, sortDirection, key);
     setSortKey(nextSort.key);
     setSortDirection(nextSort.direction);
+    rememberUserSort(nextSort.key, nextSort.direction);
   };
 
   async function requestDeleteFiles(userId: string) {
@@ -115,19 +132,7 @@ export default function ManageUsersTable({
       return;
     }
 
-    setItems((current) =>
-      current.map((user) =>
-        user.id === userId
-          ? {
-              ...user,
-              imageCount: 0,
-              totalBytes: 0,
-              averageBytes: 0,
-              lastUploadAt: undefined,
-            }
-          : user,
-      ),
-    );
+    router.refresh();
     setBusyUserId(null);
   }
 

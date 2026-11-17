@@ -1,14 +1,44 @@
-export type UserSortKey =
-  | "username"
-  | "email"
-  | "groupName"
-  | "imageCount"
-  | "totalBytes"
-  | "averageBytes"
-  | "lastUploadAt"
-  | "lastLoginAt"
+const USER_SORT_KEYS = [
+  "username",
+  "email",
+  "groupName",
+  "imageCount",
+  "totalBytes",
+  "averageBytes",
+  "lastUploadAt",
+  "lastLoginAt"
+] as const
+
+export type UserSortKey = (typeof USER_SORT_KEYS)[number]
 
 export type UserSortDirection = "asc" | "desc"
+
+export const USER_TABLE_SORT_COOKIE = "latex-admin-users-sort"
+
+export const DEFAULT_USER_TABLE_SORT: {
+  key: UserSortKey
+  direction: UserSortDirection
+} = { key: "email", direction: "asc" }
+
+const USER_SORT_KEY_SET = new Set<string>(USER_SORT_KEYS)
+
+export const parseStoredUserSort = (
+  raw: string | null | undefined
+): { key: UserSortKey; direction: UserSortDirection } | null => {
+  if (!raw) {
+    return null
+  }
+  const separator = raw.lastIndexOf(":")
+  if (separator <= 0) {
+    return null
+  }
+  const key = raw.slice(0, separator)
+  const direction = raw.slice(separator + 1)
+  if (!USER_SORT_KEY_SET.has(key) || (direction !== "asc" && direction !== "desc")) {
+    return null
+  }
+  return { key: key as UserSortKey, direction }
+}
 
 export type SortableUserStats = {
   username: string

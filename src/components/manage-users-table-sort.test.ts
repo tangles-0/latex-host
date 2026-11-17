@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   nextUserSort,
+  parseStoredUserSort,
   sortUsers,
   type SortableUserStats,
   type UserSortKey
@@ -13,6 +14,22 @@ const createUser = (overrides: Partial<SortableUserStats> & { email: string }): 
   totalBytes: 0,
   averageBytes: 0,
   ...overrides
+})
+
+describe("parseStoredUserSort", () => {
+  it("reads a stored column and direction", () => {
+    expect(parseStoredUserSort("lastUploadAt:desc")).toEqual({
+      key: "lastUploadAt",
+      direction: "desc"
+    })
+  })
+
+  it("rejects missing or unknown values", () => {
+    expect(parseStoredUserSort(null)).toBeNull()
+    expect(parseStoredUserSort("email")).toBeNull()
+    expect(parseStoredUserSort("nope:asc")).toBeNull()
+    expect(parseStoredUserSort("email:sideways")).toBeNull()
+  })
 })
 
 describe("nextUserSort", () => {

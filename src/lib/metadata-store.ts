@@ -13,6 +13,7 @@ import {
   groupLimits,
   groups,
   images,
+  notes,
   patchNotes,
   shares,
   users,
@@ -931,28 +932,76 @@ export type UserStats = {
 };
 
 export async function listUsersWithStats(): Promise<UserStats[]> {
-  const rows = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      email: users.email,
-      groupId: users.groupId,
-      groupName: groups.name,
-      lastLoginAt: users.lastLoginAt,
-      bannedAt: users.bannedAt,
-      imageCount: sql<number>`count(${images.id})`,
-      totalBytes: sql<number>`coalesce(sum(${images.sizeOriginal} + ${images.sizeSm} + ${images.sizeLg}), 0)`,
-      lastUploadAt: sql<Date | null>`max(${images.uploadedAt})`,
-    })
-    .from(users)
-    .leftJoin(groups, eq(users.groupId, groups.id))
-    .leftJoin(images, eq(images.userId, users.id))
-    .groupBy(users.id, groups.name, users.lastLoginAt, users.bannedAt)
-    .orderBy(users.email);
+  const [rows, uploadRows] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        groupId: users.groupId,
+        groupName: groups.name,
+        lastLoginAt: users.lastLoginAt,
+        bannedAt: users.bannedAt,
+      })
+      .from(users)
+      .leftJoin(groups, eq(users.groupId, groups.id))
+      .orderBy(users.email),
+    db.execute<{
+      userId: string;
+      count: number | string;
+      totalBytes: number | string;
+      lastUploadAt: Date | string | null;
+    }>(sql`
+      select user_id as "userId",
+             count(*)::int as "count",
+             coalesce(sum(bytes), 0) as "totalBytes",
+             max(uploaded_at) as "lastUploadAt"
+      from (
+        select ${images.userId} as user_id,
+               (${images.sizeOriginal} + ${images.sizeSm} + ${images.sizeLg}) as bytes,
+               ${images.uploadedAt} as uploaded_at
+        from ${images}
+        union all
+        select ${videos.userId},
+               (${videos.sizeOriginal} + ${videos.sizeSm} + ${videos.sizeLg}),
+               ${videos.uploadedAt}
+        from ${videos}
+        union all
+        select ${documents.userId},
+               (${documents.sizeOriginal} + ${documents.sizeSm} + ${documents.sizeLg}),
+               ${documents.uploadedAt}
+        from ${documents}
+        union all
+        select ${files.userId},
+               (${files.sizeOriginal} + ${files.sizeSm} + ${files.sizeLg}),
+               ${files.uploadedAt}
+        from ${files}
+        union all
+        select ${notes.userId}, ${notes.sizeOriginal}, ${notes.uploadedAt}
+        from ${notes}
+      ) uploads
+      group by user_id
+    `),
+  ]);
+
+  const uploadsByUser = new Map<
+    string,
+    { count: number; totalBytes: number; lastUploadAt?: string }
+  >();
+  for (const upload of uploadRows) {
+    uploadsByUser.set(upload.userId, {
+      count: Number(upload.count ?? 0),
+      totalBytes: Number(upload.totalBytes ?? 0),
+      lastUploadAt: upload.lastUploadAt
+        ? new Date(upload.lastUploadAt).toISOString()
+        : undefined,
+    });
+  }
 
   return rows.map((row) => {
-    const imageCount = Number(row.imageCount ?? 0);
-    const totalBytes = Number(row.totalBytes ?? 0);
+    const uploads = uploadsByUser.get(row.id);
+    const imageCount = uploads?.count ?? 0;
+    const totalBytes = uploads?.totalBytes ?? 0;
     return {
       id: row.id,
       username: row.username,
@@ -962,9 +1011,7 @@ export async function listUsersWithStats(): Promise<UserStats[]> {
       imageCount,
       totalBytes,
       averageBytes: imageCount > 0 ? Math.round(totalBytes / imageCount) : 0,
-      lastUploadAt: row.lastUploadAt
-        ? new Date(row.lastUploadAt).toISOString()
-        : undefined,
+      lastUploadAt: uploads?.lastUploadAt,
       lastLoginAt: row.lastLoginAt
         ? new Date(row.lastLoginAt).toISOString()
         : undefined,

@@ -1,8 +1,14 @@
+import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { isAdminUser, listUsersWithStats } from "@/lib/metadata-store"
 import ManageUsersTable from "@/components/manage-users-table"
+import {
+  DEFAULT_USER_TABLE_SORT,
+  parseStoredUserSort,
+  USER_TABLE_SORT_COOKIE
+} from "@/components/manage-users-table-sort"
 import { PageScaffold } from "@/components/ui/page-scaffold"
 import { SectionHeader } from "@/components/ui/section-header"
 
@@ -18,7 +24,10 @@ const ManageUsersPage = async () => {
     redirect("/gallery")
   }
 
-  const users = await listUsersWithStats()
+  const [users, cookieStore] = await Promise.all([listUsersWithStats(), cookies()])
+  const initialSort =
+    parseStoredUserSort(cookieStore.get(USER_TABLE_SORT_COOKIE)?.value) ??
+    DEFAULT_USER_TABLE_SORT
 
   return (
     <PageScaffold width="wide">
@@ -29,6 +38,7 @@ const ManageUsersPage = async () => {
       <ManageUsersTable
         currentUserId={userId}
         users={users}
+        initialSort={initialSort}
       />
     </PageScaffold>
   )
