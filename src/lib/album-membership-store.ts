@@ -1,7 +1,14 @@
 import { randomUUID } from "crypto";
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { documents, files, images, mediaInAlbums, notes, videos } from "@/db/schema";
+import {
+  documents,
+  files,
+  images,
+  mediaInAlbums,
+  notes,
+  videos,
+} from "@/db/schema";
 import type { MediaKind } from "@/lib/media-types";
 
 export type AlbumMembershipItem = {
@@ -11,6 +18,7 @@ export type AlbumMembershipItem = {
   mediaType: MediaKind;
   mediaId: string;
   albumCaption?: string;
+  albumThumbnailUrl?: string;
   albumOrder: number;
   createdAt: string;
 };
@@ -47,65 +55,73 @@ async function ensureLegacyAlbumMembershipBackfill(): Promise<void> {
   }
 
   legacyBackfillPromise = (async () => {
-    const [legacyImages, legacyVideos, legacyDocuments, legacyFiles, legacyNotes] =
-      await Promise.all([
-        db
-          .select({
-            userId: images.userId,
-            albumId: images.albumId,
-            mediaId: images.id,
-            albumCaption: images.albumCaption,
-            albumOrder: images.albumOrder,
-          })
-          .from(images)
-          .where(isNotNull(images.albumId)),
-        db
-          .select({
-            userId: videos.userId,
-            albumId: videos.albumId,
-            mediaId: videos.id,
-            albumCaption: videos.albumCaption,
-            albumOrder: videos.albumOrder,
-          })
-          .from(videos)
-          .where(isNotNull(videos.albumId)),
-        db
-          .select({
-            userId: documents.userId,
-            albumId: documents.albumId,
-            mediaId: documents.id,
-            albumCaption: documents.albumCaption,
-            albumOrder: documents.albumOrder,
-          })
-          .from(documents)
-          .where(isNotNull(documents.albumId)),
-        db
-          .select({
-            userId: files.userId,
-            albumId: files.albumId,
-            mediaId: files.id,
-            albumCaption: files.albumCaption,
-            albumOrder: files.albumOrder,
-          })
-          .from(files)
-          .where(isNotNull(files.albumId)),
-        db
-          .select({
-            userId: notes.userId,
-            albumId: notes.albumId,
-            mediaId: notes.id,
-            albumCaption: notes.albumCaption,
-            albumOrder: notes.albumOrder,
-          })
-          .from(notes)
-          .where(isNotNull(notes.albumId)),
-      ]);
+    const [
+      legacyImages,
+      legacyVideos,
+      legacyDocuments,
+      legacyFiles,
+      legacyNotes,
+    ] = await Promise.all([
+      db
+        .select({
+          userId: images.userId,
+          albumId: images.albumId,
+          mediaId: images.id,
+          albumCaption: images.albumCaption,
+          albumOrder: images.albumOrder,
+        })
+        .from(images)
+        .where(isNotNull(images.albumId)),
+      db
+        .select({
+          userId: videos.userId,
+          albumId: videos.albumId,
+          mediaId: videos.id,
+          albumCaption: videos.albumCaption,
+          albumOrder: videos.albumOrder,
+        })
+        .from(videos)
+        .where(isNotNull(videos.albumId)),
+      db
+        .select({
+          userId: documents.userId,
+          albumId: documents.albumId,
+          mediaId: documents.id,
+          albumCaption: documents.albumCaption,
+          albumOrder: documents.albumOrder,
+        })
+        .from(documents)
+        .where(isNotNull(documents.albumId)),
+      db
+        .select({
+          userId: files.userId,
+          albumId: files.albumId,
+          mediaId: files.id,
+          albumCaption: files.albumCaption,
+          albumOrder: files.albumOrder,
+        })
+        .from(files)
+        .where(isNotNull(files.albumId)),
+      db
+        .select({
+          userId: notes.userId,
+          albumId: notes.albumId,
+          mediaId: notes.id,
+          albumCaption: notes.albumCaption,
+          albumOrder: notes.albumOrder,
+        })
+        .from(notes)
+        .where(isNotNull(notes.albumId)),
+    ]);
 
     const now = new Date();
     const allRows = [
       ...legacyImages.map((row) => ({ ...row, mediaType: "image" as const })),
       ...legacyVideos.map((row) => ({ ...row, mediaType: "video" as const })),
-      ...legacyDocuments.map((row) => ({ ...row, mediaType: "document" as const })),
+      ...legacyDocuments.map((row) => ({
+        ...row,
+        mediaType: "document" as const,
+      })),
       ...legacyFiles.map((row) => ({ ...row, mediaType: "other" as const })),
       ...legacyNotes.map((row) => ({ ...row, mediaType: "note" as const })),
     ];
@@ -145,7 +161,9 @@ async function ensureLegacyAlbumMembershipBackfill(): Promise<void> {
   return legacyBackfillPromise;
 }
 
-function mapMembershipRow(row: typeof mediaInAlbums.$inferSelect): AlbumMembershipItem {
+function mapMembershipRow(
+  row: typeof mediaInAlbums.$inferSelect,
+): AlbumMembershipItem {
   return {
     id: row.id,
     userId: row.userId,
@@ -153,6 +171,7 @@ function mapMembershipRow(row: typeof mediaInAlbums.$inferSelect): AlbumMembersh
     mediaType: row.mediaType as MediaKind,
     mediaId: row.mediaId,
     albumCaption: row.albumCaption ?? undefined,
+    albumThumbnailUrl: row.albumThumbnailUrl ?? undefined,
     albumOrder: row.albumOrder,
     createdAt: row.createdAt.toISOString(),
   };
@@ -202,7 +221,10 @@ export async function listAlbumMembershipsForUser(
     .from(mediaInAlbums)
     .where(
       albumId
-        ? and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId))
+        ? and(
+            eq(mediaInAlbums.userId, userId),
+            eq(mediaInAlbums.albumId, albumId),
+          )
         : eq(mediaInAlbums.userId, userId),
     )
     .orderBy(asc(mediaInAlbums.albumOrder), asc(mediaInAlbums.createdAt));
@@ -252,7 +274,10 @@ export async function getFirstAlbumMembershipForMedia(
             eq(mediaInAlbums.mediaType, kind),
             eq(mediaInAlbums.mediaId, mediaId),
           )
-        : and(eq(mediaInAlbums.mediaType, kind), eq(mediaInAlbums.mediaId, mediaId)),
+        : and(
+            eq(mediaInAlbums.mediaType, kind),
+            eq(mediaInAlbums.mediaId, mediaId),
+          ),
     )
     .orderBy(asc(mediaInAlbums.albumOrder), asc(mediaInAlbums.createdAt))
     .limit(1);
@@ -271,9 +296,13 @@ export async function addMediaItemsToAlbum(
 
   const owned = await listOwnedMediaKeys(userId, mediaItems);
   const [maxOrderRow] = await db
-    .select({ value: sql<number>`coalesce(max(${mediaInAlbums.albumOrder}), 0)` })
+    .select({
+      value: sql<number>`coalesce(max(${mediaInAlbums.albumOrder}), 0)`,
+    })
     .from(mediaInAlbums)
-    .where(and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId)));
+    .where(
+      and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId)),
+    );
   let nextOrder = Number(maxOrderRow?.value ?? 0) + 1;
 
   for (const item of mediaItems) {
@@ -302,6 +331,7 @@ export async function addMediaItemsToAlbum(
       mediaType: item.kind,
       mediaId: item.id,
       albumCaption: null,
+      albumThumbnailUrl: null,
       albumOrder: nextOrder,
       createdAt: new Date(),
     });
@@ -346,10 +376,14 @@ export async function removeAllMediaItemsFromAlbum(
   await ensureLegacyAlbumMembershipBackfill();
   await db
     .delete(mediaInAlbums)
-    .where(and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId)));
+    .where(
+      and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId)),
+    );
 }
 
-export async function removeAllMediaItemsForUser(userId: string): Promise<void> {
+export async function removeAllMediaItemsForUser(
+  userId: string,
+): Promise<void> {
   await ensureLegacyAlbumMembershipBackfill();
   await db.delete(mediaInAlbums).where(eq(mediaInAlbums.userId, userId));
 }
@@ -364,7 +398,31 @@ export async function updateAlbumMembershipCaptionForUser(
   const normalizedCaption = caption.trim();
   const [row] = await db
     .update(mediaInAlbums)
-    .set({ albumCaption: normalizedCaption.length > 0 ? normalizedCaption : null })
+    .set({
+      albumCaption: normalizedCaption.length > 0 ? normalizedCaption : null,
+    })
+    .where(
+      and(
+        eq(mediaInAlbums.userId, userId),
+        eq(mediaInAlbums.albumId, albumId),
+        eq(mediaInAlbums.mediaType, mediaItem.kind),
+        eq(mediaInAlbums.mediaId, mediaItem.id),
+      ),
+    )
+    .returning();
+  return row ? mapMembershipRow(row) : undefined;
+}
+
+export async function updateAlbumMembershipThumbnailUrlForUser(
+  userId: string,
+  albumId: string,
+  mediaItem: MediaRef,
+  thumbnailUrl: string | null,
+): Promise<AlbumMembershipItem | undefined> {
+  await ensureLegacyAlbumMembershipBackfill();
+  const [row] = await db
+    .update(mediaInAlbums)
+    .set({ albumThumbnailUrl: thumbnailUrl })
     .where(
       and(
         eq(mediaInAlbums.userId, userId),
@@ -393,10 +451,16 @@ export async function reorderAlbumMediaForUser(
       mediaId: mediaInAlbums.mediaId,
     })
     .from(mediaInAlbums)
-    .where(and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId)));
+    .where(
+      and(eq(mediaInAlbums.userId, userId), eq(mediaInAlbums.albumId, albumId)),
+    );
 
-  const existingKeys = new Set(rows.map((row) => mediaKey(row.mediaType as MediaKind, row.mediaId)));
-  const orderedKeys = new Set(orderedMediaItems.map((item) => mediaKey(item.kind, item.id)));
+  const existingKeys = new Set(
+    rows.map((row) => mediaKey(row.mediaType as MediaKind, row.mediaId)),
+  );
+  const orderedKeys = new Set(
+    orderedMediaItems.map((item) => mediaKey(item.kind, item.id)),
+  );
   if (existingKeys.size !== orderedKeys.size) {
     return false;
   }

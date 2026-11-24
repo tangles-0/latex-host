@@ -141,6 +141,7 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
     sharePrefix: await sharePrefixFromRequest(request),
     visibility: share.visibility,
     shareCode: share.code,
+    shareFileName: share.fileName,
   });
 
   return apiV1Json(

@@ -70,6 +70,7 @@ export const GET = withApiV1Route(async (request, auth) => {
         sharePrefix,
         visibility: share.visibility,
         shareCode: share.shareCode,
+        shareFileName: share.shareFileName,
       });
     }),
   );
@@ -213,6 +214,7 @@ export const POST = withApiV1Route(async (request, auth) => {
     sharePrefix,
     visibility: share.visibility,
     shareCode: share.code,
+    shareFileName: share.fileName,
   });
 
   return apiV1Json(

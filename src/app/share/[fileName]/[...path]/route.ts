@@ -17,6 +17,7 @@ type NodeAlbumMedia = {
   ext: string;
   previewStatus?: string;
   albumCaption?: string;
+  albumThumbnailUrl?: string;
 };
 
 type NodeSharePayload =
@@ -102,9 +103,11 @@ const renderAlbum = (
       const previewExt = item.kind === "image" ? item.ext : "png";
       const preview = `/share/${encodeURIComponent(nodeHash)}/album/${encodeURIComponent(payload.shareId)}/media/${encodeURIComponent(item.kind)}/${encodeURIComponent(item.id)}/${encodeURIComponent(item.baseName)}-lg.${encodeURIComponent(previewExt)}`;
       const previewHtml =
-        item.previewStatus === "complete" || item.kind === "image"
-          ? `<a href="${original}"><img class="preview" src="${preview}" alt=""></a>`
-          : "";
+        payload.album.displayAsCompactView && item.albumThumbnailUrl
+          ? `<a href="${original}"><img class="preview" src="${escapeHtml(item.albumThumbnailUrl)}" alt="" referrerpolicy="no-referrer"></a>`
+          : item.previewStatus === "complete" || item.kind === "image"
+            ? `<a href="${original}"><img class="preview" src="${preview}" alt=""></a>`
+            : "";
       return `<article>${previewHtml}<h2><a href="${original}">${name}</a></h2>${
         item.albumCaption ? `<p>${escapeHtml(item.albumCaption)}</p>` : ""
       }</article>`;
@@ -214,9 +217,11 @@ const routeNodeShare = async (
   }
 
   const destinationPath =
-    pathSegments.length === 1
-      ? `/p/${encodeURIComponent(first)}`
-      : `/share/${pathSegments.map(encodeURIComponent).join("/")}`;
+    pathSegments.length === 2 && first === "file"
+      ? `/file/${encodeURIComponent(pathSegments[1])}`
+      : pathSegments.length === 1
+        ? `/p/${encodeURIComponent(first)}`
+        : `/share/${pathSegments.map(encodeURIComponent).join("/")}`;
   const location = new URL(destinationPath, target.publicHttpsUrl);
   location.search = request.nextUrl.search;
   return new Response(null, {

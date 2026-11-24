@@ -76,6 +76,22 @@ describe("toFileResource", () => {
     expect(resource.shareUrl).toBeNull();
     expect(resource.shareUrls).toBeNull();
   });
+
+  it("uses the filename route for filename shares", () => {
+    const resource = toFileResource({
+      media: imageEntry({ originalFileName: "A photo.jpg" }),
+      sharePrefix: "https://example.test/share",
+      visibility: "public",
+      shareCode: "AbC123",
+      shareFileName: "A photo.jpg",
+    });
+    expect(resource.shareUrl).toBe(
+      "https://example.test/file/A%20photo.jpg",
+    );
+    expect(resource.shareUrls?.sm).toBe(
+      "https://example.test/file/A%20photo-sm.jpg",
+    );
+  });
 });
 
 describe("buildAbsoluteShareUrls", () => {

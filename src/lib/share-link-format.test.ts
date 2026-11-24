@@ -42,6 +42,25 @@ describe("formatShareUrl", () => {
     ).toBe("https://latex.gg/share/n7/abc.jpg");
   });
 
+  it("preserves filename share routing between cloud and direct node links", () => {
+    expect(
+      formatShareUrl(
+        "https://latex.gg/share/n7/file/some%20file.zip",
+        "direct",
+        node,
+        "https://files.example.com",
+      ),
+    ).toBe("https://files.example.com/file/some%20file.zip");
+    expect(
+      formatShareUrl(
+        "https://files.example.com/file/some%20file.zip",
+        "cloud",
+        node,
+        "https://files.example.com",
+      ),
+    ).toBe("https://latex.gg/share/n7/file/some%20file.zip");
+  });
+
   it("preserves queries and fragments while converting", () => {
     expect(
       formatShareUrl(

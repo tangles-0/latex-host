@@ -9,8 +9,11 @@ import { getBlobFileForUser } from "@/lib/api-v1/list";
 import { ensureShareForVisibility } from "@/lib/api-v1/media-register";
 import {
   buildShareUrlsFromPrefix,
+  fileSharePrefixFromSharePrefix,
   sharePrefixFromRequest,
 } from "@/lib/api-v1/resources";
+import { buildFileShareUrls } from "@/lib/file-share-paths";
+import { isBlobMediaKind } from "@/lib/media-types";
 
 export const runtime = "nodejs";
 
@@ -21,7 +24,7 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
     return apiV1Error(400, "invalid_request", "id is required.");
   }
   const media = await getBlobFileForUser(auth.userId, id);
-  if (!media) {
+  if (!media || !isBlobMediaKind(media.kind)) {
     return apiV1Error(404, "not_found", "File not found.");
   }
   const share = await ensureShareForVisibility({
@@ -33,12 +36,14 @@ export const POST = withApiV1ParamsRoute(async (request, auth, context) => {
   if (!share.code) {
     return apiV1Error(500, "internal_error", "Unable to create share.");
   }
-  const urls = buildShareUrlsFromPrefix(
-    await sharePrefixFromRequest(request),
-    media.kind,
-    share.code,
-    media.ext,
-  );
+  const sharePrefix = await sharePrefixFromRequest(request);
+  const urls = share.fileName
+    ? buildFileShareUrls(
+        fileSharePrefixFromSharePrefix(sharePrefix),
+        media.kind,
+        share.fileName,
+      )
+    : buildShareUrlsFromPrefix(sharePrefix, media.kind, share.code, media.ext);
   return apiV1Json({
     share: { code: share.code },
     shareUrl: urls.original,
@@ -57,7 +62,11 @@ export const DELETE = withApiV1ParamsRoute(async (_request, auth, context) => {
     return apiV1Error(404, "not_found", "File not found.");
   }
   if (!canDisableMediaShare(media)) {
-    return apiV1Error(400, "invalid_request", PUBLIC_STORE_SHARE_LOCKED_MESSAGE);
+    return apiV1Error(
+      400,
+      "invalid_request",
+      PUBLIC_STORE_SHARE_LOCKED_MESSAGE,
+    );
   }
   await deleteShareForMedia(media.kind, media.id, auth.userId);
   return new Response(null, { status: 204 });

@@ -7,6 +7,7 @@ import {
   albumShares,
   documentShares,
   documents,
+  fileSharePaths,
   fileShares,
   files,
   images,
@@ -19,7 +20,7 @@ import {
 } from "@/db/schema";
 import { revokeAllApiDevicesForUser } from "@/lib/device-auth";
 import { deleteMediaForUser } from "@/lib/media-store";
-import type { MediaKind } from "@/lib/media-types";
+import { splitFileName, type MediaKind } from "@/lib/media-types";
 import { parseShareFileName } from "@/app/share/share-route-utils";
 import { isResendConfigured } from "@/lib/password-reset";
 
@@ -74,20 +75,47 @@ export function neutralizeUrlForEmail(url: string): string {
 export function extractSharePath(rawUrl: string): string | null {
   try {
     const parsed = new URL(rawUrl.trim());
-    if (!parsed.pathname.startsWith("/share/")) {
-      return null;
-    }
-    return parsed.pathname.slice("/share/".length);
+    const prefix = parsed.pathname.startsWith("/share/")
+      ? "/share/"
+      : parsed.pathname.startsWith("/file/")
+        ? "/file/"
+        : null;
+    return prefix ? parsed.pathname.slice(prefix.length) : null;
   } catch {
     const trimmed = rawUrl.trim();
-    const match = /\/share\/([^?#]+)/i.exec(trimmed);
+    const match = /\/(?:share|file)\/([^?#]+)/i.exec(trimmed);
     return match?.[1] ?? null;
   }
 }
 
 async function lookupShareTarget(
   fileName: string,
+  resolveFilePath = true,
 ): Promise<Omit<ResolvedAbuseUrl, "url">> {
+  const [filePath] = resolveFilePath
+    ? await db
+        .select({ code: fileSharePaths.code, size: fileSharePaths.size })
+        .from(fileSharePaths)
+        .where(eq(fileSharePaths.path, fileName))
+        .limit(1)
+    : [];
+  const splitFilePath = splitFileName(fileName);
+  if (filePath && splitFilePath) {
+    const suffix =
+      filePath.size === "original"
+        ? ""
+        : filePath.size === "sm"
+          ? "-sm"
+          : filePath.size === "lg"
+            ? "-lg"
+            : filePath.size === "x640"
+              ? "-640"
+              : "-512";
+    return lookupShareTarget(
+      `${filePath.code}${suffix}.${splitFilePath.ext}`,
+      false,
+    );
+  }
   const albumOnly = /^[A-Za-z0-9]+$/.exec(fileName);
   if (albumOnly) {
     const code = albumOnly[0];
@@ -156,7 +184,8 @@ async function lookupShareTarget(
       ownerUserId: imageRow.userId,
       ownerUsername: imageRow.username,
       ownerEmail: imageRow.email,
-      fileName: imageRow.fileName || `${imageRow.baseName}.${imageRow.mediaExt}`,
+      fileName:
+        imageRow.fileName || `${imageRow.baseName}.${imageRow.mediaExt}`,
       valid: true,
     };
   }
@@ -184,7 +213,8 @@ async function lookupShareTarget(
       ownerUserId: videoRow.userId,
       ownerUsername: videoRow.username,
       ownerEmail: videoRow.email,
-      fileName: videoRow.fileName || `${videoRow.baseName}.${videoRow.mediaExt}`,
+      fileName:
+        videoRow.fileName || `${videoRow.baseName}.${videoRow.mediaExt}`,
       valid: true,
     };
   }
@@ -444,7 +474,10 @@ export async function isUserBanned(userId: string): Promise<boolean> {
 export async function deleteReportedMedia(
   targets: Array<{ userId: string; mediaId: string; kind: MediaKind }>,
 ): Promise<number> {
-  const unique = new Map<string, { userId: string; mediaId: string; kind: MediaKind }>();
+  const unique = new Map<
+    string,
+    { userId: string; mediaId: string; kind: MediaKind }
+  >();
   for (const target of targets) {
     unique.set(`${target.kind}:${target.mediaId}`, target);
   }
@@ -469,7 +502,10 @@ export async function sendAbuseReceivedEmail(input: {
   }
 
   const neutralized = input.urls
-    .map((url) => `<li><code style="word-break:break-all">${escapeHtml(neutralizeUrlForEmail(url))}</code></li>`)
+    .map(
+      (url) =>
+        `<li><code style="word-break:break-all">${escapeHtml(neutralizeUrlForEmail(url))}</code></li>`,
+    )
     .join("");
 
   const resend = new Resend(apiKey);

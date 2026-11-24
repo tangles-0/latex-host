@@ -22,6 +22,23 @@ export const shareCodeRegistry = pgTable("share_code_registry", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
 
+export const fileSharePaths = pgTable(
+  "file_share_paths",
+  {
+    path: text("path").primaryKey(),
+    code: text("code").notNull(),
+    size: text("size").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    codeIdx: index("file_share_paths_code_idx").on(table.code),
+    codeSizeUnique: uniqueIndex("file_share_paths_code_size_unique").on(
+      table.code,
+      table.size,
+    ),
+  }),
+);
+
 export const groupLimits = pgTable("group_limits", {
   id: text("id").primaryKey(),
   groupId: text("group_id").references(() => groups.id),
@@ -394,6 +411,7 @@ export const mediaInAlbums = pgTable(
     mediaType: text("media_type").notNull(),
     mediaId: text("media_id").notNull(),
     albumCaption: text("album_caption"),
+    albumThumbnailUrl: text("album_thumbnail_url"),
     albumOrder: integer("album_order").notNull().default(0),
     createdAt: timestamp("created_at", { mode: "date" }).notNull(),
   },

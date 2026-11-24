@@ -3,8 +3,10 @@ import { getSessionUserId } from "@/lib/auth";
 import {
   createShareForMedia,
   deleteShareForMedia,
+  FileSharePathConflictError,
   getMediaForUser,
   getShareForUserByMedia,
+  setShareUseFileNameForUser,
   updateNoteSharePasswordForUser,
   type MediaKind,
 } from "@/lib/media-store";
@@ -84,9 +86,19 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 500 },
     );
   }
+  const activeShare =
+    (await getShareForUserByMedia(kind, mediaId, userId)) ?? {
+      ...share,
+      useFileName: false,
+    };
   return NextResponse.json({
-    share,
-    urls: await buildPublicShareUrls(kind, share.code, media.ext),
+    share: activeShare,
+    urls: await buildPublicShareUrls(
+      kind,
+      share.code,
+      media.ext,
+      activeShare.fileName,
+    ),
   });
 }
 
@@ -113,7 +125,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
   return NextResponse.json({
     share,
-    urls: await buildPublicShareUrls(kind, share.code, media.ext),
+    urls: await buildPublicShareUrls(
+      kind,
+      share.code,
+      media.ext,
+      share.fileName,
+    ),
   });
 }
 
@@ -125,6 +142,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
     kind?: string;
     mediaId?: string;
     password?: unknown;
+    useFileName?: unknown;
   };
   const kind = parseKind(payload.kind ?? null);
   const mediaId = payload.mediaId?.trim() ?? "";
@@ -134,15 +152,51 @@ export async function PATCH(request: Request): Promise<NextResponse> {
       { status: 400 },
     );
   }
+  const media = await getMediaForUser(kind, mediaId, userId);
+  if (!media) {
+    return NextResponse.json({ error: "Media not found." }, { status: 404 });
+  }
+  if (typeof payload.useFileName === "boolean") {
+    if (kind === "note") {
+      return NextResponse.json(
+        { error: "Filename sharing is only available for files." },
+        { status: 400 },
+      );
+    }
+    try {
+      const share = await setShareUseFileNameForUser({
+        kind,
+        mediaId,
+        userId,
+        useFileName: payload.useFileName,
+      });
+      if (!share?.code) {
+        return NextResponse.json(
+          { error: "Share link not found." },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({
+        share,
+        urls: await buildPublicShareUrls(
+          kind,
+          share.code,
+          media.ext,
+          share.fileName,
+        ),
+      });
+    } catch (error) {
+      if (error instanceof FileSharePathConflictError) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
+      throw error;
+    }
+  }
   if (kind !== "note") {
     return NextResponse.json(
       { error: "Password protection is only available for notes." },
       { status: 400 },
     );
-  }
-  const media = await getMediaForUser(kind, mediaId, userId);
-  if (!media) {
-    return NextResponse.json({ error: "Media not found." }, { status: 404 });
   }
   const password = parseNoteSharePassword(payload.password);
   if (payload.password !== null && password === undefined) {

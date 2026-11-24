@@ -11,10 +11,7 @@ import { WaveformThumbnail } from "@/components/ui/waveform-thumbnail";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SectionHeader } from "@/components/ui/section-header";
 import { renderFileIconForExtension } from "@/lib/FileIconHelper";
-import {
-  hasAudioWaveformThumbnail,
-  type MediaKind,
-} from "@/lib/media-types";
+import { hasAudioWaveformThumbnail, type MediaKind } from "@/lib/media-types";
 
 type AlbumMedia = {
   id: string;
@@ -27,6 +24,7 @@ type AlbumMedia = {
   height?: number;
   previewStatus?: "pending" | "started" | "complete" | "error";
   albumCaption?: string;
+  albumThumbnailUrl?: string;
   uploadedAt: string;
   content?: string;
   sizeOriginal?: number;
@@ -77,7 +75,9 @@ export default function AlbumShareView({
               key={item.id}
               className={clsx(
                 "text-left",
-                isDisplayAsCompactView ? "!flex-row items-stretch gap-3 p-2" : "p-4",
+                isDisplayAsCompactView
+                  ? "!flex-row items-stretch gap-3 p-2"
+                  : "p-4",
               )}
             >
               {item.kind === "note" && !isDisplayAsCompactView ? (
@@ -109,7 +109,16 @@ export default function AlbumShareView({
                       </div>
                     </div>
                   ) : isDisplayAsCompactView ? (
-                    hasAudioWaveformThumbnail(item) ? (
+                    item.albumThumbnailUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={item.albumThumbnailUrl}
+                        alt=""
+                        className="h-20 w-20 rounded object-cover"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : hasAudioWaveformThumbnail(item) ? (
                       <WaveformThumbnail
                         smUrl={thumbUrl}
                         lgUrl={previewUrl}

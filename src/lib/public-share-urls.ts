@@ -1,4 +1,6 @@
 import type { MediaKind } from "@/lib/media-types";
+import { isBlobMediaKind } from "@/lib/media-types";
+import { buildFileShareUrls } from "@/lib/file-share-paths";
 import {
   getOrCreateNodeInstanceSettings,
   isNodeMode,
@@ -38,8 +40,14 @@ export const buildPublicShareUrls = async (
   kind: MediaKind,
   code: string,
   ext: string,
+  fileName?: string,
 ): Promise<{ original: string; sm: string; lg: string; x512?: string }> => {
   const prefix = await getPublicSharePrefix();
+  if (fileName && isBlobMediaKind(kind)) {
+    const filePrefix =
+      prefix === "/share" ? "/file" : `${prefix.replace(/\/$/, "")}/file`;
+    return buildFileShareUrls(filePrefix, kind, fileName);
+  }
   const base =
     kind === "note" ? `${prefix}/${code}` : `${prefix}/${code}.${ext}`;
   return {

@@ -28,6 +28,7 @@ export const GET = withApiV1ParamsRoute(async (request, auth, context) => {
       sharePrefix: await sharePrefixFromRequest(request),
       visibility: share.visibility,
       shareCode: share.shareCode,
+      shareFileName: share.shareFileName,
     }),
   });
 });

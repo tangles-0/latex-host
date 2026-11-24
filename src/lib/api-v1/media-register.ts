@@ -384,7 +384,11 @@ export async function ensureShareForVisibility(input: {
   userId: string;
   visibility: Visibility;
   password?: string | null;
-}): Promise<{ code: string | null; visibility: Visibility }> {
+}): Promise<{
+  code: string | null;
+  visibility: Visibility;
+  fileName?: string;
+}> {
   if (input.visibility !== "public") {
     const existing = await getShareForUserByMedia(
       input.kind,
@@ -394,6 +398,7 @@ export async function ensureShareForVisibility(input: {
     return {
       code: existing?.code ?? null,
       visibility: existing?.code ? "public" : "private",
+      fileName: existing?.fileName,
     };
   }
   const share = await createShareForMedia(
@@ -407,9 +412,13 @@ export async function ensureShareForVisibility(input: {
   if (share?.code && input.kind === "image") {
     await ensureImageShareConstrainedVariant(input.mediaId, input.userId);
   }
+  const current = share?.code
+    ? await getShareForUserByMedia(input.kind, input.mediaId, input.userId)
+    : undefined;
   return {
     code: share?.code ?? null,
     visibility: share?.code ? "public" : "private",
+    fileName: current?.fileName,
   };
 }
 
@@ -436,14 +445,22 @@ export async function resolveVisibilityForMedia(input: {
   kind: MediaEntry["kind"];
   mediaId: string;
   userId: string;
-}): Promise<{ visibility: Visibility; shareCode: string | null }> {
+}): Promise<{
+  visibility: Visibility;
+  shareCode: string | null;
+  shareFileName?: string;
+}> {
   const existing = await getShareForUserByMedia(
     input.kind,
     input.mediaId,
     input.userId,
   );
   if (existing?.code) {
-    return { visibility: "public", shareCode: existing.code };
+    return {
+      visibility: "public",
+      shareCode: existing.code,
+      shareFileName: existing.fileName,
+    };
   }
   return { visibility: "private", shareCode: null };
 }

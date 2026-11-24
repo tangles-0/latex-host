@@ -1,6 +1,7 @@
 import { getPublicAppOrigin } from "@/lib/device-auth";
 import type { MediaEntry, MediaKind } from "@/lib/media-store";
 import type { BlobMediaKind } from "@/lib/media-types";
+import { buildFileShareUrls } from "@/lib/file-share-paths";
 import type {
   FileResource,
   NoteResource,
@@ -85,6 +86,12 @@ export function buildShareUrlsFromPrefix(
   return urls;
 }
 
+export function fileSharePrefixFromSharePrefix(sharePrefix: string): string {
+  return /\/share\/?$/.test(sharePrefix)
+    ? sharePrefix.replace(/\/share\/?$/, "/file")
+    : `${sharePrefix.replace(/\/$/, "")}/file`;
+}
+
 export async function sharePrefixFromRequest(
   request: Request,
 ): Promise<string> {
@@ -113,12 +120,19 @@ export function toFileResource(input: {
   sharePrefix: string;
   visibility: Visibility;
   shareCode?: string | null;
+  shareFileName?: string;
 }): FileResource {
-  const { media, sharePrefix, visibility, shareCode } = input;
+  const { media, sharePrefix, visibility, shareCode, shareFileName } = input;
   const kind = media.kind as BlobMediaKind;
   const shareUrls =
     visibility === "public" && shareCode
-      ? buildShareUrlsFromPrefix(sharePrefix, kind, shareCode, media.ext)
+      ? shareFileName
+        ? buildFileShareUrls(
+            fileSharePrefixFromSharePrefix(sharePrefix),
+            kind,
+            shareFileName,
+          )
+        : buildShareUrlsFromPrefix(sharePrefix, kind, shareCode, media.ext)
       : null;
   return {
     id: media.id,

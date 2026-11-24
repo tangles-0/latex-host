@@ -19,6 +19,7 @@ import {
   getShareByCode as getMediaShareByCode,
   getSharedMediaByCode,
   getSharedMediaByCodeAndExt,
+  isFileNameShareCode,
 } from "@/lib/media-store";
 import { contentTypeForExt, isBlobMediaKind } from "@/lib/media-types";
 import {
@@ -179,12 +180,13 @@ function signedMediaViewerHtml(input: {
 </html>`;
 }
 
-export async function GET(
+export async function servePublicShare(
   request: NextRequest,
-  { params }: { params: Promise<{ fileName: string }> },
+  fileName: string,
+  options?: { allowFileNameShare?: boolean; requestedFileName?: string },
 ): Promise<Response> {
-  const { fileName } = await params;
   const parsed = parseShareFileName(fileName);
+  const requestedFileName = options?.requestedFileName ?? fileName;
   const shareLookupKey = parsed?.code ?? fileName;
   const downloadRequested = isDownloadRequested(request);
   const shareRate = await consumeRequestRateLimit({
@@ -207,6 +209,13 @@ export async function GET(
     ? (await getAppSettings()).shareHtmlNavigationEnabled
     : false;
   try {
+    if (
+      parsed &&
+      !options?.allowFileNameShare &&
+      (await isFileNameShareCode(parsed.code))
+    ) {
+      return withPublicImageCors(new Response("Not found", { status: 404 }));
+    }
     if (!parsed && /^[A-Za-z0-9]+$/.test(fileName)) {
       const albumShare = await getAlbumShareByCode(fileName);
       if (albumShare) {
@@ -309,7 +318,7 @@ export async function GET(
           parsed.size,
         );
         const imageDownloadFileName = resolveDownloadFileName({
-          requestedFileName: fileName,
+          requestedFileName,
           requestedSize: imageRequestedSize,
           responseExt: image.ext,
         });
@@ -355,7 +364,7 @@ export async function GET(
             const html = signedMediaViewerHtml({
               src: signedUrl,
               mimeType,
-              fileName,
+              fileName: requestedFileName,
             });
             return withPublicImageCors(
               new Response(html, {
@@ -423,7 +432,7 @@ export async function GET(
           ? media.ext
           : "png";
     const downloadFileName = resolveDownloadFileName({
-      requestedFileName: fileName,
+      requestedFileName,
       preferredFileName: media.originalFileName,
       requestedSize,
       responseExt,
@@ -474,7 +483,7 @@ export async function GET(
         const html = signedMediaViewerHtml({
           src: signedUrl,
           mimeType,
-          fileName,
+          fileName: requestedFileName,
         });
         return withPublicImageCors(
           new Response(html, {
@@ -575,6 +584,14 @@ export async function GET(
     }
     return withPublicImageCors(await unavailableImageResponse(parsed.ext));
   }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ fileName: string }> },
+): Promise<Response> {
+  const { fileName } = await params;
+  return servePublicShare(request, fileName);
 }
 
 export async function HEAD(

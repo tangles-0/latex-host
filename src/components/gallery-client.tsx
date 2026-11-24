@@ -96,9 +96,7 @@ function readHideAlbumFilesSetting(): boolean {
     if (hideStored === "0") {
       return false;
     }
-    return (
-      window.localStorage.getItem(SHOW_ALBUM_IMAGES_STORAGE_KEY) === "0"
-    );
+    return window.localStorage.getItem(SHOW_ALBUM_IMAGES_STORAGE_KEY) === "0";
   } catch {
     return false;
   }
@@ -128,6 +126,7 @@ type GalleryImage = {
   albumId?: string;
   albumIds?: string[];
   albumCaption?: string;
+  albumThumbnailUrl?: string;
   albumOrder?: number;
   width?: number;
   height?: number;
@@ -161,6 +160,7 @@ type ShareInfo = {
   id: string;
   kind?: MediaKind;
   hasPassword?: boolean;
+  useFileName: boolean;
   urls: {
     original: string;
     sm: string;
@@ -301,6 +301,10 @@ export default function GalleryClient({
   const [isConfirmingRiskyShare, setIsConfirmingRiskyShare] = useState(false);
   const [sharePasswordDraft, setSharePasswordDraft] = useState("");
   const [isSavingSharePassword, setIsSavingSharePassword] = useState(false);
+  const [isSwitchingSharePath, setIsSwitchingSharePath] = useState(false);
+  const [savingAlbumThumbnailId, setSavingAlbumThumbnailId] = useState<
+    string | null
+  >(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [copiedShareValue, setCopiedShareValue] = useState("");
   const [isGenerating640, setIsGenerating640] = useState(false);
@@ -1417,6 +1421,7 @@ export default function GalleryClient({
     setShareError(null);
     setSharePasswordDraft("");
     setIsSavingSharePassword(false);
+    setIsSwitchingSharePath(false);
     setRotateError(null);
     setAlbumEditError(null);
     setPreviewActionError(null);
@@ -1467,7 +1472,11 @@ export default function GalleryClient({
 
       const payload = (await response.json()) as
         | {
-            share: { id: string; hasPassword?: boolean };
+            share: {
+              id: string;
+              hasPassword?: boolean;
+              useFileName?: boolean;
+            };
             urls: ShareInfo["urls"];
           }
         | { share: null };
@@ -1476,6 +1485,7 @@ export default function GalleryClient({
         setShare({
           id: payload.share.id,
           hasPassword: payload.share.hasPassword,
+          useFileName: Boolean(payload.share.useFileName),
           urls: payload.urls,
         });
         setItems((current) =>
@@ -1669,12 +1679,17 @@ export default function GalleryClient({
     }
 
     const payload = (await response.json()) as {
-      share: { id: string; hasPassword?: boolean };
+      share: {
+        id: string;
+        hasPassword?: boolean;
+        useFileName?: boolean;
+      };
       urls: ShareInfo["urls"];
     };
     const nextShare = {
       id: payload.share.id,
       hasPassword: payload.share.hasPassword,
+      useFileName: Boolean(payload.share.useFileName),
       urls: payload.urls,
     };
     if (active?.id === image.id) {
@@ -1713,7 +1728,11 @@ export default function GalleryClient({
         setWatchPartyError(payload.error ?? "Unable to start watch party.");
         return;
       }
-      window.open(`/watch/${payload.party.hash}`, "_blank", "noopener,noreferrer");
+      window.open(
+        `/watch/${payload.party.hash}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
     } catch {
       setWatchPartyError("Unable to start watch party.");
     } finally {
@@ -1772,6 +1791,7 @@ export default function GalleryClient({
       setShare(null);
       setSharePasswordDraft("");
       setIsSavingSharePassword(false);
+      setIsSwitchingSharePath(false);
       setHas640Variant(null);
       setIsChecking640(false);
     }
@@ -1793,7 +1813,11 @@ export default function GalleryClient({
     }
     const payload = (await response.json()) as
       | {
-          share: { id: string; hasPassword?: boolean };
+          share: {
+            id: string;
+            hasPassword?: boolean;
+            useFileName?: boolean;
+          };
           urls: ShareInfo["urls"];
         }
       | { share: null };
@@ -1803,6 +1827,7 @@ export default function GalleryClient({
     return {
       id: payload.share.id,
       hasPassword: payload.share.hasPassword,
+      useFileName: Boolean(payload.share.useFileName),
       urls: payload.urls,
     };
   }
@@ -1816,8 +1841,7 @@ export default function GalleryClient({
   }
 
   async function copyTileShareLink(image: GalleryImage) {
-    let existing =
-      active?.id === image.id && share ? share : null;
+    let existing = active?.id === image.id && share ? share : null;
     if (!existing && image.shared) {
       existing = await loadShareInfo(image);
     }
@@ -1841,6 +1865,53 @@ export default function GalleryClient({
       absoluteShareUrl(existing.urls.original),
       `tile-copy-${image.id}`,
     );
+  }
+
+  async function updateSharePathMode(
+    image: GalleryImage,
+    useFileName: boolean,
+  ) {
+    if (!share || image.kind === "note" || isSwitchingSharePath) {
+      return;
+    }
+    setShareError(null);
+    setCopiedShareValue("");
+    setIsSwitchingSharePath(true);
+    try {
+      const response = await fetch("/api/media-shares", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: image.kind,
+          mediaId: image.id,
+          useFileName,
+        }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        share?: {
+          id: string;
+          hasPassword?: boolean;
+          useFileName?: boolean;
+        };
+        urls?: ShareInfo["urls"];
+      };
+      if (!response.ok || !payload.share || !payload.urls) {
+        throw new Error(payload.error ?? "Unable to update share path.");
+      }
+      setShare({
+        id: payload.share.id,
+        hasPassword: payload.share.hasPassword,
+        useFileName: Boolean(payload.share.useFileName),
+        urls: payload.urls,
+      });
+    } catch (error) {
+      setShareError(
+        error instanceof Error ? error.message : "Unable to update share path.",
+      );
+    } finally {
+      setIsSwitchingSharePath(false);
+    }
   }
 
   async function updateNoteSharePassword(
@@ -1872,6 +1943,7 @@ export default function GalleryClient({
       setShare({
         id: payload.share.id,
         hasPassword: payload.share.hasPassword,
+        useFileName: false,
         urls: payload.urls,
       });
       setSharePasswordDraft("");
@@ -2243,6 +2315,58 @@ export default function GalleryClient({
     }
   }
 
+  async function editAlbumThumbnail(image: GalleryImage) {
+    if (!uploadAlbumId || savingAlbumThumbnailId) {
+      return;
+    }
+    const value = window.prompt(
+      "Thumbnail URL (leave blank to remove):",
+      image.albumThumbnailUrl ?? "",
+    );
+    if (value === null) {
+      return;
+    }
+    setAlbumEditError(null);
+    setSavingAlbumThumbnailId(image.id);
+    try {
+      const response = await fetch(
+        `/api/albums/${uploadAlbumId}/images/${image.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: image.kind,
+            thumbnailUrl: value.trim() || null,
+          }),
+        },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        image?: { albumThumbnailUrl?: string };
+      };
+      if (!response.ok || !payload.image) {
+        throw new Error(payload.error ?? "Unable to save thumbnail URL.");
+      }
+      const albumThumbnailUrl = payload.image.albumThumbnailUrl;
+      setItems((current) =>
+        current.map((item) =>
+          item.id === image.id ? { ...item, albumThumbnailUrl } : item,
+        ),
+      );
+      setActive((current) =>
+        current?.id === image.id ? { ...current, albumThumbnailUrl } : current,
+      );
+    } catch (error) {
+      setAlbumEditError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save thumbnail URL.",
+      );
+    } finally {
+      setSavingAlbumThumbnailId(null);
+    }
+  }
+
   async function saveOriginalFileName() {
     if (!active || isSavingOriginalFileName) {
       return;
@@ -2281,6 +2405,12 @@ export default function GalleryClient({
       );
       setOriginalFileNameDraft(nextOriginalFileName ?? "");
       setIsEditingOriginalFileName(false);
+      if (share?.useFileName) {
+        await updateSharePathMode(
+          { ...active, originalFileName: nextOriginalFileName },
+          true,
+        );
+      }
     } catch (error) {
       setAlbumEditError(
         error instanceof Error ? error.message : "Unable to update file name.",
@@ -3300,6 +3430,16 @@ export default function GalleryClient({
                       mimeType={image.mimeType}
                       compact={isCompactView}
                     />
+                  ) : isCompactView && image.albumThumbnailUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={image.albumThumbnailUrl}
+                      alt=""
+                      className="h-20 w-20 rounded object-cover"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      draggable={false}
+                    />
                   ) : image.previewStatus === "pending" ? (
                     <div
                       className={clsx(
@@ -3503,6 +3643,33 @@ export default function GalleryClient({
                       </>
                     )}
                   </div>
+                  {isCompactView &&
+                  inAlbumContext &&
+                  !readOnly &&
+                  image.kind === "other" &&
+                  !isAudioPreviewFile(image.mimeType ?? "", image.ext) ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        stopCardActivation(event);
+                        void editAlbumThumbnail(image);
+                      }}
+                      disabled={savingAlbumThumbnailId === image.id}
+                      className="tile-control shrink-0 rounded px-2 py-1 text-[10px] disabled:opacity-50"
+                      aria-label={`${image.albumThumbnailUrl ? "Edit" : "Add"} thumbnail URL for ${displayNameForMedia(image)}`}
+                      title={
+                        image.albumThumbnailUrl
+                          ? "Edit thumbnail URL"
+                          : "Add thumbnail URL"
+                      }
+                    >
+                      {savingAlbumThumbnailId === image.id
+                        ? "..."
+                        : image.albumThumbnailUrl
+                          ? "thumb ✓"
+                          : "+ thumb"}
+                    </button>
+                  ) : null}
                   {isCompactView && !readOnly ? (
                     <button
                       type="button"
@@ -4380,11 +4547,55 @@ export default function GalleryClient({
                               )
                             ) : null}
                           </div>
+                          {active.kind !== "note" ? (
+                            <div className="flex items-center justify-between gap-3 rounded border border-neutral-200 px-3 py-2">
+                              <span className="text-xs text-neutral-600">
+                                Use file name for share path
+                              </span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={share.useFileName}
+                                disabled={isSwitchingSharePath}
+                                onClick={() =>
+                                  void updateSharePathMode(
+                                    active,
+                                    !share.useFileName,
+                                  )
+                                }
+                                className={clsx(
+                                  "relative h-5 w-9 shrink-0 rounded-full border transition-colors disabled:opacity-50",
+                                  share.useFileName
+                                    ? "border-black bg-black"
+                                    : "border-neutral-300 bg-neutral-100",
+                                )}
+                              >
+                                <span
+                                  className={clsx(
+                                    "absolute left-0 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
+                                    share.useFileName
+                                      ? "translate-x-4"
+                                      : "translate-x-0.5",
+                                  )}
+                                />
+                                <span className="sr-only">
+                                  {share.useFileName ? "Enabled" : "Disabled"}
+                                </span>
+                              </button>
+                            </div>
+                          ) : null}
                           <TermInput
                             readOnly
+                            disabled={isSwitchingSharePath}
+                            aria-busy={isSwitchingSharePath}
+                            className={clsx(
+                              isSwitchingSharePath ? "animate-pulse" : "",
+                            )}
                             value={
-                              copiedShareValue ||
-                              absoluteShareUrl(share.urls.original)
+                              isSwitchingSharePath
+                                ? "Updating share URL..."
+                                : copiedShareValue ||
+                                  absoluteShareUrl(share.urls.original)
                             }
                             onFocus={(event) => event.currentTarget.select()}
                             onClick={() =>

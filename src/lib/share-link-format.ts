@@ -45,15 +45,22 @@ export const formatShareUrl = (
     parsed.pathname.startsWith(cloudPrefix)
   ) {
     const suffix = parsed.pathname.slice(cloudPrefix.length);
-    return `${publicOrigin}${directPrefix}${suffix}${parsed.search}${parsed.hash}`;
+    const directPath = suffix.startsWith("file/")
+      ? `/${suffix}`
+      : `${directPrefix}${suffix}`;
+    return `${publicOrigin}${directPath}${parsed.search}${parsed.hash}`;
   }
 
+  const isDirectFilePath =
+    parsed.origin === publicOrigin && parsed.pathname.startsWith("/file/");
   if (
     format === "cloud" &&
     parsed.origin === publicOrigin &&
-    parsed.pathname.startsWith(directPrefix)
+    (parsed.pathname.startsWith(directPrefix) || isDirectFilePath)
   ) {
-    const suffix = parsed.pathname.slice(directPrefix.length);
+    const suffix = isDirectFilePath
+      ? `file/${parsed.pathname.slice("/file/".length)}`
+      : parsed.pathname.slice(directPrefix.length);
     return `${cloudOrigin}${cloudPrefix}${suffix}${parsed.search}${parsed.hash}`;
   }
 

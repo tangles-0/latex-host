@@ -116,7 +116,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       shared: Boolean(share?.code),
     },
     urls: share?.code
-      ? await buildPublicShareUrls(media.kind, share.code, media.ext)
+      ? await buildPublicShareUrls(
+          media.kind,
+          share.code,
+          media.ext,
+          share.fileName,
+        )
       : undefined,
   });
 }

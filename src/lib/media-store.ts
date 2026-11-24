@@ -1,14 +1,19 @@
 import { randomUUID } from "crypto";
 
 import bcrypt from "bcryptjs";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { remark } from "remark";
 import stripMarkdown from "strip-markdown";
 import { db } from "@/db";
-import type { BlobMediaKind, MediaKind } from "@/lib/media-types";
+import {
+  isBlobMediaKind,
+  type BlobMediaKind,
+  type MediaKind,
+} from "@/lib/media-types";
 import {
   documentShares,
   documents,
+  fileSharePaths,
   fileShares,
   files,
   images,
@@ -30,11 +35,17 @@ import {
   type AlbumMembershipItem,
   type MediaRef,
   updateAlbumMembershipCaptionForUser,
+  updateAlbumMembershipThumbnailUrlForUser,
 } from "@/lib/album-membership-store";
 import { deleteConstrainedShareImage, deleteImageFiles } from "@/lib/storage";
 import { deleteStoredMedia } from "@/lib/media-storage";
 import { isPublicStoreMedia } from "@/lib/public-blob";
 import { generateUniqueShareCode } from "@/lib/share-code";
+import {
+  buildFileSharePathEntries,
+  normalizePublicShareFileName,
+  type FileSharePathSize,
+} from "@/lib/file-share-paths";
 export type { MediaKind } from "@/lib/media-types";
 export type PreviewStatus = "pending" | "started" | "complete" | "error";
 
@@ -49,6 +60,7 @@ export type MediaEntry = {
   youtubeId?: string;
   albumId?: string;
   albumCaption?: string;
+  albumThumbnailUrl?: string;
   albumOrder: number;
   albumIds?: string[];
   uploadedAt: string;
@@ -258,7 +270,7 @@ function withMembership(
   entry: MediaEntry,
   membership?: Pick<
     AlbumMembershipItem,
-    "albumId" | "albumCaption" | "albumOrder"
+    "albumId" | "albumCaption" | "albumThumbnailUrl" | "albumOrder"
   >,
 ): MediaEntry {
   if (!membership) {
@@ -269,6 +281,7 @@ function withMembership(
     albumId: membership.albumId,
     albumIds: [membership.albumId],
     albumCaption: membership.albumCaption,
+    albumThumbnailUrl: membership.albumThumbnailUrl,
     albumOrder: membership.albumOrder,
   };
 }
@@ -277,7 +290,7 @@ function noteEntryFromRow(
   row: typeof notes.$inferSelect,
   membership?: Pick<
     AlbumMembershipItem,
-    "albumId" | "albumCaption" | "albumOrder"
+    "albumId" | "albumCaption" | "albumThumbnailUrl" | "albumOrder"
   >,
 ): NoteEntry {
   return {
@@ -1391,20 +1404,53 @@ export async function getBlobMediaWithOwnerById(
   return undefined;
 }
 
+export type MediaShareInfo = {
+  id: string;
+  code?: string | null;
+  hasPassword?: boolean;
+  useFileName: boolean;
+  fileName?: string;
+};
+
+async function withFileNameShareState<
+  T extends {
+    id: string;
+    code?: string | null;
+    hasPassword?: boolean;
+  },
+>(share: T | undefined): Promise<(T & MediaShareInfo) | undefined> {
+  if (!share?.code) {
+    return share ? { ...share, useFileName: false } : undefined;
+  }
+  const [path] = await db
+    .select({ path: fileSharePaths.path })
+    .from(fileSharePaths)
+    .where(
+      and(
+        eq(fileSharePaths.code, share.code),
+        eq(fileSharePaths.size, "original"),
+      ),
+    )
+    .limit(1);
+  return {
+    ...share,
+    useFileName: Boolean(path),
+    fileName: path?.path,
+  };
+}
+
 export async function getShareForUserByMedia(
   kind: MediaKind,
   mediaId: string,
   userId: string,
-): Promise<
-  { id: string; code?: string | null; hasPassword?: boolean } | undefined
-> {
+): Promise<MediaShareInfo | undefined> {
   if (kind === "image") {
     const [row] = await db
       .select({ id: shares.id, code: shares.code })
       .from(shares)
       .where(and(eq(shares.imageId, mediaId), eq(shares.userId, userId)))
       .limit(1);
-    return row;
+    return withFileNameShareState(row);
   }
   if (kind === "video") {
     const [row] = await db
@@ -1414,7 +1460,7 @@ export async function getShareForUserByMedia(
         and(eq(videoShares.videoId, mediaId), eq(videoShares.userId, userId)),
       )
       .limit(1);
-    return row;
+    return withFileNameShareState(row);
   }
   if (kind === "document") {
     const [row] = await db
@@ -1427,7 +1473,7 @@ export async function getShareForUserByMedia(
         ),
       )
       .limit(1);
-    return row;
+    return withFileNameShareState(row);
   }
   if (kind === "other") {
     const [row] = await db
@@ -1435,7 +1481,7 @@ export async function getShareForUserByMedia(
       .from(fileShares)
       .where(and(eq(fileShares.fileId, mediaId), eq(fileShares.userId, userId)))
       .limit(1);
-    return row;
+    return withFileNameShareState(row);
   }
   const [row] = await db
     .select({
@@ -1446,13 +1492,117 @@ export async function getShareForUserByMedia(
     .from(noteShares)
     .where(and(eq(noteShares.noteId, mediaId), eq(noteShares.userId, userId)))
     .limit(1);
-  return row
-    ? {
-        id: row.id,
-        code: row.code,
-        hasPassword: Boolean(row.passwordHash),
-      }
-    : undefined;
+  return withFileNameShareState(
+    row
+      ? {
+          id: row.id,
+          code: row.code,
+          hasPassword: Boolean(row.passwordHash),
+        }
+      : undefined,
+  );
+}
+
+export class FileSharePathConflictError extends Error {
+  constructor() {
+    super("That filename is already used by another public share.");
+    this.name = "FileSharePathConflictError";
+  }
+}
+
+export async function getFileSharePath(
+  path: string,
+): Promise<{ code: string; size: FileSharePathSize } | undefined> {
+  const [row] = await db
+    .select({ code: fileSharePaths.code, size: fileSharePaths.size })
+    .from(fileSharePaths)
+    .where(eq(fileSharePaths.path, path))
+    .limit(1);
+  if (!row) {
+    return undefined;
+  }
+  return {
+    code: row.code,
+    size: row.size as FileSharePathSize,
+  };
+}
+
+export async function isFileNameShareCode(code: string): Promise<boolean> {
+  const [row] = await db
+    .select({ path: fileSharePaths.path })
+    .from(fileSharePaths)
+    .where(eq(fileSharePaths.code, code))
+    .limit(1);
+  return Boolean(row);
+}
+
+export async function setShareUseFileNameForUser(input: {
+  kind: MediaKind;
+  mediaId: string;
+  userId: string;
+  useFileName: boolean;
+}): Promise<MediaShareInfo | undefined> {
+  const [media, share] = await Promise.all([
+    getMediaForUser(input.kind, input.mediaId, input.userId),
+    getShareForUserByMedia(input.kind, input.mediaId, input.userId),
+  ]);
+  if (!media || !share?.code) {
+    return undefined;
+  }
+  if (!input.useFileName) {
+    await db.delete(fileSharePaths).where(eq(fileSharePaths.code, share.code));
+    return { ...share, useFileName: false, fileName: undefined };
+  }
+  if (!isBlobMediaKind(input.kind)) {
+    throw new Error("Filename sharing is only available for files.");
+  }
+
+  const fileName = normalizePublicShareFileName(media);
+  const entries = buildFileSharePathEntries(input.kind, fileName);
+  const conflicts = await db
+    .select({ path: fileSharePaths.path })
+    .from(fileSharePaths)
+    .where(
+      and(
+        inArray(
+          fileSharePaths.path,
+          entries.map((entry) => entry.path),
+        ),
+        ne(fileSharePaths.code, share.code),
+      ),
+    )
+    .limit(1);
+  if (conflicts.length > 0) {
+    throw new FileSharePathConflictError();
+  }
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(fileSharePaths)
+        .where(eq(fileSharePaths.code, share.code!));
+      await tx.insert(fileSharePaths).values(
+        entries.map((entry) => ({
+          path: entry.path,
+          code: share.code!,
+          size: entry.size,
+          createdAt: new Date(),
+        })),
+      );
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      throw new FileSharePathConflictError();
+    }
+    throw error;
+  }
+
+  return { ...share, useFileName: true, fileName };
 }
 
 export async function getShareByCode(
@@ -1875,6 +2025,12 @@ export async function deleteShareForMedia(
   mediaId: string,
   userId: string,
 ): Promise<boolean> {
+  const existing = await getShareForUserByMedia(kind, mediaId, userId);
+  if (existing?.code) {
+    await db
+      .delete(fileSharePaths)
+      .where(eq(fileSharePaths.code, existing.code));
+  }
   if (kind === "image") {
     const media = await getMediaForUser(kind, mediaId, userId);
     if (media) {
@@ -2163,6 +2319,25 @@ export async function updateAlbumMediaCaption(
     albumId,
     mediaItem,
     caption,
+  );
+  if (!membership) {
+    return undefined;
+  }
+  const media = await getMediaForUser(mediaItem.kind, mediaItem.id, userId);
+  return media ? withMembership(media, membership) : undefined;
+}
+
+export async function updateAlbumMediaThumbnailUrl(
+  userId: string,
+  albumId: string,
+  mediaItem: MediaRef,
+  thumbnailUrl: string | null,
+): Promise<MediaEntry | undefined> {
+  const membership = await updateAlbumMembershipThumbnailUrlForUser(
+    userId,
+    albumId,
+    mediaItem,
+    thumbnailUrl,
   );
   if (!membership) {
     return undefined;
