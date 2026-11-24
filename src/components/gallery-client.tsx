@@ -3355,7 +3355,7 @@ export default function GalleryClient({
                 onClick={() => openModal(image)}
                 className={clsx(
                   "gallery-tile relative cursor-pointer overflow-hidden text-left",
-                  isCompactView ? "flex items-center gap-3 p-2" : "",
+                  isCompactView ? "!flex-row items-stretch gap-3 p-2" : "",
                   dragOverImageId === image.id ? "neon-border" : "",
                   draggedImageId === image.id ? "opacity-70" : "",
                 )}
@@ -3606,7 +3606,8 @@ export default function GalleryClient({
                     {isCompactView ? (
                       <>
                         <div className="text-xs text-neutral-500">
-                          {galleryItemMetaLabel(image)}
+                          {galleryItemMetaLabel(image)} •{" "}
+                          {formatBytes(image.sizeOriginal)}
                         </div>
                         <div className="mt-1 truncate text-xs text-neutral-700">
                           {displayNameForMedia(image)}

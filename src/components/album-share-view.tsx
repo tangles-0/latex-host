@@ -32,6 +32,22 @@ type AlbumMedia = {
   sizeLg?: number;
 };
 
+function formatBytes(bytes?: number): string {
+  if (typeof bytes !== "number" || Number.isNaN(bytes) || bytes < 0) {
+    return "Unknown size";
+  }
+  if (bytes === 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** exponent;
+  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`;
+}
+
 export default function AlbumShareView({
   shareId,
   albumName,
@@ -170,10 +186,15 @@ export default function AlbumShareView({
                   onClick={() => setActiveIndex(index)}
                 >
                   <div className="text-xs text-neutral-500">
-                    {item.width && item.height
-                      ? `${item.width}×${item.height} • `
-                      : ""}
-                    {formatTimestamp(item.uploadedAt)}
+                    {[
+                      item.width && item.height
+                        ? `${item.width}×${item.height}`
+                        : null,
+                      formatBytes(item.sizeOriginal),
+                      formatTimestamp(item.uploadedAt),
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")}
                   </div>
                   <div className="mt-1 text-xs text-neutral-700">
                     {displayName}
